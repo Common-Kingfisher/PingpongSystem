@@ -201,11 +201,24 @@ def create_match(
     match_index: int | None,
     player_a_id: int | None,
     player_b_id: int | None,
+    prev_match_a_id: int | None = None,
+    prev_match_b_id: int | None = None,
 ) -> dict:
     cur = conn.execute(
         "INSERT INTO matches (tournament_id, stage, group_id, round, match_index, "
-        "player_a_id, player_b_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (tournament_id, stage, group_id, round_num, match_index, player_a_id, player_b_id),
+        "player_a_id, player_b_id, prev_match_a_id, prev_match_b_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            tournament_id,
+            stage,
+            group_id,
+            round_num,
+            match_index,
+            player_a_id,
+            player_b_id,
+            prev_match_a_id,
+            prev_match_b_id,
+        ),
     )
     row = conn.execute("SELECT * FROM matches WHERE id = ?", (cur.lastrowid,)).fetchone()
     return dict(row)
@@ -253,6 +266,8 @@ def get_match(conn: sqlite3.Connection, match_id: int) -> Optional[dict]:
 _MATCH_UPDATEABLE = {
     "status",
     "table_id",
+    "player_a_id",
+    "player_b_id",
     "player_a_score",
     "player_b_score",
     "winner_id",
@@ -277,5 +292,14 @@ def list_playing_matches(conn: sqlite3.Connection, tournament_id: int) -> list[d
     rows = conn.execute(
         "SELECT * FROM matches WHERE tournament_id = ? AND status = 'PLAYING'",
         (tournament_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_matches_by_prev(conn: sqlite3.Connection, match_id: int) -> list[dict]:
+    """引用本场比赛作为晋级来源的后续比赛（淘汰赛胜者晋级用）。"""
+    rows = conn.execute(
+        "SELECT * FROM matches WHERE prev_match_a_id = ? OR prev_match_b_id = ?",
+        (match_id, match_id),
     ).fetchall()
     return [dict(r) for r in rows]

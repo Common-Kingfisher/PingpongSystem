@@ -126,6 +126,39 @@ export interface RankingsResult {
   rankings: GroupRanking[]
 }
 
+export interface PlayerBrief {
+  id: number
+  name: string | null
+}
+
+export interface KnockoutMatch {
+  id: number
+  round: number
+  match_index: number
+  status: MatchStatus
+  player_a: PlayerBrief | null
+  player_b: PlayerBrief | null
+  player_a_score: number | null
+  player_b_score: number | null
+  winner_id: number | null
+  table_id: number | null
+  prev_match_a_id: number | null
+  prev_match_b_id: number | null
+}
+
+export interface KnockoutRound {
+  round: number
+  label: string
+  matches: KnockoutMatch[]
+}
+
+export interface KnockoutTree {
+  tournament: Tournament
+  rounds: KnockoutRound[]
+  champion: PlayerBrief | null
+  runner_up: PlayerBrief | null
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -234,4 +267,11 @@ export const api = {
     }),
   getRankings: (tournamentId: number) =>
     request<RankingsResult>(`/api/tournaments/${tournamentId}/rankings`),
+
+  generateKnockout: (tournamentId: number) =>
+    request<KnockoutTree>(`/api/tournaments/${tournamentId}/generate-knockout`, {
+      method: 'POST',
+    }),
+  getKnockout: (tournamentId: number) =>
+    request<KnockoutTree>(`/api/tournaments/${tournamentId}/knockout`),
 }

@@ -286,3 +286,82 @@ body {
   font-size: 14px;
   line-height: 1.8;
 }
+
+/* ---------------- 淘汰赛树 ---------------- */
+
+.ko-tree {
+  display: flex;
+  gap: 24px;
+  overflow-x: auto;
+  align-items: flex-start;
+}
+
+.ko-round {
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ko-round h3 {
+  margin: 0;
+  text-align: center;
+  color: #1e3a5f;
+}
+
+.ko-match {
+  border: 1px solid #e4e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.ko-match.status-playing {
+  border-color: #2f6fb2;
+  background: #f0f6fd;
+}
+
+.ko-match.status-finished {
+  background: #fafbfc;
+}
+
+.ko-pair {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.ko-pair em {
+  font-style: normal;
+  font-weight: 700;
+  margin-left: 4px;
+  color: #1e3a5f;
+}
+
+.ko-vs {
+  color: #9aa5b1;
+  font-size: 12px;
+}
+
+.ko-winner {
+  font-weight: 700;
+  color: #1a7f37;
+}
+
+.ko-status {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #7b8794;
+}
+
+.champion-banner {
+  border-color: #f0c36d;
+  background: #fffaf0;
+}
+
+.champion-banner h3 {
+  margin: 0;
+  color: #8a5a00;
+}

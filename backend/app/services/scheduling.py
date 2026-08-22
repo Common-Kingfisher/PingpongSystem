@@ -59,6 +59,8 @@ def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict
         raise SchedulingError("球台不属于该赛事")
     if match["status"] != MatchStatus.WAITING.value:
         raise SchedulingError("只有待安排的比赛可以上球台")
+    if match["player_a_id"] is None or match["player_b_id"] is None:
+        raise SchedulingError("比赛双方选手尚未就绪，不能上球台")
     if table["status"] != TableStatus.FREE.value:
         raise SchedulingError("球台已被占用")
 
@@ -89,6 +91,8 @@ def schedule_next(conn: sqlite3.Connection, tournament_id: int) -> list[tuple[in
     candidates = [
         m for m in repo.list_matches(conn, tournament_id)
         if m["status"] == MatchStatus.WAITING.value
+        and m["player_a_id"] is not None
+        and m["player_b_id"] is not None
         and m["player_a_id"] not in busy
         and m["player_b_id"] not in busy
     ]

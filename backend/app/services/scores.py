@@ -4,13 +4,15 @@
 - 排名/统计从不存储增量，而是读取时由全部 FINISHED 比赛整体重算，
   因此修改比分天然"撤销旧结果、生效新结果"，不存在累计污染；
 - 录入：PLAYING → FINISHED（释放球台）；
-- 修改：仅允许对 FINISHED 比赛，更新比分与胜者，不改变状态与球台。
+- 修改：仅允许对 FINISHED 比赛，更新比分与胜者，不改变状态与球台；
+- 淘汰赛：录分后胜者自动晋级下一轮；改分后整条下游链级联重置再重新晋级。
 """
 
 import sqlite3
 
 from .. import repository as repo
-from ..models import MatchStatus, TableStatus
+from ..models import MatchStage, MatchStatus, TableStatus
+from . import knockout as knockout_service
 
 
 class ScoreError(Exception):
@@ -60,6 +62,10 @@ def record_score(
     )
     if match["table_id"] is not None:
         repo.update_table_status(conn, match["table_id"], TableStatus.FREE.value)
+    # 淘汰赛：胜者晋级下一轮；决赛结束 → 赛事 FINISHED
+    if match["stage"] == MatchStage.KNOCKOUT.value:
+        knockout_service.advance_winner(conn, repo.get_match(conn, match_id))
+        knockout_service.sync_stage(conn, match["tournament_id"])
     conn.commit()
     return repo.get_match(conn, match_id)
 
@@ -81,5 +87,10 @@ def revise_score(
         player_b_score=score_b,
         winner_id=winner,
     )
+    if match["stage"] == MatchStage.KNOCKOUT.value:
+        # 改分：整条下游链级联重置（撤销旧晋级结果），再按新结果重新晋级
+        knockout_service.reset_branch(conn, match_id)
+        knockout_service.advance_winner(conn, repo.get_match(conn, match_id))
+        knockout_service.sync_stage(conn, match["tournament_id"])
     conn.commit()
     return repo.get_match(conn, match_id)

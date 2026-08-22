@@ -150,3 +150,36 @@ class GroupRankingOut(BaseModel):
 
 class RankingsResult(BaseModel):
     rankings: list[GroupRankingOut]
+
+
+class PlayerBrief(BaseModel):
+    id: int
+    name: str | None
+
+
+class KnockoutMatchOut(BaseModel):
+    id: int
+    round: int
+    match_index: int
+    status: MatchStatus
+    player_a: PlayerBrief | None
+    player_b: PlayerBrief | None
+    player_a_score: int | None
+    player_b_score: int | None
+    winner_id: int | None
+    table_id: int | None
+    prev_match_a_id: int | None
+    prev_match_b_id: int | None
+
+
+class KnockoutRoundOut(BaseModel):
+    round: int
+    label: str
+    matches: list[KnockoutMatchOut]
+
+
+class KnockoutTree(BaseModel):
+    tournament: TournamentOut
+    rounds: list[KnockoutRoundOut]
+    champion: PlayerBrief | None
+    runner_up: PlayerBrief | None

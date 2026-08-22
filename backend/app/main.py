@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import init_db
-from .routers import groups, matches, players, scheduling, scores, tournaments
+from .routers import groups, knockout, matches, players, scheduling, scores, tournaments
 
 
 @asynccontextmanager
@@ -31,6 +31,7 @@ app.include_router(groups.router)
 app.include_router(matches.router)
 app.include_router(scheduling.router)
 app.include_router(scores.router)
+app.include_router(knockout.router)
 
 
 @app.get("/api/health")
