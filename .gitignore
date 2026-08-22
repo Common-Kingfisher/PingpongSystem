@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+backend/data/
+*.db
+
+# Node
+node_modules/
+dist/
+.pnpm-store/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# »’÷æ
+*.log
