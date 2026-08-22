@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { api, ApiError, Tournament } from '../api'
+import { Link, useSearchParams } from 'react-router-dom'
+import { api, ApiError, Dashboard, Tournament } from '../api'
 
 interface FormState {
   name: string
@@ -19,10 +19,16 @@ const emptyForm: FormState = {
 }
 
 export default function HomePage() {
+  const [params] = useSearchParams()
+  const tidParam = params.get('tid')
+  const tid = tidParam ? Number(tidParam) : null
+
   const [backendStatus, setBackendStatus] = useState<'checking' | 'ok' | 'error'>('checking')
   const [tournaments, setTournaments] = useState<Tournament[]>([])
   const [form, setForm] = useState<FormState>(emptyForm)
   const [error, setError] = useState<string | null>(null)
+  const [current, setCurrent] = useState<Tournament | null>(null)
+  const [dash, setDash] = useState<Dashboard | null>(null)
 
   const loadTournaments = useCallback(() => {
     api
@@ -39,6 +45,22 @@ export default function HomePage() {
     loadTournaments()
   }, [loadTournaments])
 
+  useEffect(() => {
+    if (tid === null) {
+      setCurrent(null)
+      setDash(null)
+      return
+    }
+    api
+      .getTournament(tid)
+      .then((t) => setCurrent(t))
+      .catch(() => setCurrent(null))
+    api
+      .getDashboard(tid)
+      .then((d) => setDash(d))
+      .catch(() => setDash(null))
+  }, [tid])
+
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
 
@@ -54,8 +76,51 @@ export default function HomePage() {
     }
   }
 
+  const progress = dash ? Math.round((dash.stats.finished / Math.max(1, dash.stats.total)) * 100) : 0
+
   return (
     <div className="page">
+      {current && (
+        <div className="card">
+          <h2>
+            {current.name}
+            <span className="badge" style={{ marginLeft: 10 }}>
+              {current.stage}
+            </span>
+            <Link className="btn small float-right" to={`/console?tid=${current.id}`}>
+              进入比赛控制台 →
+            </Link>
+          </h2>
+          <p className="muted">
+            日期 {current.date} · 球台 {current.table_count} 张 · 小组 {current.group_count} 个 ·
+            每组晋级 {current.qualify_per_group} 人
+            {dash && ` · 比赛 ${dash.stats.finished}/${dash.stats.total} 场`}
+          </p>
+          {dash && (
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${progress}%` }} />
+            </div>
+          )}
+          {dash && dash.stats.playing > 0 && (
+            <p className="status-ok">🏓 正在进行 {dash.stats.playing} 场比赛</p>
+          )}
+          <div className="button-row">
+            <Link className="btn" to={`/players?tid=${current.id}`}>
+              选手与分组
+            </Link>
+            <Link className="btn" to={`/console?tid=${current.id}`}>
+              比赛控制台
+            </Link>
+            <Link className="btn" to={`/rankings?tid=${current.id}`}>
+              小组排名
+            </Link>
+            <Link className="btn" to={`/knockout?tid=${current.id}`}>
+              淘汰赛
+            </Link>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <h2>创建赛事</h2>
         <p className="muted">

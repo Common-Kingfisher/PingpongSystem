@@ -365,3 +365,115 @@ body {
   margin: 0;
   color: #8a5a00;
 }
+
+/* ---------------- 控制台 ---------------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.stat-card {
+  background: #fff;
+  border: 1px solid #e4e7eb;
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+}
+
+.stat-card.playing {
+  border-color: #2f6fb2;
+  background: #f0f6fd;
+}
+
+.stat-num {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e3a5f;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: #7b8794;
+  margin-top: 4px;
+}
+
+.table-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.table-card {
+  border: 1px solid #e4e7eb;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.table-card.free {
+  border-style: dashed;
+  background: #fafbfc;
+}
+
+.table-card.occupied {
+  border-color: #2f6fb2;
+  background: #f0f6fd;
+}
+
+.table-name {
+  font-weight: 700;
+  color: #1e3a5f;
+}
+
+.table-status {
+  font-size: 13px;
+  color: #7b8794;
+}
+
+.table-players {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+}
+
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.score-row input {
+  width: 60px;
+  padding: 6px;
+  border: 1px solid #cbd2d9;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.score-row.inline {
+  display: inline-flex;
+}
+
+.score-row.inline input {
+  width: 48px;
+  padding: 4px 6px;
+}
+
+.progress-bar {
+  height: 10px;
+  border-radius: 5px;
+  background: #e4e7eb;
+  overflow: hidden;
+  margin: 10px 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #2f6fb2;
+  transition: width 0.3s;
+}
