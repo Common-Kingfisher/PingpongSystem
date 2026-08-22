@@ -1,0 +1,72 @@
+"""比赛生成服务：小组循环赛生成。"""
+
+import sqlite3
+
+from .. import repository as repo
+from ..domain import round_robin
+from ..models import MatchStage, TournamentStage
+
+
+class TournamentNotFoundError(Exception):
+    pass
+
+
+class TournamentStageError(Exception):
+    pass
+
+
+class NoGroupsError(Exception):
+    pass
+
+
+class MatchesExistError(Exception):
+    pass
+
+
+def generate_group_matches(
+    conn: sqlite3.Connection, tournament_id: int
+) -> tuple[int, dict[str, int]]:
+    """为所有小组生成单循环比赛（同一事务），赛事进入 GROUP_STAGE。
+
+    返回 (总场数, {组名: 场数})。
+    守卫：赛事必须存在、处于 REGISTRATION 阶段、已分组、且尚未生成过小组赛。
+    """
+    tournament = repo.get_tournament(conn, tournament_id)
+    if tournament is None:
+        raise TournamentNotFoundError("赛事不存在")
+    if tournament["stage"] != TournamentStage.REGISTRATION.value:
+        raise TournamentStageError("当前阶段不允许生成小组比赛")
+    groups = repo.list_groups(conn, tournament_id)
+    if not groups:
+        raise NoGroupsError("请先完成自动分组，再生成小组比赛")
+    if repo.count_matches(conn, tournament_id, stage=MatchStage.GROUP.value) > 0:
+        raise MatchesExistError("小组比赛已生成，不能重复生成")
+
+    players = repo.list_players(conn, tournament_id)
+    by_group: dict[int, list[int]] = {}
+    for p in players:
+        if p["group_id"] is not None:
+            by_group.setdefault(p["group_id"], []).append(p["id"])
+
+    total = 0
+    per_group: dict[str, int] = {}
+    for group in groups:
+        member_ids = by_group.get(group["id"], [])
+        schedule = round_robin.round_robin(member_ids)
+        per_group[group["name"]] = len(schedule)
+        for round_num, a, b in schedule:
+            repo.create_match(
+                conn,
+                tournament_id,
+                MatchStage.GROUP.value,
+                group["id"],
+                round_num,
+                None,
+                a,
+                b,
+            )
+        total += len(schedule)
+
+    repo.update_tournament_stage(conn, tournament_id, TournamentStage.GROUP_STAGE.value)
+    conn.commit()
+    return total, per_group

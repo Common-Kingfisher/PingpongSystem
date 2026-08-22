@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, GroupingResult, Player, Tournament } from '../api'
+import { api, ApiError, GenerateMatchesResult, GroupingResult, Player, Tournament } from '../api'
 
 export default function PlayersPage() {
   const [params] = useSearchParams()
@@ -18,6 +18,8 @@ export default function PlayersPage() {
   const [editCollege, setEditCollege] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [matchSummary, setMatchSummary] = useState<GenerateMatchesResult | null>(null)
+  const [matchCount, setMatchCount] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     if (tid === null) return
@@ -29,6 +31,10 @@ export default function PlayersPage() {
     setTournament(t)
     setPlayers(ps)
     setGroups(gs)
+    if (t.stage === 'GROUP_STAGE' || t.stage === 'KNOCKOUT' || t.stage === 'FINISHED') {
+      const ms = await api.listMatches(tid, { stage: 'GROUP' })
+      setMatchCount(ms.length)
+    }
   }, [tid])
 
   useEffect(() => {
@@ -121,6 +127,21 @@ export default function PlayersPage() {
       setGroups({ groups: [] })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '清空分组失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const doGenerateMatches = async () => {
+    setError(null)
+    setBusy(true)
+    try {
+      const result = await api.generateGroupMatches(tid)
+      setMatchSummary(result)
+      setTournament(result.tournament)
+      setMatchCount(result.matches_generated)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '生成小组比赛失败')
     } finally {
       setBusy(false)
     }
@@ -267,6 +288,38 @@ export default function PlayersPage() {
               </div>
             ))}
           </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>小组循环赛</h3>
+        {tournament?.stage === 'REGISTRATION' ? (
+          <>
+            <p className="muted">
+              为每个小组自动生成单循环比赛（同组每两人交手一次）。生成后赛事将进入小组赛阶段。
+            </p>
+            <div className="button-row">
+              <button
+                className="btn primary"
+                onClick={doGenerateMatches}
+                disabled={busy || groups.groups.length === 0}
+              >
+                {busy ? '处理中…' : '生成小组比赛'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="muted">
+            小组赛已生成，共{' '}
+            <strong>{matchSummary ? matchSummary.matches_generated : matchCount ?? '—'}</strong>{' '}
+            场
+            {matchSummary && (
+              <>
+                （{Object.entries(matchSummary.per_group).map(([g, n]) => `${g} ${n} 场`).join('，')}）
+              </>
+            )}
+            。比赛控制台见「比赛控制台」页（任务 7）。
+          </p>
         )}
       </div>
     </div>

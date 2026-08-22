@@ -188,3 +188,63 @@ def clear_player_groups(conn: sqlite3.Connection, tournament_id: int) -> None:
 
 def set_player_group(conn: sqlite3.Connection, player_id: int, group_id: int) -> None:
     conn.execute("UPDATE players SET group_id = ? WHERE id = ?", (group_id, player_id))
+
+
+# ------------------------------------------------------------------ matches
+
+def create_match(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    stage: str,
+    group_id: int | None,
+    round_num: int,
+    match_index: int | None,
+    player_a_id: int | None,
+    player_b_id: int | None,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO matches (tournament_id, stage, group_id, round, match_index, "
+        "player_a_id, player_b_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (tournament_id, stage, group_id, round_num, match_index, player_a_id, player_b_id),
+    )
+    row = conn.execute("SELECT * FROM matches WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+def list_matches(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    stage: str | None = None,
+    status: str | None = None,
+    group_id: int | None = None,
+) -> list[dict]:
+    sql = "SELECT * FROM matches WHERE tournament_id = ?"
+    params: list[Any] = [tournament_id]
+    if stage is not None:
+        sql += " AND stage = ?"
+        params.append(stage)
+    if status is not None:
+        sql += " AND status = ?"
+        params.append(status)
+    if group_id is not None:
+        sql += " AND group_id = ?"
+        params.append(group_id)
+    sql += " ORDER BY id"
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def count_matches(
+    conn: sqlite3.Connection, tournament_id: int, stage: str | None = None
+) -> int:
+    sql = "SELECT COUNT(*) FROM matches WHERE tournament_id = ?"
+    params: list[Any] = [tournament_id]
+    if stage is not None:
+        sql += " AND stage = ?"
+        params.append(stage)
+    return conn.execute(sql, params).fetchone()[0]
+
+
+def get_match(conn: sqlite3.Connection, match_id: int) -> Optional[dict]:
+    row = conn.execute("SELECT * FROM matches WHERE id = ?", (match_id,)).fetchone()
+    return dict(row) if row else None

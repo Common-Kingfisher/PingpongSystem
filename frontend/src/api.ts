@@ -51,6 +51,30 @@ export interface GroupingResult {
   groups: GroupInfo[]
 }
 
+export interface Match {
+  id: number
+  tournament_id: number
+  stage: MatchStage
+  group_id: number | null
+  round: number
+  match_index: number | null
+  player_a_id: number | null
+  player_b_id: number | null
+  player_a_score: number | null
+  player_b_score: number | null
+  winner_id: number | null
+  table_id: number | null
+  status: MatchStatus
+  prev_match_a_id: number | null
+  prev_match_b_id: number | null
+}
+
+export interface GenerateMatchesResult {
+  matches_generated: number
+  per_group: Record<string, number>
+  tournament: Tournament
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -116,4 +140,20 @@ export const api = {
     request<GroupingResult>(`/api/tournaments/${tournamentId}/auto-group`, { method: 'POST' }),
   ungroup: (tournamentId: number) =>
     request<void>(`/api/tournaments/${tournamentId}/ungroup`, { method: 'POST' }),
+
+  generateGroupMatches: (tournamentId: number) =>
+    request<GenerateMatchesResult>(`/api/tournaments/${tournamentId}/generate-group-matches`, {
+      method: 'POST',
+    }),
+  listMatches: (
+    tournamentId: number,
+    params?: { stage?: MatchStage; status?: MatchStatus; group_id?: number },
+  ) => {
+    const qs = new URLSearchParams()
+    if (params?.stage) qs.set('stage', params.stage)
+    if (params?.status) qs.set('status', params.status)
+    if (params?.group_id !== undefined) qs.set('group_id', String(params.group_id))
+    const q = qs.toString()
+    return request<Match[]>(`/api/tournaments/${tournamentId}/matches${q ? `?${q}` : ''}`)
+  },
 }

@@ -4,7 +4,7 @@ from datetime import date
 
 from pydantic import BaseModel, Field
 
-from .models import TableStatus, TournamentStage
+from .models import MatchStage, MatchStatus, TableStatus, TournamentStage
 
 
 class TournamentCreate(BaseModel):
@@ -66,3 +66,27 @@ class GroupOut(BaseModel):
 
 class GroupingResult(BaseModel):
     groups: list[GroupOut]
+
+
+class MatchOut(BaseModel):
+    id: int
+    tournament_id: int
+    stage: MatchStage
+    group_id: int | None
+    round: int
+    match_index: int | None
+    player_a_id: int | None
+    player_b_id: int | None
+    player_a_score: int | None
+    player_b_score: int | None
+    winner_id: int | None
+    table_id: int | None
+    status: MatchStatus
+    prev_match_a_id: int | None
+    prev_match_b_id: int | None
+
+
+class GenerateMatchesResult(BaseModel):
+    matches_generated: int
+    per_group: dict[str, int]
+    tournament: TournamentOut
