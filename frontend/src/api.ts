@@ -34,6 +34,23 @@ export interface TableInfo {
   status: TableStatus
 }
 
+export interface GroupPlayer {
+  id: number
+  name: string
+  college: string | null
+}
+
+export interface GroupInfo {
+  id: number
+  name: string
+  sort_order: number
+  players: GroupPlayer[]
+}
+
+export interface GroupingResult {
+  groups: GroupInfo[]
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -92,4 +109,11 @@ export const api = {
     }),
   deletePlayer: (tournamentId: number, playerId: number) =>
     request<void>(`/api/tournaments/${tournamentId}/players/${playerId}`, { method: 'DELETE' }),
+
+  getGroups: (tournamentId: number) =>
+    request<GroupingResult>(`/api/tournaments/${tournamentId}/groups`),
+  autoGroup: (tournamentId: number) =>
+    request<GroupingResult>(`/api/tournaments/${tournamentId}/auto-group`, { method: 'POST' }),
+  ungroup: (tournamentId: number) =>
+    request<void>(`/api/tournaments/${tournamentId}/ungroup`, { method: 'POST' }),
 }

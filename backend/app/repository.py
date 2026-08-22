@@ -171,3 +171,20 @@ def get_group(conn: sqlite3.Connection, group_id: int) -> Optional[dict]:
         f"SELECT {_GROUP_COLS} FROM groups WHERE id = ?", (group_id,)
     ).fetchone()
     return dict(row) if row else None
+
+
+def delete_groups_for_tournament(conn: sqlite3.Connection, tournament_id: int) -> None:
+    conn.execute("DELETE FROM groups WHERE tournament_id = ?", (tournament_id,))
+
+
+# ------------------------------------------------------------------ 分组归属
+
+def clear_player_groups(conn: sqlite3.Connection, tournament_id: int) -> None:
+    """清空某赛事所有选手的分组归属。"""
+    conn.execute(
+        "UPDATE players SET group_id = NULL WHERE tournament_id = ?", (tournament_id,)
+    )
+
+
+def set_player_group(conn: sqlite3.Connection, player_id: int, group_id: int) -> None:
+    conn.execute("UPDATE players SET group_id = ? WHERE id = ?", (group_id, player_id))

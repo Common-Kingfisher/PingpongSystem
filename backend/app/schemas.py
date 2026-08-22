@@ -49,3 +49,20 @@ class TableOut(BaseModel):
     tournament_id: int
     name: str
     status: TableStatus
+
+
+class GroupPlayerOut(BaseModel):
+    id: int
+    name: str
+    college: str | None
+
+
+class GroupOut(BaseModel):
+    id: int
+    name: str
+    sort_order: int
+    players: list[GroupPlayerOut]
+
+
+class GroupingResult(BaseModel):
+    groups: list[GroupOut]
