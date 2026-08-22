@@ -75,6 +75,32 @@ export interface GenerateMatchesResult {
   tournament: Tournament
 }
 
+export interface DashboardStats {
+  total: number
+  finished: number
+  playing: number
+  waiting: number
+}
+
+export interface TableWithMatch {
+  id: number
+  name: string
+  status: TableStatus
+  match: Match | null
+}
+
+export interface Dashboard {
+  tournament: Tournament
+  stats: DashboardStats
+  tables: TableWithMatch[]
+  next_playable: Match[]
+}
+
+export interface ScheduleNextResult {
+  assigned: number
+  assignments: { match_id: number; table_id: number }[]
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -156,4 +182,18 @@ export const api = {
     const q = qs.toString()
     return request<Match[]>(`/api/tournaments/${tournamentId}/matches${q ? `?${q}` : ''}`)
   },
+
+  assignTable: (matchId: number, tableId: number) =>
+    request<Match>(`/api/matches/${matchId}/assign-table`, {
+      method: 'POST',
+      body: JSON.stringify({ table_id: tableId }),
+    }),
+  releaseMatch: (matchId: number) =>
+    request<Match>(`/api/matches/${matchId}/release`, { method: 'POST' }),
+  scheduleNext: (tournamentId: number) =>
+    request<ScheduleNextResult>(`/api/tournaments/${tournamentId}/schedule-next`, {
+      method: 'POST',
+    }),
+  getDashboard: (tournamentId: number) =>
+    request<Dashboard>(`/api/tournaments/${tournamentId}/dashboard`),
 }

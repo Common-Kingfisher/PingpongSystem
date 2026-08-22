@@ -248,3 +248,34 @@ def count_matches(
 def get_match(conn: sqlite3.Connection, match_id: int) -> Optional[dict]:
     row = conn.execute("SELECT * FROM matches WHERE id = ?", (match_id,)).fetchone()
     return dict(row) if row else None
+
+
+_MATCH_UPDATEABLE = {
+    "status",
+    "table_id",
+    "player_a_score",
+    "player_b_score",
+    "winner_id",
+}
+
+
+def update_match(conn: sqlite3.Connection, match_id: int, **fields) -> dict:
+    """按给定字段更新比赛；只允许更新白名单字段。返回更新后的比赛。"""
+    unknown = set(fields) - _MATCH_UPDATEABLE
+    if unknown:
+        raise ValueError(f"不允许更新的字段: {sorted(unknown)}")
+    if fields:
+        sets = [f"{k} = ?" for k in fields]
+        params: list[Any] = list(fields.values()) + [match_id]
+        conn.execute(
+            f"UPDATE matches SET {', '.join(sets)} WHERE id = ?", params
+        )
+    return get_match(conn, match_id)
+
+
+def list_playing_matches(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM matches WHERE tournament_id = ? AND status = 'PLAYING'",
+        (tournament_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]

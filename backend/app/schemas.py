@@ -90,3 +90,33 @@ class GenerateMatchesResult(BaseModel):
     matches_generated: int
     per_group: dict[str, int]
     tournament: TournamentOut
+
+
+class AssignTableRequest(BaseModel):
+    table_id: int
+
+
+class ScheduleNextResult(BaseModel):
+    assigned: int
+    assignments: list[dict[str, int]]
+
+
+class DashboardStats(BaseModel):
+    total: int
+    finished: int
+    playing: int
+    waiting: int
+
+
+class TableWithMatch(BaseModel):
+    id: int
+    name: str
+    status: TableStatus
+    match: MatchOut | None
+
+
+class Dashboard(BaseModel):
+    tournament: TournamentOut
+    stats: DashboardStats
+    tables: list[TableWithMatch]
+    next_playable: list[MatchOut]
