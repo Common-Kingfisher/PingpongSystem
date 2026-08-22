@@ -148,6 +148,7 @@ export default function PlayersPage() {
   }
 
   const groupedCount = players.filter((p) => p.group_id !== null).length
+  const locked = tournament !== null && tournament.stage !== 'REGISTRATION'
 
   return (
     <div className="page">
@@ -167,6 +168,9 @@ export default function PlayersPage() {
           </p>
         )}
         {error && <p className="status-error">{error}</p>}
+        {locked && (
+          <p className="muted">⚠️ 赛事已进入比赛阶段，选手名单已锁定（不可增删改）。</p>
+        )}
       </div>
 
       <div className="card">
@@ -177,15 +181,17 @@ export default function PlayersPage() {
             placeholder="姓名（必填）"
             value={name}
             required
+            disabled={locked}
             onChange={(e) => setName(e.target.value)}
           />
           <input
             type="text"
             placeholder="学院/单位（选填）"
             value={college}
+            disabled={locked}
             onChange={(e) => setCollege(e.target.value)}
           />
-          <button type="submit" className="btn primary">
+          <button type="submit" className="btn primary" disabled={locked}>
             添加
           </button>
         </form>
@@ -240,10 +246,14 @@ export default function PlayersPage() {
                     <td>{p.college || '—'}</td>
                     <td>{p.group_id !== null ? '已分组' : '—'}</td>
                     <td>
-                      <button className="btn small" onClick={() => startEdit(p)}>
+                      <button className="btn small" onClick={() => startEdit(p)} disabled={locked}>
                         修改
                       </button>{' '}
-                      <button className="btn small danger" onClick={() => removePlayer(p)}>
+                      <button
+                        className="btn small danger"
+                        onClick={() => removePlayer(p)}
+                        disabled={locked}
+                      >
                         删除
                       </button>
                     </td>
@@ -261,11 +271,15 @@ export default function PlayersPage() {
           将 {players.length} 名选手随机、均衡地分入 {tournament?.group_count ?? '—'} 个小组。
         </p>
         <div className="button-row">
-          <button className="btn primary" onClick={doAutoGroup} disabled={busy || players.length === 0}>
+          <button
+            className="btn primary"
+            onClick={doAutoGroup}
+            disabled={busy || players.length === 0 || locked}
+          >
             {busy ? '处理中…' : '自动分组'}
           </button>
           {groups.groups.length > 0 && (
-            <button className="btn" onClick={doUngroup} disabled={busy}>
+            <button className="btn" onClick={doUngroup} disabled={busy || locked}>
               清空分组
             </button>
           )}

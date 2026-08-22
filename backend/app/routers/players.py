@@ -5,7 +5,7 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
-from ..services.players import PlayerDeleteError, delete_player as service_delete_player
+from ..services import players as players_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}/players", tags=["players"])
 
@@ -13,6 +13,10 @@ router = APIRouter(prefix="/api/tournaments/{tournament_id}/players", tags=["pla
 def _ensure_tournament(conn: Connection, tournament_id: int) -> None:
     if repo.get_tournament(conn, tournament_id) is None:
         raise HTTPException(status_code=404, detail="赛事不存在")
+
+
+def _http(exc) -> HTTPException:
+    return HTTPException(status_code=exc.code, detail=str(exc))
 
 
 @router.get("", response_model=list[schemas.PlayerOut])
@@ -27,7 +31,10 @@ def add_player(
     payload: schemas.PlayerCreate,
     conn: Connection = Depends(get_db),
 ):
-    _ensure_tournament(conn, tournament_id)
+    try:
+        players_service.ensure_players_editable(conn, tournament_id)
+    except players_service.PlayerError as exc:
+        raise _http(exc)
     player = repo.add_player(conn, tournament_id, payload.name, payload.college)
     conn.commit()
     return player
@@ -40,7 +47,10 @@ def update_player(
     payload: schemas.PlayerUpdate,
     conn: Connection = Depends(get_db),
 ):
-    _ensure_tournament(conn, tournament_id)
+    try:
+        players_service.ensure_players_editable(conn, tournament_id)
+    except players_service.PlayerError as exc:
+        raise _http(exc)
     player = repo.update_player(conn, player_id, payload.name, payload.college)
     if player is None:
         raise HTTPException(status_code=404, detail="选手不存在")
@@ -50,8 +60,7 @@ def update_player(
 
 @router.delete("/{player_id}", status_code=204)
 def delete_player(tournament_id: int, player_id: int, conn: Connection = Depends(get_db)):
-    _ensure_tournament(conn, tournament_id)
     try:
-        service_delete_player(conn, player_id)
-    except PlayerDeleteError as exc:
-        raise HTTPException(status_code=exc.code, detail=str(exc))
+        players_service.delete_player(conn, tournament_id, player_id)
+    except players_service.PlayerError as exc:
+        raise _http(exc)

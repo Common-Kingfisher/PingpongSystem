@@ -76,4 +76,29 @@ python -m pytest -v
 | 5. 比分录入 + 小组排名 | ✅ |
 | 6. 晋级 + 淘汰赛 | ✅ |
 | 7. 比赛控制台 UI | ✅ |
-| 8. 全流程验收与修复 | ⏳ |
+| 8. 全流程验收与修复 | ✅ |
+
+## 快速开始
+
+```bash
+# 后端
+cd backend
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+
+# 前端
+cd frontend
+pnpm install && pnpm dev
+```
+
+打开 <http://localhost:5173>，或用种子脚本一键准备演示数据：
+
+```bash
+cd backend
+.\.venv\Scripts\python.exe seed_demo.py        # 24 人 / 6 台 / 4 组×6 / 晋级 2
+```
+
+测试：`cd backend && python -m pytest -v`（122 个测试）。
+
+详细操作步骤、已知限制与不支持功能见 [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md)。

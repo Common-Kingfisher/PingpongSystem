@@ -53,6 +53,12 @@ def update_tournament_stage(conn: sqlite3.Connection, tournament_id: int, stage:
     )
 
 
+def delete_tournament(conn: sqlite3.Connection, tournament_id: int) -> bool:
+    """删除赛事（级联清理选手/球台/比赛/分组）。"""
+    cur = conn.execute("DELETE FROM tournaments WHERE id = ?", (tournament_id,))
+    return cur.rowcount > 0
+
+
 # ------------------------------------------------------------------ tables
 
 def create_tables_for_tournament(
