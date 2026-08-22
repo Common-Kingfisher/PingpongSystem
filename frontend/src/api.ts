@@ -101,6 +101,31 @@ export interface ScheduleNextResult {
   assignments: { match_id: number; table_id: number }[]
 }
 
+export interface RankingEntry {
+  player_id: number
+  name: string
+  wins: number
+  losses: number
+  games_won: number
+  games_lost: number
+  rank: number
+  tied: boolean
+  qualified: boolean
+}
+
+export interface GroupRanking {
+  group_id: number
+  group_name: string
+  total_matches: number
+  finished_matches: number
+  ambiguous_qualification: boolean
+  entries: RankingEntry[]
+}
+
+export interface RankingsResult {
+  rankings: GroupRanking[]
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -196,4 +221,17 @@ export const api = {
     }),
   getDashboard: (tournamentId: number) =>
     request<Dashboard>(`/api/tournaments/${tournamentId}/dashboard`),
+
+  recordScore: (matchId: number, player_a_score: number, player_b_score: number) =>
+    request<Match>(`/api/matches/${matchId}/score`, {
+      method: 'POST',
+      body: JSON.stringify({ player_a_score, player_b_score }),
+    }),
+  reviseScore: (matchId: number, player_a_score: number, player_b_score: number) =>
+    request<Match>(`/api/matches/${matchId}/revise-score`, {
+      method: 'POST',
+      body: JSON.stringify({ player_a_score, player_b_score }),
+    }),
+  getRankings: (tournamentId: number) =>
+    request<RankingsResult>(`/api/tournaments/${tournamentId}/rankings`),
 }

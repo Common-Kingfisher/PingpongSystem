@@ -120,3 +120,33 @@ class Dashboard(BaseModel):
     stats: DashboardStats
     tables: list[TableWithMatch]
     next_playable: list[MatchOut]
+
+
+class ScoreRequest(BaseModel):
+    player_a_score: int = Field(ge=0)
+    player_b_score: int = Field(ge=0)
+
+
+class RankingEntryOut(BaseModel):
+    player_id: int
+    name: str
+    wins: int
+    losses: int
+    games_won: int
+    games_lost: int
+    rank: int
+    tied: bool
+    qualified: bool
+
+
+class GroupRankingOut(BaseModel):
+    group_id: int
+    group_name: str
+    total_matches: int
+    finished_matches: int
+    ambiguous_qualification: bool
+    entries: list[RankingEntryOut]
+
+
+class RankingsResult(BaseModel):
+    rankings: list[GroupRankingOut]
