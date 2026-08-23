@@ -198,6 +198,8 @@ export const api = {
     qualify_per_group: number
   }) => request<Tournament>('/api/tournaments', { method: 'POST', body: JSON.stringify(body) }),
   getTournament: (id: number) => request<Tournament>(`/api/tournaments/${id}`),
+  deleteTournament: (id: number) =>
+    request<void>(`/api/tournaments/${id}`, { method: 'DELETE' }),
 
   listPlayers: (tournamentId: number) =>
     request<Player[]>(`/api/tournaments/${tournamentId}/players`),

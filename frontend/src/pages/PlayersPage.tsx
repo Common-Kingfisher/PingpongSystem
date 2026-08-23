@@ -23,6 +23,7 @@ export default function PlayersPage() {
 
   const load = useCallback(async () => {
     if (tid === null) return
+    setError(null)
     const [t, ps, gs] = await Promise.all([
       api.getTournament(tid),
       api.listPlayers(tid),
@@ -32,8 +33,13 @@ export default function PlayersPage() {
     setPlayers(ps)
     setGroups(gs)
     if (t.stage === 'GROUP_STAGE' || t.stage === 'KNOCKOUT' || t.stage === 'FINISHED') {
-      const ms = await api.listMatches(tid, { stage: 'GROUP' })
-      setMatchCount(ms.length)
+      // 已生成场数仅用于展示，失败不阻断整页（避免本页因该非关键请求报 500）
+      try {
+        const ms = await api.listMatches(tid, { stage: 'GROUP' })
+        setMatchCount(ms.length)
+      } catch {
+        setMatchCount(null)
+      }
     }
   }, [tid])
 

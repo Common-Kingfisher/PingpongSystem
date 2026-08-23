@@ -78,6 +78,25 @@ export default function HomePage() {
 
   const progress = dash ? Math.round((dash.stats.finished / Math.max(1, dash.stats.total)) * 100) : 0
 
+  const removeTournament = async (t: Tournament) => {
+    setError(null)
+    const msg =
+      `确定删除赛事“${t.name}”吗？\n\n` +
+      `该操作将同时删除：\n- 分组\n- 比赛\n- 比分\n- 淘汰赛\n- 球台分配\n- 其他该赛事关联数据\n\n` +
+      `此操作不可恢复。`
+    if (!window.confirm(msg)) return
+    try {
+      await api.deleteTournament(t.id)
+      if (current?.id === t.id) {
+        setCurrent(null)
+        setDash(null)
+      }
+      loadTournaments()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '删除赛事失败')
+    }
+  }
+
   return (
     <div className="page">
       {current && (
@@ -223,7 +242,10 @@ export default function HomePage() {
                 <td>
                   <Link className="btn small" to={`/players?tid=${t.id}`}>
                     选手与分组 →
-                  </Link>
+                  </Link>{' '}
+                  <button className="btn small danger" onClick={() => removeTournament(t)}>
+                    删除赛事
+                  </button>
                 </td>
               </tr>
             ))}

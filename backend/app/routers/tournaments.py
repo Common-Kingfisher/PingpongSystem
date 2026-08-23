@@ -35,3 +35,12 @@ def get_tournament(tournament_id: int, conn: Connection = Depends(get_db)):
     if tournament is None:
         raise HTTPException(status_code=404, detail="赛事不存在")
     return tournament
+
+
+@router.delete("/{tournament_id}", status_code=204)
+def delete_tournament(tournament_id: int, conn: Connection = Depends(get_db)):
+    """删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。"""
+    if repo.get_tournament(conn, tournament_id) is None:
+        raise HTTPException(status_code=404, detail="赛事不存在")
+    repo.delete_tournament(conn, tournament_id)
+    conn.commit()
