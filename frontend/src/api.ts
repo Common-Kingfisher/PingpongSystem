@@ -25,6 +25,7 @@ export interface Player {
   name: string
   college: string | null
   group_id: number | null
+  seed_no: number | null
 }
 
 export interface TableInfo {
@@ -129,6 +130,7 @@ export interface RankingsResult {
 export interface PlayerBrief {
   id: number
   name: string | null
+  seed_no: number | null
 }
 
 export interface KnockoutMatch {
@@ -221,6 +223,12 @@ export const api = {
     }),
   deletePlayer: (tournamentId: number, playerId: number) =>
     request<void>(`/api/tournaments/${tournamentId}/players/${playerId}`, { method: 'DELETE' }),
+
+  setSeeds: (tournamentId: number, playerIds: number[]) =>
+    request<Player[]>(`/api/tournaments/${tournamentId}/seeds`, {
+      method: 'PUT',
+      body: JSON.stringify({ player_ids: playerIds }),
+    }),
 
   getGroups: (tournamentId: number) =>
     request<GroupingResult>(`/api/tournaments/${tournamentId}/groups`),

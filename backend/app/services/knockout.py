@@ -138,7 +138,7 @@ def get_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
     tournament = _ensure_tournament(conn, tournament_id)
     matches = repo.list_matches(conn, tournament_id, stage=MatchStage.KNOCKOUT.value)
     players = repo.list_players(conn, tournament_id)
-    name_by_id = {p["id"]: p["name"] for p in players}
+    info_by_id = {p["id"]: {"name": p["name"], "seed_no": p["seed_no"]} for p in players}
 
     if not matches:
         return {
@@ -167,11 +167,19 @@ def get_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
                         "match_index": m["match_index"],
                         "status": m["status"],
                         "player_a": (
-                            {"id": m["player_a_id"], "name": name_by_id.get(m["player_a_id"])}
+                            {
+                                "id": m["player_a_id"],
+                                "name": info_by_id.get(m["player_a_id"], {}).get("name"),
+                                "seed_no": info_by_id.get(m["player_a_id"], {}).get("seed_no"),
+                            }
                             if m["player_a_id"] is not None else None
                         ),
                         "player_b": (
-                            {"id": m["player_b_id"], "name": name_by_id.get(m["player_b_id"])}
+                            {
+                                "id": m["player_b_id"],
+                                "name": info_by_id.get(m["player_b_id"], {}).get("name"),
+                                "seed_no": info_by_id.get(m["player_b_id"], {}).get("seed_no"),
+                            }
                             if m["player_b_id"] is not None else None
                         ),
                         "player_a_score": m["player_a_score"],
@@ -193,8 +201,16 @@ def get_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
             final["player_b_id"] if final["winner_id"] == final["player_a_id"]
             else final["player_a_id"]
         )
-        champion = {"id": final["winner_id"], "name": name_by_id.get(final["winner_id"])}
-        runner_up = {"id": loser_id, "name": name_by_id.get(loser_id)}
+        champion = {
+            "id": final["winner_id"],
+            "name": info_by_id.get(final["winner_id"], {}).get("name"),
+            "seed_no": info_by_id.get(final["winner_id"], {}).get("seed_no"),
+        }
+        runner_up = {
+            "id": loser_id,
+            "name": info_by_id.get(loser_id, {}).get("name"),
+            "seed_no": info_by_id.get(loser_id, {}).get("seed_no"),
+        }
 
     return {
         "tournament": tournament,

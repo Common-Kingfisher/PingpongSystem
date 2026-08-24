@@ -128,6 +128,40 @@ export default function PlayersPage() {
     }
   }
 
+  // ---------------- 种子选手 ----------------
+  const persistSeeds = async (orderedIds: number[]) => {
+    setError(null)
+    setBusy(true)
+    try {
+      setPlayers(await api.setSeeds(tid, orderedIds))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '设置种子失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const addSeed = async (p: Player) => {
+    if (tournament && seeds.length >= tournament.group_count) {
+      setError(`当前赛事有 ${tournament.group_count} 个小组，最多可设置 ${tournament.group_count} 名种子选手。`)
+      return
+    }
+    await persistSeeds([...seeds.map((s) => s.id), p.id])
+  }
+
+  const removeSeed = async (p: Player) => {
+    await persistSeeds(seeds.filter((s) => s.id !== p.id).map((s) => s.id))
+  }
+
+  const moveSeed = async (p: Player, dir: -1 | 1) => {
+    const idx = seeds.findIndex((s) => s.id === p.id)
+    const j = idx + dir
+    if (j < 0 || j >= seeds.length) return
+    const arr = seeds.map((s) => s.id)
+    ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
+    await persistSeeds(arr)
+  }
+
   const doUngroup = async () => {
     setError(null)
     if (!window.confirm('确定清空当前分组吗？')) return
@@ -159,6 +193,9 @@ export default function PlayersPage() {
 
   const groupedCount = players.filter((p) => p.group_id !== null).length
   const locked = tournament !== null && tournament.stage !== 'REGISTRATION'
+  const seeds = players
+    .filter((p) => p.seed_no !== null)
+    .sort((a, b) => (a.seed_no ?? 0) - (b.seed_no ?? 0))
 
   return (
     <div className="page">
@@ -214,6 +251,7 @@ export default function PlayersPage() {
               <th>ID</th>
               <th>姓名</th>
               <th>学院/单位</th>
+              <th>种子</th>
               <th>分组</th>
               <th>操作</th>
             </tr>
@@ -239,6 +277,7 @@ export default function PlayersPage() {
                         onChange={(e) => setEditCollege(e.target.value)}
                       />
                     </td>
+                    <td>{p.seed_no !== null ? `⭐ ${p.seed_no}号` : '—'}</td>
                     <td>{p.group_id !== null ? '已分组' : '—'}</td>
                     <td>
                       <button className="btn small primary" onClick={() => saveEdit(p)}>
@@ -254,6 +293,15 @@ export default function PlayersPage() {
                     <td>{p.id}</td>
                     <td>{p.name}</td>
                     <td>{p.college || '—'}</td>
+                    <td>
+                      {p.seed_no !== null ? (
+                        <span className="seed-badge">⭐ {p.seed_no}号</span>
+                      ) : (
+                        <button className="btn small" onClick={() => addSeed(p)} disabled={locked || busy}>
+                          设为种子
+                        </button>
+                      )}
+                    </td>
                     <td>{p.group_id !== null ? '已分组' : '—'}</td>
                     <td>
                       <button className="btn small" onClick={() => startEdit(p)} disabled={locked}>
@@ -273,6 +321,51 @@ export default function PlayersPage() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="card">
+        <h3>种子选手</h3>
+        {seeds.length === 0 ? (
+          <p className="muted">尚未设置种子选手。种子选手将在自动分组时被分散到不同小组。</p>
+        ) : (
+          <>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>种子</th>
+                  <th>姓名</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {seeds.map((p, i) => (
+                  <tr key={p.id}>
+                    <td>⭐ {p.seed_no}号</td>
+                    <td>{p.name}</td>
+                    <td>
+                      <button className="btn small" onClick={() => moveSeed(p, -1)} disabled={i === 0 || locked || busy}>
+                        ↑
+                      </button>{' '}
+                      <button
+                        className="btn small"
+                        onClick={() => moveSeed(p, 1)}
+                        disabled={i === seeds.length - 1 || locked || busy}
+                      >
+                        ↓
+                      </button>{' '}
+                      <button className="btn small danger" onClick={() => removeSeed(p)} disabled={locked || busy}>
+                        取消
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="muted">
+              已设置 {seeds.length} / {tournament?.group_count ?? 0} 名种子（自动分组时分散到不同小组）
+            </p>
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -301,12 +394,16 @@ export default function PlayersPage() {
               <div className="group-card" key={g.id}>
                 <h4>{g.name}</h4>
                 <ul>
-                  {g.players.map((p) => (
-                    <li key={p.id}>
-                      {p.name}
-                      {p.college ? <span className="muted">（{p.college}）</span> : null}
-                    </li>
-                  ))}
+                  {g.players.map((p) => {
+                    const sp = players.find((x) => x.id === p.id)
+                    return (
+                      <li key={p.id}>
+                        {sp?.seed_no != null && <span className="seed-badge">⭐{sp.seed_no}</span>}{' '}
+                        {p.name}
+                        {p.college ? <span className="muted">（{p.college}）</span> : null}
+                      </li>
+                    )
+                  })}
                 </ul>
                 <p className="muted">{g.players.length} 人</p>
               </div>

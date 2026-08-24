@@ -94,7 +94,7 @@ def update_table_status(conn: sqlite3.Connection, table_id: int, status: str) ->
 
 # ------------------------------------------------------------------ players
 
-_PLAYER_COLS = "id, tournament_id, name, college, group_id"
+_PLAYER_COLS = "id, tournament_id, name, college, group_id, seed_no"
 
 
 def add_player(conn: sqlite3.Connection, tournament_id: int, name: str, college: Optional[str]) -> dict:
@@ -144,6 +144,15 @@ def update_player(
 def delete_player(conn: sqlite3.Connection, player_id: int) -> bool:
     cur = conn.execute("DELETE FROM players WHERE id = ?", (player_id,))
     return cur.rowcount > 0
+
+
+def clear_tournament_seeds(conn: sqlite3.Connection, tournament_id: int) -> None:
+    """清空某赛事所有选手的种子序号。"""
+    conn.execute("UPDATE players SET seed_no = NULL WHERE tournament_id = ?", (tournament_id,))
+
+
+def set_player_seed(conn: sqlite3.Connection, player_id: int, seed_no: int) -> None:
+    conn.execute("UPDATE players SET seed_no = ? WHERE id = ?", (seed_no, player_id))
 
 
 # ------------------------------------------------------------------ groups

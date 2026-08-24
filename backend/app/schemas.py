@@ -42,6 +42,11 @@ class PlayerOut(BaseModel):
     name: str
     college: str | None
     group_id: int | None
+    seed_no: int | None
+
+
+class SetSeedsRequest(BaseModel):
+    player_ids: list[int]
 
 
 class TableOut(BaseModel):
@@ -155,6 +160,7 @@ class RankingsResult(BaseModel):
 class PlayerBrief(BaseModel):
     id: int
     name: str | None
+    seed_no: int | None = None
 
 
 class KnockoutMatchOut(BaseModel):

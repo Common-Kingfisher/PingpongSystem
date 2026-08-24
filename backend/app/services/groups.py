@@ -71,7 +71,11 @@ def auto_group_tournament(
     tournament = _ensure_registration(conn, tournament_id)
     players = repo.list_players(conn, tournament_id)
     ids = [p["id"] for p in players]
-    partition = grouping.auto_group(ids, tournament["group_count"], rng)
+    seeded = sorted(
+        (p for p in players if p["seed_no"] is not None), key=lambda p: p["seed_no"]
+    )
+    seeds = [p["id"] for p in seeded]
+    partition = grouping.auto_group(ids, tournament["group_count"], rng, seeds)
 
     repo.clear_player_groups(conn, tournament_id)
     repo.delete_groups_for_tournament(conn, tournament_id)

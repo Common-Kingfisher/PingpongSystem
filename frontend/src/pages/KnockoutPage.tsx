@@ -41,11 +41,21 @@ function KoCard({
   return (
     <div className="ko-card" data-mid={m.id}>
       <div className={`ko-card-row ${winA ? 'win' : ''}`}>
-        <span className="ko-card-name">{aName}</span>
+        <span className="ko-card-name">
+          {m.player_a?.seed_no != null && (
+            <span className="seed-badge">⭐{m.player_a.seed_no}</span>
+          )}{' '}
+          {aName}
+        </span>
         {aScore !== null && <span className="ko-card-score">{aScore}</span>}
       </div>
       <div className={`ko-card-row ${winB ? 'win' : ''}`}>
-        <span className="ko-card-name">{bName}</span>
+        <span className="ko-card-name">
+          {m.player_b?.seed_no != null && (
+            <span className="seed-badge">⭐{m.player_b.seed_no}</span>
+          )}{' '}
+          {bName}
+        </span>
         {bScore !== null && <span className="ko-card-score">{bScore}</span>}
       </div>
       <div className="ko-card-foot">

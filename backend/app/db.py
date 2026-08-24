@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS players (
     name TEXT NOT NULL,
     college TEXT,
     group_id INTEGER REFERENCES groups(id),
+    seed_no INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -97,6 +98,10 @@ def init_db() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        # 轻量迁移：为旧库补充 seed_no 列（CREATE TABLE IF NOT EXISTS 不会改已有表）
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(players)")]
+        if "seed_no" not in cols:
+            conn.execute("ALTER TABLE players ADD COLUMN seed_no INTEGER")
         conn.commit()
     finally:
         conn.close()
