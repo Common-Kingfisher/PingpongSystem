@@ -1,35 +1,45 @@
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import HomePage from './pages/HomePage'
 import PlayersPage from './pages/PlayersPage'
 import ConsolePage from './pages/ConsolePage'
 import RankingsPage from './pages/RankingsPage'
 import KnockoutPage from './pages/KnockoutPage'
+import { getActiveTournamentId } from './activeTournament'
 
-const navItems = [
-  { to: '/', label: '赛事首页', end: true },
-  { to: '/players', label: '选手与分组' },
-  { to: '/console', label: '比赛控制台' },
-  { to: '/rankings', label: '小组排名' },
-  { to: '/knockout', label: '淘汰赛' },
-]
+function AppNav() {
+  // 订阅路由变化：每次导航都重新读取当前赛事 id，保证顶部链接始终携带它
+  useLocation()
+  const tid = getActiveTournamentId()
+  const qs = tid !== null ? `?tid=${tid}` : ''
+  const navItems = [
+    { to: '/', label: '赛事首页', end: true },
+    { to: `/players${qs}`, label: '选手与分组' },
+    { to: `/console${qs}`, label: '比赛控制台' },
+    { to: `/rankings${qs}`, label: '小组排名' },
+    { to: `/knockout${qs}`, label: '淘汰赛' },
+  ]
+  return (
+    <nav>
+      {navItems.map((item) => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          end={item.end}
+          className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+        >
+          {item.label}
+        </NavLink>
+      ))}
+    </nav>
+  )
+}
 
 export default function App() {
   return (
     <div className="app">
       <header className="app-header">
         <span className="app-title">🏓 乒乓球赛事编排 Demo</span>
-        <nav>
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
+        <AppNav />
       </header>
       <main className="app-main">
         <Routes>

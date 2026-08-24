@@ -258,6 +258,11 @@ body {
   font-size: 12px;
 }
 
+.badge.current-badge {
+  background: #e6f4ea;
+  color: #1a7f37;
+}
+
 .group-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

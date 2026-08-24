@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, RankingsResult, Tournament } from '../api'
+import { getActiveTournamentId } from '../activeTournament'
 
 export default function RankingsPage() {
   const [params] = useSearchParams()
   const tidParam = params.get('tid')
-  const tid = tidParam ? Number(tidParam) : null
+  const tid = tidParam ? Number(tidParam) : getActiveTournamentId()
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [rankings, setRankings] = useState<RankingsResult>({ rankings: [] })

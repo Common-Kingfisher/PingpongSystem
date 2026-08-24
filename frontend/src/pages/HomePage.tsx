@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, Dashboard, Tournament } from '../api'
+import { getActiveTournamentId, setActiveTournamentId } from '../activeTournament'
 
 interface FormState {
   name: string
@@ -20,20 +21,35 @@ const emptyForm: FormState = {
 
 export default function HomePage() {
   const [params] = useSearchParams()
-  const tidParam = params.get('tid')
-  const tid = tidParam ? Number(tidParam) : null
+  const urlTid = params.get('tid') ? Number(params.get('tid')) : null
 
   const [backendStatus, setBackendStatus] = useState<'checking' | 'ok' | 'error'>('checking')
   const [tournaments, setTournaments] = useState<Tournament[]>([])
   const [form, setForm] = useState<FormState>(emptyForm)
   const [error, setError] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<number | null>(() => urlTid ?? getActiveTournamentId())
   const [current, setCurrent] = useState<Tournament | null>(null)
   const [dash, setDash] = useState<Dashboard | null>(null)
+
+  const selectTournament = useCallback((id: number) => {
+    setActiveTournamentId(id)
+    setActiveId(id)
+  }, [])
 
   const loadTournaments = useCallback(() => {
     api
       .listTournaments()
-      .then(setTournaments)
+      .then((ts) => {
+        setTournaments(ts)
+        // 自动选择：优先有效的 activeId，否则最新赛事；无效则清除并选最新
+        const ids = new Set(ts.map((t) => t.id))
+        const stored = getActiveTournamentId()
+        let next: number | null = null
+        if (stored !== null && ids.has(stored)) next = stored
+        else if (ts.length > 0) next = ts[0].id
+        setActiveTournamentId(next)
+        setActiveId(next)
+      })
       .catch((e: unknown) => setError(e instanceof ApiError ? e.message : '加载赛事失败'))
   }, [])
 
@@ -46,20 +62,20 @@ export default function HomePage() {
   }, [loadTournaments])
 
   useEffect(() => {
-    if (tid === null) {
+    if (activeId === null) {
       setCurrent(null)
       setDash(null)
       return
     }
     api
-      .getTournament(tid)
+      .getTournament(activeId)
       .then((t) => setCurrent(t))
       .catch(() => setCurrent(null))
     api
-      .getDashboard(tid)
+      .getDashboard(activeId)
       .then((d) => setDash(d))
       .catch(() => setDash(null))
-  }, [tid])
+  }, [activeId])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
@@ -68,9 +84,10 @@ export default function HomePage() {
     e.preventDefault()
     setError(null)
     try {
-      await api.createTournament(form)
+      const created = await api.createTournament(form)
       setForm(emptyForm)
       loadTournaments()
+      selectTournament(created.id) // 新建后自动成为当前赛事
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '创建赛事失败')
     }
@@ -87,11 +104,13 @@ export default function HomePage() {
     if (!window.confirm(msg)) return
     try {
       await api.deleteTournament(t.id)
-      if (current?.id === t.id) {
+      if (activeId === t.id) {
+        setActiveTournamentId(null)
+        setActiveId(null)
         setCurrent(null)
         setDash(null)
       }
-      loadTournaments()
+      loadTournaments() // 会重新自动选择最新赛事
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '删除赛事失败')
     }
@@ -105,6 +124,9 @@ export default function HomePage() {
             {current.name}
             <span className="badge" style={{ marginLeft: 10 }}>
               {current.stage}
+            </span>
+            <span className="badge current-badge" style={{ marginLeft: 6 }}>
+              当前赛事
             </span>
             <Link className="btn small float-right" to={`/console?tid=${current.id}`}>
               进入比赛控制台 →
@@ -231,7 +253,14 @@ export default function HomePage() {
             {tournaments.map((t) => (
               <tr key={t.id}>
                 <td>{t.id}</td>
-                <td>{t.name}</td>
+                <td>
+                  {t.name}
+                  {activeId === t.id && (
+                    <span className="badge current-badge" style={{ marginLeft: 6 }}>
+                      当前赛事
+                    </span>
+                  )}
+                </td>
                 <td>{t.date}</td>
                 <td>{t.table_count}</td>
                 <td>{t.group_count}</td>
@@ -240,8 +269,12 @@ export default function HomePage() {
                   <span className="badge">{t.stage}</span>
                 </td>
                 <td>
-                  <Link className="btn small" to={`/players?tid=${t.id}`}>
-                    选手与分组 →
+                  <Link
+                    className="btn small"
+                    to={`/players?tid=${t.id}`}
+                    onClick={() => selectTournament(t.id)}
+                  >
+                    进入赛事
                   </Link>{' '}
                   <button className="btn small danger" onClick={() => removeTournament(t)}>
                     删除赛事

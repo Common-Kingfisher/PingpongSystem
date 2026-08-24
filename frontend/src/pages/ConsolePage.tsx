@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, Dashboard, Match, Player, Tournament } from '../api'
+import { getActiveTournamentId } from '../activeTournament'
 
 interface ScoreInput {
   a: string
@@ -10,7 +11,7 @@ interface ScoreInput {
 export default function ConsolePage() {
   const [params] = useSearchParams()
   const tidParam = params.get('tid')
-  const tid = tidParam ? Number(tidParam) : null
+  const tid = tidParam ? Number(tidParam) : getActiveTournamentId()
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [dash, setDash] = useState<Dashboard | null>(null)

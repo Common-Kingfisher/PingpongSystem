@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, KnockoutMatch, KnockoutTree, RankingsResult, Tournament } from '../api'
+import { getActiveTournamentId } from '../activeTournament'
 
 function MatchCard({ m }: { m: KnockoutMatch }) {
   const winner = m.winner_id
@@ -29,7 +30,7 @@ function MatchCard({ m }: { m: KnockoutMatch }) {
 export default function KnockoutPage() {
   const [params] = useSearchParams()
   const tidParam = params.get('tid')
-  const tid = tidParam ? Number(tidParam) : null
+  const tid = tidParam ? Number(tidParam) : getActiveTournamentId()
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [tree, setTree] = useState<KnockoutTree | null>(null)
