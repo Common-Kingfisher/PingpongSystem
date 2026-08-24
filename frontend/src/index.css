@@ -477,3 +477,23 @@ body {
   background: #2f6fb2;
   transition: width 0.3s;
 }
+
+.waiting-group {
+  margin-top: 10px;
+}
+
+.waiting-group h4 {
+  margin: 8px 0 4px;
+  color: #1e3a5f;
+  font-size: 14px;
+}
+
+.waiting-group ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.waiting-group li {
+  font-size: 14px;
+  line-height: 1.8;
+}

@@ -16,6 +16,8 @@ export default function ConsolePage() {
   const [dash, setDash] = useState<Dashboard | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
   const [finished, setFinished] = useState<Match[]>([])
+  const [waiting, setWaiting] = useState<Match[]>([])
+  const [groupNames, setGroupNames] = useState<Record<number, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [scores, setScores] = useState<Record<string, ScoreInput>>({})
@@ -31,16 +33,22 @@ export default function ConsolePage() {
 
   const load = useCallback(async () => {
     if (tid === null) return
-    const [t, d, ps, fs] = await Promise.all([
+    const [t, d, ps, fs, ws, gs] = await Promise.all([
       api.getTournament(tid),
       api.getDashboard(tid),
       api.listPlayers(tid),
       api.listMatches(tid, { status: 'FINISHED' }),
+      api.listMatches(tid, { status: 'WAITING' }),
+      api.getGroups(tid),
     ])
     setTournament(t)
     setDash(d)
     setPlayers(ps)
     setFinished(fs)
+    setWaiting(ws)
+    const names: Record<number, string> = {}
+    for (const g of gs.groups) names[g.id] = g.name
+    setGroupNames(names)
   }, [tid])
 
   useEffect(() => {
@@ -174,6 +182,33 @@ export default function ConsolePage() {
   const allGroupsDone =
     tournament?.stage === 'GROUP_STAGE' && stats !== undefined && stats.finished === stats.total && stats.total > 0
 
+  // 待进行比赛按小组分组
+  const groupWaiting = waiting.filter((m) => m.stage === 'GROUP' && m.group_id !== null)
+  const knockoutWaiting = waiting.filter((m) => m.stage === 'KNOCKOUT')
+  const waitingByGroup: Record<number, Match[]> = {}
+  for (const m of groupWaiting) {
+    ;(waitingByGroup[m.group_id as number] ??= []).push(m)
+  }
+  const groupIds = Object.keys(waitingByGroup)
+    .map(Number)
+    .sort((a, b) => a - b)
+
+  // 待进行比赛分组展示（最多前 20 场，超出提示）
+  const displayWaiting: { label: string; matches: Match[] }[] = []
+  let shown = 0
+  for (const gid of groupIds) {
+    if (shown >= 20) break
+    const ms = waitingByGroup[gid].slice(0, 20 - shown)
+    displayWaiting.push({ label: groupNames[gid] ?? `组${gid}`, matches: ms })
+    shown += ms.length
+  }
+  if (shown < 20 && knockoutWaiting.length > 0) {
+    const ms = knockoutWaiting.slice(0, 20 - shown)
+    displayWaiting.push({ label: '淘汰赛', matches: ms })
+    shown += ms.length
+  }
+  const hiddenCount = waiting.length - shown
+
   return (
     <div className="page">
       <div className="card">
@@ -191,10 +226,16 @@ export default function ConsolePage() {
             )}
           </p>
         )}
+        {dash && (
+          <p className="muted">
+            比赛进度 {dash.stats.finished} / {dash.stats.total} · 正在进行 {dash.stats.playing} ·
+            等待 {dash.stats.waiting} · 球台 {dash.tables.length}
+          </p>
+        )}
         {error && <p className="status-error">{error}</p>}
         <div className="button-row">
           <button className="btn primary" onClick={scheduleBatch} disabled={busy}>
-            一键调度下一批
+            自动安排下一批比赛
           </button>
           <button className="btn" onClick={refresh} disabled={busy}>
             刷新
@@ -294,35 +335,23 @@ export default function ConsolePage() {
       </div>
 
       <div className="card">
-        <h3>下一批可进行的比赛（{dash?.next_playable.length ?? 0}）</h3>
-        {dash && dash.next_playable.length === 0 && <p className="muted">当前没有可执行的比赛。</p>}
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>赛段</th>
-              <th>轮次</th>
-              <th>对阵</th>
-              <th>状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            {dash?.next_playable.slice(0, 30).map((m, i) => (
-              <tr key={m.id}>
-                <td>{i + 1}</td>
-                <td>{m.stage === 'GROUP' ? '小组赛' : '淘汰赛'}</td>
-                <td>
-                  {m.stage === 'GROUP' ? `第 ${m.round} 轮` : `第 ${m.round} 轮`}
-                  {m.group_id ? ` · ${m.group_id}` : ''}
-                </td>
-                <td>
-                  {nameOf(m.player_a_id)} VS {nameOf(m.player_b_id)}
-                </td>
-                <td>可安排</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <h3>待进行比赛（{waiting.length}）</h3>
+        {waiting.length === 0 && <p className="muted">暂无待进行的比赛。</p>}
+        {displayWaiting.map((sec) => (
+          <div key={sec.label} className="waiting-group">
+            <h4>
+              {sec.label}（{sec.matches.length} 场）
+            </h4>
+            <ul>
+              {sec.matches.map((m) => (
+                <li key={m.id}>
+                  {nameOf(m.player_a_id) || '待定'} VS {nameOf(m.player_b_id) || '待定'}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        {hiddenCount > 0 && <p className="muted">还有 {hiddenCount} 场等待比赛</p>}
       </div>
 
       <div className="card">

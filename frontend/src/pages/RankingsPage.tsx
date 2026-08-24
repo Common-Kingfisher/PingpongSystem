@@ -48,8 +48,7 @@ export default function RankingsPage() {
         </h2>
         {tournament && (
           <p className="muted">
-            每组晋级 {tournament.qualify_per_group} 人 · 排名规则：胜场 → 净胜局 →
-            两人平局看交锋 → 仍并列则标记并列（不编造名次）
+            每组晋级 {tournament.qualify_per_group} 人 · Demo 排名规则：胜场 &gt; 净胜局
           </p>
         )}
         {error && <p className="status-error">{error}</p>}
