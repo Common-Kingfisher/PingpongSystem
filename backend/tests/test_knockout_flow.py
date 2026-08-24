@@ -185,7 +185,8 @@ def _finish_knockout(conn, tid):
     assert repo.get_tournament(conn, tid)["stage"] == TournamentStage.FINISHED.value
 
 
-def test_revise_semi_final_resets_final(conn):
+def test_revise_semi_final_blocked_when_final_finished(conn):
+    """决赛已结束后，修改半决赛应被阻止（结果已影响后续比赛）。"""
     tid = _build_tournament(conn)
     _play_all(conn, tid)
     knockout_service.generate_knockout(conn, tid)
@@ -194,67 +195,65 @@ def test_revise_semi_final_resets_final(conn):
     sfs = [m for m in repo.list_matches(conn, tid, stage="KNOCKOUT") if m["round"] == 2]
     champion = knockout_service.get_knockout(conn, tid)["champion"]["id"]
     sf = next(m for m in sfs if champion in (m["player_a_id"], m["player_b_id"]))
-    final_id = next(m for m in repo.list_matches(conn, tid, stage="KNOCKOUT") if m["round"] == 3)["id"]
-    other = sf["player_b_id"] if sf["player_a_id"] == champion else sf["player_a_id"]
+    new_sa, new_sb = (1, 3) if champion == sf["player_a_id"] else (3, 1)
+    try:
+        scores_service.revise_score(conn, sf["id"], new_sa, new_sb)
+        assert False, "决赛已结束，应阻止修改半决赛"
+    except scores_service.ScoreError as exc:
+        assert "影响后续比赛" in str(exc)
 
-    # 改分：让半决赛的"另一方"赢
-    if champion == sf["player_a_id"]:
-        new_sa, new_sb = 1, 3
-    else:
-        new_sa, new_sb = 3, 1
-    scores_service.revise_score(conn, sf["id"], new_sa, new_sb)
-
-    final = repo.get_match(conn, final_id)
-    assert final["status"] == MatchStatus.WAITING.value
-    assert final["winner_id"] is None and final["player_a_score"] is None
-    # 决赛另一槽位保留另一场半决赛胜者
-    other_sf = next(m for m in sfs if m["id"] != sf["id"])
-    other_sf_winner = min(other_sf["player_a_id"], other_sf["player_b_id"])
-    assert {final["player_a_id"], final["player_b_id"]} == {other, other_sf_winner}
-    assert repo.get_tournament(conn, tid)["stage"] == TournamentStage.KNOCKOUT.value
-
-    # 重打决赛 → 新冠军
-    _play_all(conn, tid)
-    tree = knockout_service.get_knockout(conn, tid)
-    assert tree["champion"]["id"] == min(other, other_sf_winner)
-    assert tree["champion"]["id"] != champion
+    final = next(m for m in repo.list_matches(conn, tid, stage="KNOCKOUT") if m["round"] == 3)
+    assert final["status"] == MatchStatus.FINISHED.value  # 决赛结果未被破坏
 
 
-def test_revise_quarter_final_cascades_two_levels(conn):
+def test_revise_quarter_final_blocked_when_sf_played(conn):
+    """半决赛已结束后，修改八强应被阻止。"""
     tid = _build_tournament(conn)
     _play_all(conn, tid)
     knockout_service.generate_knockout(conn, tid)
     _finish_knockout(conn, tid)
 
-    # 改分第一场八强赛
     qf1 = next(
         m for m in repo.list_matches(conn, tid, stage="KNOCKOUT")
         if m["round"] == 1 and m["match_index"] == 0
     )
-    champion = knockout_service.get_knockout(conn, tid)["champion"]["id"]
-    if qf1["player_a_id"] == champion:
-        new_sa, new_sb = 1, 3
-    elif qf1["player_b_id"] == champion:
-        new_sa, new_sb = 3, 1
-    else:
-        # 冠军不在第一场：把 qf1 的胜者翻过来
-        w = min(qf1["player_a_id"], qf1["player_b_id"])
-        new_sa, new_sb = (1, 3) if w == qf1["player_a_id"] else (3, 1)
+    w = min(qf1["player_a_id"], qf1["player_b_id"])
+    new_sa, new_sb = (1, 3) if w == qf1["player_a_id"] else (3, 1)
+    try:
+        scores_service.revise_score(conn, qf1["id"], new_sa, new_sb)
+        assert False, "半决赛已结束，应阻止修改八强"
+    except scores_service.ScoreError as exc:
+        assert "影响后续比赛" in str(exc)
+
+
+def test_revise_quarter_final_allowed_before_sf_played(conn):
+    """半决赛尚未开始时，允许修改八强，旧胜者移出、新胜者填入半决赛槽位。"""
+    tid = _build_tournament(conn)
+    _play_all(conn, tid)  # 只打完小组赛
+    knockout_service.generate_knockout(conn, tid)
+
+    qfs = sorted(
+        (m for m in repo.list_matches(conn, tid, stage="KNOCKOUT") if m["round"] == 1),
+        key=lambda m: m["match_index"],
+    )
+    # 打完 QF1、QF2（SF1 双方就绪但未开始）
+    for qf in qfs[:2]:
+        table = next(t for t in repo.list_tables(conn, tid) if t["status"] == "FREE")
+        scheduling_service.assign_table(conn, qf["id"], table["id"])
+        w = min(qf["player_a_id"], qf["player_b_id"])
+        sa, sb = (3, 0) if w == qf["player_a_id"] else (0, 3)
+        scores_service.record_score(conn, qf["id"], sa, sb)
+
+    qf1 = qfs[0]
+    old_winner = repo.get_match(conn, qf1["id"])["winner_id"]
+    new_winner = qf1["player_b_id"] if old_winner == qf1["player_a_id"] else qf1["player_a_id"]
+    new_sa, new_sb = (1, 3) if old_winner == qf1["player_a_id"] else (3, 1)
     scores_service.revise_score(conn, qf1["id"], new_sa, new_sb)
 
-    # 决赛被级联重置为 WAITING；冠军的旧路径被撤销
-    final = next(m for m in repo.list_matches(conn, tid, stage="KNOCKOUT") if m["round"] == 3)
-    assert final["status"] == MatchStatus.WAITING.value
-    assert final["winner_id"] is None
-    # 冠军不再出现在决赛槽位（除非冠军在其他路径）
-    assert repo.get_tournament(conn, tid)["stage"] == TournamentStage.KNOCKOUT.value
-    _assert_losers_never_reappear(conn, tid)
-
-    # 重打完整淘汰赛 → 唯一冠军
-    _play_all(conn, tid)
-    tree = knockout_service.get_knockout(conn, tid)
-    assert tree["champion"] is not None
-    assert repo.get_tournament(conn, tid)["stage"] == TournamentStage.FINISHED.value
+    sf1 = repo.list_matches_by_prev(conn, qf1["id"])[0]
+    assert new_winner in (sf1["player_a_id"], sf1["player_b_id"])
+    assert old_winner not in (sf1["player_a_id"], sf1["player_b_id"])
+    assert sf1["status"] == MatchStatus.WAITING.value
 
 
 def test_revise_final_flips_champion(conn):

@@ -158,6 +158,12 @@ export default function HomePage() {
             <Link className="btn" to={`/knockout?tid=${current.id}`}>
               淘汰赛
             </Link>
+            <Link className="btn" to={`/schedule?tid=${current.id}`}>
+              选手赛程
+            </Link>
+            <Link className="btn" to={`/bigscreen?tid=${current.id}`}>
+              赛事大屏
+            </Link>
           </div>
         </div>
       )}

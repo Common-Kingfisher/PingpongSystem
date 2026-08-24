@@ -334,27 +334,70 @@ body {
   flex-direction: column;
 }
 
-/* 8强：4 场，间距 48px */
+.ko-bracket-wrap {
+  --ko-h: 132px;
+  --ko-g: 48px;
+}
+
+/* 8强：4 场，间距由变量控制 */
 .ko-col-cards.ko-r1 {
-  gap: 48px;
+  gap: var(--ko-g);
 }
 
 /* 半决赛：2 场，垂直居中于对应八强对之间 */
 .ko-col-cards.ko-r2 .ko-card:first-child {
-  margin-top: 90px;
+  margin-top: calc(var(--ko-h) / 2 + var(--ko-g) / 2);
 }
 .ko-col-cards.ko-r2 .ko-card + .ko-card {
-  margin-top: 228px;
+  margin-top: calc(var(--ko-h) + var(--ko-g) + var(--ko-g));
 }
 
 /* 决赛：1 场，垂直居中于两个半决赛之间 */
 .ko-col-cards.ko-r3 .ko-card {
-  margin-top: 270px;
+  margin-top: calc(var(--ko-h) + var(--ko-h) / 2 + var(--ko-g) + var(--ko-g) / 2);
+}
+
+/* 大屏模式：整体放大（几何由变量统一推导） */
+.ko-bracket-large {
+  --ko-h: 190px;
+  --ko-g: 64px;
+}
+.ko-bracket-large .ko-col {
+  min-width: 320px;
+}
+.ko-bracket-large .ko-card {
+  width: 320px;
+  font-size: 20px;
+}
+.ko-bracket-large .ko-card-score {
+  font-size: 22px;
+}
+.ko-bracket-large .ko-col-title {
+  font-size: 22px;
+}
+.ko-bracket-large .ko-champ {
+  width: 320px;
+}
+.ko-bracket-large .ko-champ-trophy {
+  font-size: 44px;
+}
+.ko-bracket-large .ko-champ-name {
+  font-size: 28px;
+}
+.ko-bracket-large .ko-champ-sub {
+  font-size: 16px;
+}
+.ko-bracket-large .ko-card-status {
+  font-size: 14px;
+}
+.ko-bracket-large .ko-score-btn {
+  font-size: 15px;
+  padding: 6px 12px;
 }
 
 .ko-card {
   width: 210px;
-  height: 132px;
+  height: var(--ko-h);
   border: 1px solid #e4e7eb;
   border-radius: 10px;
   background: #fff;
@@ -422,7 +465,7 @@ body {
 }
 
 .ko-champ {
-  margin-top: 270px;
+  margin-top: calc(var(--ko-h) + var(--ko-h) / 2 + var(--ko-g) + var(--ko-g) / 2);
   width: 210px;
   border: 1px solid #f0c36d;
   border-radius: 10px;
@@ -643,4 +686,220 @@ body {
 .waiting-group li {
   font-size: 14px;
   line-height: 1.8;
+}
+
+/* ---------------- Demo 标识 & 演示 Modal ---------------- */
+
+.demo-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #e8eef5;
+  color: #52606d;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.status-warn {
+  color: #b26a00;
+  background: #fff8ec;
+  border: 1px solid #f0d9a8;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.modal-label {
+  font-size: 13px;
+  color: #52606d;
+  margin-bottom: 4px;
+}
+
+.demo-count-row {
+  display: flex;
+  gap: 8px;
+}
+
+.demo-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* ---------------- 选手赛程 ---------------- */
+
+.next-match {
+  border-color: #2f6fb2;
+  background: #f0f6fd;
+}
+
+.next-pair {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 20px;
+  font-weight: 700;
+  padding: 10px 0;
+}
+
+.history-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.history-list li {
+  font-size: 14px;
+  line-height: 2;
+}
+
+/* ---------------- 赛事大屏 ---------------- */
+
+.bigscreen {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 8px 0 24px;
+}
+
+.bigscreen-header h1 {
+  margin: 0 0 6px;
+  color: #1e3a5f;
+  font-size: 30px;
+}
+
+.bigscreen-stage {
+  font-size: 18px;
+  color: #52606d;
+}
+
+.bigscreen-champion {
+  margin-top: 10px;
+  font-size: 26px;
+  font-weight: 700;
+  color: #8a5a00;
+}
+
+.bigscreen-trophy {
+  font-size: 32px;
+}
+
+.bigscreen-sub {
+  font-size: 16px;
+  font-weight: 400;
+  margin-left: 12px;
+}
+
+.bigscreen-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  color: #52606d;
+}
+
+.bigscreen-progress-bar {
+  flex: 1;
+  height: 18px;
+  border-radius: 9px;
+  background: #e4e7eb;
+  overflow: hidden;
+}
+
+.bigscreen-progress-fill {
+  height: 100%;
+  background: #2f6fb2;
+}
+
+.bigscreen-playing h2,
+.bigscreen-cols h2 {
+  color: #1e3a5f;
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+
+.bigscreen-tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.bigscreen-table {
+  border: 2px solid #2f6fb2;
+  border-radius: 12px;
+  background: #f0f6fd;
+  padding: 20px;
+  text-align: center;
+}
+
+.bigscreen-table-name {
+  font-weight: 700;
+  font-size: 18px;
+  color: #1e3a5f;
+}
+
+.bigscreen-pair {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 26px;
+  font-weight: 700;
+  padding: 16px 0;
+}
+
+.bigscreen-vs {
+  color: #9aa5b1;
+  font-size: 16px;
+}
+
+.bigscreen-idle {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bigscreen-idle-table {
+  border: 1px dashed #cbd2d9;
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: #7b8794;
+  font-size: 13px;
+}
+
+.bigscreen-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+.bigscreen-upcoming {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.bigscreen-upcoming li {
+  font-size: 17px;
+  line-height: 2.1;
+}
+
+.bigscreen-group {
+  margin-bottom: 14px;
+}
+
+.bigscreen-group-name {
+  font-weight: 700;
+  color: #1e3a5f;
+  margin-bottom: 2px;
+}
+
+.bigscreen-group div {
+  font-size: 16px;
+  line-height: 1.9;
+}
+
+.bigscreen-knockout {
+  overflow-x: auto;
 }

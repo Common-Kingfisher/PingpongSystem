@@ -21,6 +21,7 @@ export default function PlayersPage() {
   const [busy, setBusy] = useState(false)
   const [matchSummary, setMatchSummary] = useState<GenerateMatchesResult | null>(null)
   const [matchCount, setMatchCount] = useState<number | null>(null)
+  const [demoModal, setDemoModal] = useState<{ count: number; withSeeds: boolean } | null>(null)
 
   const load = useCallback(async () => {
     if (tid === null) return
@@ -162,6 +163,21 @@ export default function PlayersPage() {
     await persistSeeds(arr)
   }
 
+  const confirmDemoPlayers = async () => {
+    if (!demoModal) return
+    setError(null)
+    setBusy(true)
+    try {
+      await api.generateDemoPlayers(tid, demoModal.count, demoModal.withSeeds)
+      setDemoModal(null)
+      await refresh()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '生成演示选手失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const doUngroup = async () => {
     setError(null)
     if (!window.confirm('确定清空当前分组吗？')) return
@@ -242,6 +258,13 @@ export default function PlayersPage() {
             {busy ? '添加中…' : '添加'}
           </button>
         </form>
+        {!locked && (
+          <div className="button-row" style={{ marginTop: 14 }}>
+            <button className="btn" onClick={() => setDemoModal({ count: 16, withSeeds: true })}>
+              <span className="demo-tag">Demo</span> 生成演示选手
+            </button>
+          </div>
+        )}
 
         <h3>选手列表</h3>
         {players.length === 0 && <p className="muted">暂无选手，请先添加。</p>}
@@ -443,6 +466,49 @@ export default function PlayersPage() {
           </p>
         )}
       </div>
+
+      {demoModal && (
+        <div className="modal-overlay" onClick={() => setDemoModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>生成演示选手</h3>
+            {players.length > 0 && (
+              <p className="status-warn">
+                当前已有 {players.length} 名选手。继续生成将在现有选手之后追加演示选手。
+              </p>
+            )}
+            <div className="modal-pair">
+              <div className="modal-label">数量</div>
+              <div className="demo-count-row">
+                {[8, 16, 24].map((n) => (
+                  <button
+                    key={n}
+                    className={`btn ${demoModal.count === n ? 'primary' : ''}`}
+                    onClick={() => setDemoModal({ ...demoModal, count: n })}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="demo-check">
+              <input
+                type="checkbox"
+                checked={demoModal.withSeeds}
+                onChange={(e) => setDemoModal({ ...demoModal, withSeeds: e.target.checked })}
+              />
+              自动设置前 {Math.min(4, tournament?.group_count ?? 4)} 名为种子
+            </label>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setDemoModal(null)}>
+                取消
+              </button>
+              <button className="btn primary" onClick={confirmDemoPlayers} disabled={busy}>
+                {busy ? '生成中…' : '生成'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -182,6 +182,26 @@ export default function ConsolePage() {
   const stats = dash?.stats
   const allGroupsDone =
     tournament?.stage === 'GROUP_STAGE' && stats !== undefined && stats.finished === stats.total && stats.total > 0
+  const hasUnfinishedGroup = stats !== undefined && (stats.waiting > 0 || stats.playing > 0)
+
+  const confirmDemoFinish = async () => {
+    if (
+      !window.confirm(
+        'Demo 模式\n\n将自动生成所有未完成小组赛的比赛结果（随机比分）。\n此功能仅用于快速演示。',
+      )
+    )
+      return
+    setError(null)
+    setBusy(true)
+    try {
+      await api.finishGroupStage(tid as number)
+      await refresh()
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   // 待进行比赛按小组分组
   const groupWaiting = waiting.filter((m) => m.stage === 'GROUP' && m.group_id !== null)
@@ -238,6 +258,11 @@ export default function ConsolePage() {
           <button className="btn primary" onClick={scheduleBatch} disabled={busy}>
             自动安排下一批比赛
           </button>
+          {tournament?.stage === 'GROUP_STAGE' && hasUnfinishedGroup && (
+            <button className="btn" onClick={confirmDemoFinish} disabled={busy}>
+              <span className="demo-tag">Demo</span> 模拟完成剩余小组赛
+            </button>
+          )}
           <button className="btn" onClick={refresh} disabled={busy}>
             刷新
           </button>

@@ -11,6 +11,7 @@ export default function RankingsPage() {
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [rankings, setRankings] = useState<RankingsResult>({ rankings: [] })
   const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
     if (tid === null) return
@@ -26,6 +27,25 @@ export default function RankingsPage() {
       )
     }
   }, [tid, load])
+
+  const confirmDemoFinish = async () => {
+    if (
+      !window.confirm(
+        'Demo 模式\n\n将自动生成所有未完成小组赛的比赛结果（随机比分）。\n此功能仅用于快速演示。',
+      )
+    )
+      return
+    setError(null)
+    setBusy(true)
+    try {
+      await api.finishGroupStage(tid as number)
+      await load()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '模拟失败')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (tid === null) {
     return (
@@ -53,6 +73,14 @@ export default function RankingsPage() {
           </p>
         )}
         {error && <p className="status-error">{error}</p>}
+        {tournament?.stage === 'GROUP_STAGE' &&
+          rankings.rankings.some((g) => g.finished_matches < g.total_matches) && (
+            <div className="button-row">
+              <button className="btn" onClick={confirmDemoFinish} disabled={busy}>
+                <span className="demo-tag">Demo</span> 模拟完成剩余小组赛
+              </button>
+            </div>
+          )}
       </div>
 
       {rankings.rankings.map((g) => (

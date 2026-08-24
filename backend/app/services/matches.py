@@ -1,10 +1,12 @@
 """比赛生成服务：小组循环赛生成。"""
 
+import random
 import sqlite3
 
 from .. import repository as repo
 from ..domain import round_robin
-from ..models import MatchStage, TournamentStage
+from ..models import MatchStage, MatchStatus, TournamentStage
+from . import scores as scores_service
 
 
 class TournamentNotFoundError(Exception):
@@ -70,3 +72,28 @@ def generate_group_matches(
     repo.update_tournament_stage(conn, tournament_id, TournamentStage.GROUP_STAGE.value)
     conn.commit()
     return total, per_group
+
+
+DEMO_SCORE_OPTIONS = [(3, 0), (3, 1), (3, 2), (0, 3), (1, 3), (2, 3)]
+
+
+def finish_group_stage(
+    conn: sqlite3.Connection, tournament_id: int, rng: random.Random | None = None
+) -> int:
+    """Demo：模拟完成所有未结束的小组赛（复用真实 record_score 逻辑，随机非平局比分）。
+
+    返回本次模拟结束的场数。仅 GROUP_STAGE 阶段可用。
+    """
+    tournament = repo.get_tournament(conn, tournament_id)
+    if tournament is None:
+        raise TournamentNotFoundError("赛事不存在")
+    if tournament["stage"] != TournamentStage.GROUP_STAGE.value:
+        raise TournamentStageError("仅小组赛阶段可模拟完成剩余小组赛")
+
+    matches = repo.list_matches(conn, tournament_id, stage=MatchStage.GROUP.value)
+    unfinished = [m for m in matches if m["status"] != MatchStatus.FINISHED.value]
+    rng = rng or random.Random()
+    for m in unfinished:
+        sa, sb = rng.choice(DEMO_SCORE_OPTIONS)
+        scores_service.record_score(conn, m["id"], sa, sb)
+    return len(unfinished)

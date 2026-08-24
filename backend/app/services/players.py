@@ -67,3 +67,39 @@ def set_seeds(
         repo.set_player_seed(conn, pid, i + 1)
     conn.commit()
     return repo.list_players(conn, tournament_id)
+
+
+DEMO_COLLEGES = ["计算机学院", "自动化学院", "机械学院", "电子信息学院"]
+
+
+def generate_demo_players(
+    conn: sqlite3.Connection, tournament_id: int, count: int, with_seeds: bool
+) -> list[dict]:
+    """Demo：追加生成 count 名演示选手（选手N..），可选把前 4 名设为种子。
+
+    仅 REGISTRATION 阶段可用；追加在现有选手之后，不清空已有选手。
+    """
+    tournament = repo.get_tournament(conn, tournament_id)
+    if tournament is None:
+        raise PlayerError("赛事不存在", 404)
+    if tournament["stage"] != TournamentStage.REGISTRATION.value:
+        raise PlayerError("赛事已进入比赛阶段，选手名单已锁定", 409)
+    if not (1 <= count <= 24):
+        raise PlayerError("生成数量需在 1~24 之间", 422)
+
+    existing = repo.list_players(conn, tournament_id)
+    start = len(existing) + 1
+    added: list[dict] = []
+    for i in range(start, start + count):
+        name = f"选手{i:02d}"
+        college = DEMO_COLLEGES[(i - 1) % len(DEMO_COLLEGES)]
+        added.append(repo.add_player(conn, tournament_id, name, college))
+
+    if with_seeds and count > 0:
+        seed_count = min(4, tournament["group_count"], count)
+        repo.clear_tournament_seeds(conn, tournament_id)
+        for i, p in enumerate(added[:seed_count]):
+            repo.set_player_seed(conn, p["id"], i + 1)
+
+    conn.commit()
+    return repo.list_players(conn, tournament_id)

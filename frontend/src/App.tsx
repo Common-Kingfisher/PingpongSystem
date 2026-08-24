@@ -4,6 +4,8 @@ import PlayersPage from './pages/PlayersPage'
 import ConsolePage from './pages/ConsolePage'
 import RankingsPage from './pages/RankingsPage'
 import KnockoutPage from './pages/KnockoutPage'
+import SchedulePage from './pages/SchedulePage'
+import BigScreenPage from './pages/BigScreenPage'
 import { getActiveTournamentId } from './activeTournament'
 
 function AppNav() {
@@ -17,6 +19,8 @@ function AppNav() {
     { to: `/console${qs}`, label: '比赛控制台' },
     { to: `/rankings${qs}`, label: '小组排名' },
     { to: `/knockout${qs}`, label: '淘汰赛' },
+    { to: `/schedule${qs}`, label: '选手赛程' },
+    { to: `/bigscreen${qs}`, label: '赛事大屏' },
   ]
   return (
     <nav>
@@ -48,6 +52,8 @@ export default function App() {
           <Route path="/console" element={<ConsolePage />} />
           <Route path="/rankings" element={<RankingsPage />} />
           <Route path="/knockout" element={<KnockoutPage />} />
+          <Route path="/schedule" element={<SchedulePage />} />
+          <Route path="/bigscreen" element={<BigScreenPage />} />
         </Routes>
       </main>
     </div>

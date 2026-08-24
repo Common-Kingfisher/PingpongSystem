@@ -230,6 +230,16 @@ export const api = {
       body: JSON.stringify({ player_ids: playerIds }),
     }),
 
+  generateDemoPlayers: (tournamentId: number, count: number, with_seeds: boolean) =>
+    request<Player[]>(`/api/tournaments/${tournamentId}/demo/generate-players`, {
+      method: 'POST',
+      body: JSON.stringify({ count, with_seeds }),
+    }),
+  finishGroupStage: (tournamentId: number) =>
+    request<{ finished: number }>(`/api/tournaments/${tournamentId}/demo/finish-group-stage`, {
+      method: 'POST',
+    }),
+
   getGroups: (tournamentId: number) =>
     request<GroupingResult>(`/api/tournaments/${tournamentId}/groups`),
   autoGroup: (tournamentId: number) =>

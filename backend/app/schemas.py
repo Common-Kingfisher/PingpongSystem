@@ -49,6 +49,15 @@ class SetSeedsRequest(BaseModel):
     player_ids: list[int]
 
 
+class GenerateDemoPlayersRequest(BaseModel):
+    count: int = Field(ge=1, le=24)
+    with_seeds: bool = True
+
+
+class DemoFinishGroupStageResult(BaseModel):
+    finished: int
+
+
 class TableOut(BaseModel):
     id: int
     tournament_id: int

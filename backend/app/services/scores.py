@@ -77,10 +77,21 @@ def record_score(
 def revise_score(
     conn: sqlite3.Connection, match_id: int, score_a: int, score_b: int
 ) -> dict:
-    """修改已结束比赛的比分（纠错）。"""
+    """修改已结束比赛的比分（纠错）。
+
+    淘汰赛限制：如果本场结果的后续比赛已经 PLAYING/FINISHED，则阻止修改
+    （Demo 不做复杂级联回滚）；后续比赛尚未开始时允许修改并重新晋级。
+    """
     match = _ensure_match(conn, match_id)
     if match["status"] != MatchStatus.FINISHED.value:
         raise ScoreError("只有已结束的比赛可以修改比分")
+    if match["stage"] == MatchStage.KNOCKOUT.value:
+        for descendant in repo.list_matches_by_prev(conn, match_id):
+            if descendant["status"] in (
+                MatchStatus.PLAYING.value,
+                MatchStatus.FINISHED.value,
+            ):
+                raise ScoreError("该结果已经影响后续比赛。请先处理后续比赛后再修改本场结果。")
     _validate_scores(score_a, score_b)
     winner = _winner_id(match["player_a_id"], match["player_b_id"], score_a, score_b)
 
@@ -92,7 +103,7 @@ def revise_score(
         winner_id=winner,
     )
     if match["stage"] == MatchStage.KNOCKOUT.value:
-        # 改分：整条下游链级联重置（撤销旧晋级结果），再按新结果重新晋级
+        # 改分：下游链重置（撤销旧晋级槽位），再按新结果重新晋级
         knockout_service.reset_branch(conn, match_id)
         knockout_service.advance_winner(conn, repo.get_match(conn, match_id))
         knockout_service.sync_stage(conn, match["tournament_id"])
