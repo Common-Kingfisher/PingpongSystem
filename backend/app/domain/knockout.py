@@ -37,13 +37,19 @@ def build_bracket(qualifiers_by_group: list[list[int]]) -> list[list[dict[str, A
     if total < 2 or (total & (total - 1)) != 0:
         raise ValueError("晋级总人数必须是 2 的幂（8 / 16 / 32）")
 
-    # 首轮交叉对阵
+    # 首轮交叉对阵：先把各"相邻组对"的"上半区"（组1第一 vs 组2第二）依次放下，
+    # 再把"下半区"（组2第一 vs 组1第二）依次放下。
+    # 这样 1号种子(A1) 与 2号种子(B1) 分处上下半区，最早决赛相遇；3/4号种子同理。
+    # 例如 4 组：QF1=A1-B2, QF2=C1-D2, QF3=B1-A2, QF4=D1-C2
+    pairs_of_groups = [
+        (qualifiers_by_group[i], qualifiers_by_group[i + 1])
+        for i in range(0, len(qualifiers_by_group), 2)
+    ]
     first_pairs: list[tuple[int, int]] = []
-    for gi in range(0, len(qualifiers_by_group), 2):
-        g1 = qualifiers_by_group[gi]
-        g2 = qualifiers_by_group[gi + 1]
-        first_pairs.append((g1[0], g2[1]))   # 组1 第一 vs 组2 第二
-        first_pairs.append((g2[0], g1[1]))   # 组2 第一 vs 组1 第二
+    for g1, g2 in pairs_of_groups:
+        first_pairs.append((g1[0], g2[1]))   # 上半区：A1-B2, C1-D2 ...
+    for g1, g2 in pairs_of_groups:
+        first_pairs.append((g2[0], g1[1]))   # 下半区：B1-A2, D1-C2 ...
 
     seen: set[int] = set()
     for a, b in first_pairs:

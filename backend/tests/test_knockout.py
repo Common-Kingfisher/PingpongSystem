@@ -11,7 +11,7 @@ def _groups(ids_by_group):
 
 
 def test_4_groups_cross_pairing():
-    """A1-B2 / B1-A2 / C1-D2 / D1-C2。"""
+    """上半区 A1-B2 / C1-D2，下半区 B1-A2 / D1-C2。"""
     qualifiers = _groups([[11, 12], [21, 22], [31, 32], [41, 42]])
     rounds_spec = build_bracket(qualifiers)
     # 三轮：4 + 2 + 1
@@ -19,7 +19,25 @@ def test_4_groups_cross_pairing():
 
     first = rounds_spec[0]
     pairs = [(m["player_a_id"], m["player_b_id"]) for m in first]
-    assert pairs == [(11, 22), (21, 12), (31, 42), (41, 32)]
+    assert pairs == [(11, 22), (31, 42), (21, 12), (41, 32)]
+
+
+def test_top_two_seeds_in_different_halves():
+    """1号种子(11=A1)在上半区，2号种子(21=B1)在下半区，最早决赛相遇。"""
+    qualifiers = _groups([[11, 12], [21, 22], [31, 32], [41, 42]])
+    rounds_spec = build_bracket(qualifiers)
+    first = rounds_spec[0]
+    # QF1/QF2 进 SF1（上半区），QF3/QF4 进 SF2（下半区）
+    top = first[:2]
+    bottom = first[2:]
+
+    def ids(matches):
+        return {pid for m in matches for pid in (m["player_a_id"], m["player_b_id"])}
+
+    assert 11 in ids(top) and 11 not in ids(bottom)     # 1号种子上半区
+    assert 21 in ids(bottom) and 21 not in ids(top)     # 2号种子下半区
+    # 3/4号种子分别进上下半区的另一场
+    assert 31 in ids(top) and 41 in ids(bottom)
 
 
 def test_no_duplicate_players_across_first_round():
