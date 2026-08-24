@@ -45,10 +45,14 @@ def _ensure_match(conn: sqlite3.Connection, match_id: int) -> dict:
 def record_score(
     conn: sqlite3.Connection, match_id: int, score_a: int, score_b: int
 ) -> dict:
-    """录入比分：PLAYING 比赛 → FINISHED，释放球台。"""
+    """录入比分：允许 PLAYING 或 WAITING 比赛 → FINISHED。
+
+    为了支持在淘汰赛页直接录入比分（无需先分配球台），WAITING 且双方就绪的
+    比赛也可直接出结果；若已分配球台（PLAYING）则释放球台。
+    """
     match = _ensure_match(conn, match_id)
-    if match["status"] != MatchStatus.PLAYING.value:
-        raise ScoreError("只有进行中的比赛可以录入比分")
+    if match["status"] not in (MatchStatus.PLAYING.value, MatchStatus.WAITING.value):
+        raise ScoreError("只有进行中或待安排的比赛可以录入比分")
     _validate_scores(score_a, score_b)
     winner = _winner_id(match["player_a_id"], match["player_b_id"], score_a, score_b)
 

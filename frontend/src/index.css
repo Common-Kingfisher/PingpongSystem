@@ -292,83 +292,215 @@ body {
   line-height: 1.8;
 }
 
-/* ---------------- 淘汰赛树 ---------------- */
+/* ---------------- 淘汰赛 Bracket ---------------- */
 
-.ko-tree {
-  display: flex;
-  gap: 24px;
-  overflow-x: auto;
-  align-items: flex-start;
+.ko-bracket-wrap {
+  position: relative;
+  padding: 8px 0 16px;
 }
 
-.ko-round {
-  min-width: 220px;
+.ko-bracket {
+  display: flex;
+  align-items: flex-start;
+  gap: 56px;
+  overflow-x: auto;
+}
+
+.ko-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+}
+
+.ko-col-title {
+  margin: 0 0 18px;
+  text-align: center;
+  color: #1e3a5f;
+  font-size: 16px;
+}
+
+.ko-col-cards {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 8强：4 场，间距 48px */
+.ko-col-cards.ko-r1 {
+  gap: 48px;
+}
+
+/* 半决赛：2 场，垂直居中于对应八强对之间 */
+.ko-col-cards.ko-r2 .ko-card:first-child {
+  margin-top: 90px;
+}
+.ko-col-cards.ko-r2 .ko-card + .ko-card {
+  margin-top: 228px;
+}
+
+/* 决赛：1 场，垂直居中于两个半决赛之间 */
+.ko-col-cards.ko-r3 .ko-card {
+  margin-top: 270px;
+}
+
+.ko-card {
+  width: 210px;
+  height: 132px;
+  border: 1px solid #e4e7eb;
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 14px;
+}
+
+.ko-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  line-height: 1.5;
+}
+
+.ko-card-row.win {
+  font-weight: 700;
+  color: #1a7f37;
+}
+
+.ko-card-row:not(.win) {
+  color: #52606d;
+}
+
+.ko-card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ko-card-score {
+  font-weight: 700;
+  color: #1e3a5f;
+  margin-left: 8px;
+}
+
+.ko-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.ko-card-status {
+  font-size: 12px;
+  color: #7b8794;
+}
+
+.ko-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.ko-lines path {
+  fill: none;
+  stroke: #b8c2cc;
+  stroke-width: 2;
+}
+
+.ko-champ {
+  margin-top: 270px;
+  width: 210px;
+  border: 1px solid #f0c36d;
+  border-radius: 10px;
+  background: #fffaf0;
+  padding: 18px 16px;
+  text-align: center;
+}
+
+.ko-champ-trophy {
+  font-size: 28px;
+}
+
+.ko-champ-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #8a5a00;
+  margin-top: 6px;
+}
+
+.ko-champ-sub {
+  font-size: 13px;
+  color: #7b8794;
+  margin-top: 6px;
+}
+
+.ko-champ-await {
+  font-size: 13px;
+  color: #9aa5b1;
+  line-height: 1.6;
+}
+
+/* ---------------- 比分 Modal ---------------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 30, 45, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  width: 360px;
+  max-width: 92vw;
+}
+
+.modal h3 {
+  margin: 0 0 16px;
+  color: #1e3a5f;
+}
+
+.modal-pair {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.ko-round h3 {
-  margin: 0;
-  text-align: center;
-  color: #1e3a5f;
-}
-
-.ko-match {
-  border: 1px solid #e4e7eb;
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: #fff;
-  font-size: 14px;
-}
-
-.ko-match.status-playing {
-  border-color: #2f6fb2;
-  background: #f0f6fd;
-}
-
-.ko-match.status-finished {
-  background: #fafbfc;
-}
-
-.ko-pair {
+.modal-line {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
 }
 
-.ko-pair em {
-  font-style: normal;
-  font-weight: 700;
-  margin-left: 4px;
-  color: #1e3a5f;
+.modal-name {
+  font-size: 15px;
+  flex: 1;
 }
 
-.ko-vs {
-  color: #9aa5b1;
-  font-size: 12px;
+.modal-line input {
+  width: 70px;
+  padding: 8px;
+  border: 1px solid #cbd2d9;
+  border-radius: 6px;
+  font-size: 16px;
+  text-align: center;
 }
 
-.ko-winner {
-  font-weight: 700;
-  color: #1a7f37;
-}
-
-.ko-status {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #7b8794;
-}
-
-.champion-banner {
-  border-color: #f0c36d;
-  background: #fffaf0;
-}
-
-.champion-banner h3 {
-  margin: 0;
-  color: #8a5a00;
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
 }
 
 /* ---------------- 控制台 ---------------- */

@@ -57,14 +57,13 @@ def test_record_score_draw_rejected(conn):
         assert exc.code == 409
 
 
-def test_record_score_on_waiting_rejected(conn):
+def test_record_score_on_waiting_allowed(conn):
+    """放宽后：WAITING（未上球台）且双方就绪也可直接出结果（供淘汰赛页直接录分）。"""
     tid = _service_tournament(conn)
     match = repo.list_matches(conn, tid)[0]
-    try:
-        scores_service.record_score(conn, match["id"], 3, 1)
-        assert False, "WAITING 不可录分"
-    except scores_service.ScoreError:
-        pass
+    updated = scores_service.record_score(conn, match["id"], 3, 1)
+    assert updated["status"] == "FINISHED"
+    assert updated["winner_id"] == match["player_a_id"]
 
 
 def test_record_score_on_finished_rejected(conn):
