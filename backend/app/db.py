@@ -81,7 +81,11 @@ def _db_path() -> Path:
 
 
 def connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(_db_path()))
+    # check_same_thread=False：FastAPI 会把"依赖（在此创建连接）"与"端点函数（在此使用连接）"
+    # 调度到线程池的不同线程执行。每个请求持有独立连接、且仅在单个请求生命周期内串行使用，
+    # 不存在跨请求共享，因此关闭同线程检查。否则并发请求会间歇性抛出
+    # sqlite3.ProgrammingError: SQLite objects created in a thread can only be used in that same thread.
+    conn = sqlite3.connect(str(_db_path()), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -99,9 +103,12 @@ def init_db() -> None:
 
 
 def get_db():
-    """FastAPI 依赖：每请求一个连接，请求结束关闭。"""
+    """FastAPI 依赖：每请求一个连接，请求结束回滚未提交事务并关闭。"""
     conn = connect()
     try:
         yield conn
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()

@@ -74,6 +74,7 @@ export default function PlayersPage() {
   const addPlayer = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
+    setBusy(true)
     try {
       await api.addPlayer(tid, { name, college: college || null })
       setName('')
@@ -81,6 +82,8 @@ export default function PlayersPage() {
       await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '添加选手失败')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -197,8 +200,8 @@ export default function PlayersPage() {
             disabled={locked}
             onChange={(e) => setCollege(e.target.value)}
           />
-          <button type="submit" className="btn primary" disabled={locked}>
-            添加
+          <button type="submit" className="btn primary" disabled={locked || busy}>
+            {busy ? '添加中…' : '添加'}
           </button>
         </form>
 

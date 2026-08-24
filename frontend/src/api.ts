@@ -180,6 +180,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // 非 JSON 错误体，保留默认信息
     }
+    // 开发期诊断：把失败请求的 method/url/status/detail 打到浏览器 Console
+    console.error(`[api] ${init?.method ?? 'GET'} ${path} -> ${resp.status}`, detail)
     throw new ApiError(resp.status, detail)
   }
   if (resp.status === 204) return undefined as T

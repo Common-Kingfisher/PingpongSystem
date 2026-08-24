@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, KnockoutMatch, KnockoutTree, Tournament } from '../api'
+import { api, ApiError, KnockoutMatch, KnockoutTree, RankingsResult, Tournament } from '../api'
 
 function MatchCard({ m }: { m: KnockoutMatch }) {
   const winner = m.winner_id
@@ -33,14 +33,20 @@ export default function KnockoutPage() {
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [tree, setTree] = useState<KnockoutTree | null>(null)
+  const [rankings, setRankings] = useState<RankingsResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
     if (tid === null) return
-    const [t, k] = await Promise.all([api.getTournament(tid), api.getKnockout(tid)])
+    const [t, k, r] = await Promise.all([
+      api.getTournament(tid),
+      api.getKnockout(tid),
+      api.getRankings(tid),
+    ])
     setTournament(t)
     setTree(k)
+    setRankings(r)
   }, [tid])
 
   useEffect(() => {
@@ -77,7 +83,10 @@ export default function KnockoutPage() {
   }
 
   const knockoutReady = tree !== null && tree.rounds.length > 0
-  const groupsDone = tournament?.stage === 'GROUP_STAGE' || knockoutReady
+  // 所有小组赛是否已全部结束（据此决定能否生成淘汰赛）
+  const groupsAllDone =
+    (rankings?.rankings.length ?? 0) > 0 &&
+    rankings!.rankings.every((g) => g.finished_matches === g.total_matches && g.total_matches > 0)
 
   return (
     <div className="page">
@@ -91,18 +100,14 @@ export default function KnockoutPage() {
         {tournament && (
           <p className="muted">
             阶段 <span className="badge">{tournament.stage}</span>
-            {!knockoutReady && groupsDone && ' · 小组赛已结束，可生成淘汰赛'}
+            {!knockoutReady && groupsAllDone && ' · 小组赛已全部结束，可生成淘汰赛'}
           </p>
         )}
         {error && <p className="status-error">{error}</p>}
 
-        {!knockoutReady && (
+        {!knockoutReady && groupsAllDone && (
           <div className="button-row">
-            <button
-              className="btn primary"
-              onClick={doGenerate}
-              disabled={busy || !groupsDone}
-            >
+            <button className="btn primary" onClick={doGenerate} disabled={busy}>
               {busy ? '处理中…' : '生成淘汰赛（自动晋级）'}
             </button>
           </div>
@@ -131,9 +136,11 @@ export default function KnockoutPage() {
         </div>
       )}
 
-      {!knockoutReady && !groupsDone && (
+      {!knockoutReady && !groupsAllDone && (
         <div className="card">
-          <p className="muted">小组赛全部结束后可在此生成淘汰赛（每场胜者自动晋级）。</p>
+          <p className="muted">
+            淘汰赛尚未生成。需要先完成全部小组赛并确定晋级选手（可在「比赛控制台」录入比分）。
+          </p>
         </div>
       )}
     </div>

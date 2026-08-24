@@ -202,6 +202,14 @@ export default function ConsolePage() {
         </div>
       </div>
 
+      {tournament?.stage === 'REGISTRATION' && (
+        <div className="card">
+          <p className="muted">
+            当前赛事尚未生成比赛。请先在「选手与分组」页：1. 添加选手；2. 自动分组；3. 生成小组循环赛。
+          </p>
+        </div>
+      )}
+
       {stats && (
         <div className="stat-grid">
           <div className="stat-card">
