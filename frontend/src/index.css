@@ -517,6 +517,28 @@ body {
   max-width: 92vw;
 }
 
+.modal-wide {
+  width: 460px;
+}
+
+.import-file-row {
+  margin-top: 14px;
+}
+
+.import-result {
+  margin-top: 10px;
+}
+
+.import-errors {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.import-errors li {
+  font-size: 13px;
+  line-height: 1.9;
+}
+
 .modal h3 {
   margin: 0 0 16px;
   color: #1e3a5f;

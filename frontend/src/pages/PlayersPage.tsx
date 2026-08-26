@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, GenerateMatchesResult, GroupingResult, Player, Tournament } from '../api'
+import { api, ApiError, GenerateMatchesResult, GroupingResult, ImportPlayersResult, Player, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 
 export default function PlayersPage() {
@@ -22,6 +22,11 @@ export default function PlayersPage() {
   const [matchSummary, setMatchSummary] = useState<GenerateMatchesResult | null>(null)
   const [matchCount, setMatchCount] = useState<number | null>(null)
   const [demoModal, setDemoModal] = useState<{ count: number; withSeeds: boolean } | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<ImportPlayersResult | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (tid === null) return
@@ -178,6 +183,48 @@ export default function PlayersPage() {
     }
   }
 
+  // ---------------- Excel / CSV 批量导入 ----------------
+  const openImport = () => {
+    setImportFile(null)
+    setImportResult(null)
+    setImportError(null)
+    setImportOpen(true)
+  }
+
+  const closeImport = () => {
+    setImportOpen(false)
+    setImportFile(null)
+    setImportResult(null)
+    setImportError(null)
+  }
+
+  const downloadTemplate = () => {
+    const csv =
+      '\uFEFF姓名,学院/单位,种子序号\n张三,计算机学院,1\n李四,自动化学院,2\n王五,机械学院,\n'
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '选手导入模板.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const doImport = async () => {
+    if (!importFile) return
+    setImportError(null)
+    setImporting(true)
+    try {
+      const result = await api.importPlayers(tid, importFile)
+      setImportResult(result)
+      await refresh()
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '导入失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const doUngroup = async () => {
     setError(null)
     if (!window.confirm('确定清空当前分组吗？')) return
@@ -262,6 +309,9 @@ export default function PlayersPage() {
           <div className="button-row" style={{ marginTop: 14 }}>
             <button className="btn" onClick={() => setDemoModal({ count: 16, withSeeds: true })}>
               <span className="demo-tag">Demo</span> 生成演示选手
+            </button>
+            <button className="btn" onClick={openImport}>
+              Excel / CSV 导入
             </button>
           </div>
         )}
@@ -506,6 +556,85 @@ export default function PlayersPage() {
                 {busy ? '生成中…' : '生成'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="modal-overlay" onClick={closeImport}>
+          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+            <h3>批量导入选手</h3>
+            <p className="muted">
+              支持：Excel (.xlsx) / CSV (.csv)
+              <br />• 第一行为表头，“姓名”为必填列
+              <br />• “学院/单位”“种子序号”为可选列
+            </p>
+            <div className="button-row">
+              <button className="btn small" onClick={downloadTemplate}>
+                下载 CSV 模板
+              </button>
+            </div>
+            {!importResult ? (
+              <>
+                <div className="import-file-row">
+                  <input
+                    type="file"
+                    accept=".xlsx,.csv"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null
+                      if (f && f.size > 5 * 1024 * 1024) {
+                        setImportError('文件过大，当前 Demo 仅支持 5MB 以内的名单文件')
+                        setImportFile(null)
+                        return
+                      }
+                      setImportFile(f)
+                      setImportError(null)
+                    }}
+                  />
+                </div>
+                {importFile && <p className="muted">已选择：{importFile.name}</p>}
+                {importError && <p className="status-error">{importError}</p>}
+                <div className="modal-actions">
+                  <button className="btn" onClick={closeImport}>
+                    取消
+                  </button>
+                  <button
+                    className="btn primary"
+                    onClick={doImport}
+                    disabled={!importFile || importing}
+                  >
+                    {importing ? '正在导入...' : '开始导入'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="import-result">
+                  <p className="status-ok">导入完成</p>
+                  <p className="muted">
+                    读取：{importResult.total_rows} 行 · 成功：{importResult.imported} 人 ·
+                    跳过：{importResult.skipped} 行
+                  </p>
+                  {importResult.errors.length > 0 && (
+                    <ul className="import-errors">
+                      {importResult.errors.slice(0, 10).map((e, i) => (
+                        <li key={i}>
+                          第{e.row}行：{e.message}
+                        </li>
+                      ))}
+                      {importResult.errors.length > 10 && (
+                        <li className="muted">…共 {importResult.errors.length} 条问题</li>
+                      )}
+                    </ul>
+                  )}
+                </div>
+                <div className="modal-actions">
+                  <button className="btn primary" onClick={closeImport}>
+                    完成
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

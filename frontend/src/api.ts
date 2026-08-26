@@ -102,6 +102,18 @@ export interface ScheduleNextResult {
   assignments: { match_id: number; table_id: number }[]
 }
 
+export interface ImportRowError {
+  row: number
+  message: string
+}
+
+export interface ImportPlayersResult {
+  total_rows: number
+  imported: number
+  skipped: number
+  errors: ImportRowError[]
+}
+
 export interface RankingEntry {
   player_id: number
   name: string
@@ -170,8 +182,10 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // FormData 上传时由浏览器自动生成 multipart boundary，不能手动设 Content-Type
+  const isForm = init?.body instanceof FormData
   const resp = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: isForm ? undefined : { 'Content-Type': 'application/json' },
     ...init,
   })
   if (!resp.ok) {
@@ -239,6 +253,14 @@ export const api = {
     request<{ finished: number }>(`/api/tournaments/${tournamentId}/demo/finish-group-stage`, {
       method: 'POST',
     }),
+  importPlayers: (tournamentId: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<ImportPlayersResult>(`/api/tournaments/${tournamentId}/players/import`, {
+      method: 'POST',
+      body: form,
+    })
+  },
 
   getGroups: (tournamentId: number) =>
     request<GroupingResult>(`/api/tournaments/${tournamentId}/groups`),

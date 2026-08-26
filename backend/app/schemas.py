@@ -58,6 +58,18 @@ class DemoFinishGroupStageResult(BaseModel):
     finished: int
 
 
+class ImportRowError(BaseModel):
+    row: int
+    message: str
+
+
+class ImportPlayersResult(BaseModel):
+    total_rows: int
+    imported: int
+    skipped: int
+    errors: list[ImportRowError]
+
+
 class TableOut(BaseModel):
     id: int
     tournament_id: int
