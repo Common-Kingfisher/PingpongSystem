@@ -32,11 +32,28 @@ export default function BigScreenPage() {
     setTree(k)
   }, [tid])
 
+  // 初始加载：失败时展示错误
   useEffect(() => {
     if (tid !== null) {
       load().catch((e: unknown) =>
         setError(e instanceof ApiError ? e.message : '加载大屏失败'),
       )
+    }
+  }, [tid, load])
+
+  // 轻量轮询（约 2s）：单次失败不白屏、不设持久错误，下一轮自动恢复；卸载时清理
+  useEffect(() => {
+    if (tid === null) return
+    let cancelled = false
+    const interval = setInterval(() => {
+      if (cancelled) return
+      load().catch(() => {
+        /* 忽略瞬时失败，保留上次数据 */
+      })
+    }, 2000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
     }
   }, [tid, load])
 

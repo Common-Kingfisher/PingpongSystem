@@ -164,6 +164,9 @@ export default function HomePage() {
             <Link className="btn" to={`/bigscreen?tid=${current.id}`}>
               赛事大屏
             </Link>
+            <Link className="btn" to={`/register?tid=${current.id}`}>
+              在线报名
+            </Link>
           </div>
         </div>
       )}

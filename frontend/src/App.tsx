@@ -6,6 +6,7 @@ import RankingsPage from './pages/RankingsPage'
 import KnockoutPage from './pages/KnockoutPage'
 import SchedulePage from './pages/SchedulePage'
 import BigScreenPage from './pages/BigScreenPage'
+import RegisterPage from './pages/RegisterPage'
 import { getActiveTournamentId } from './activeTournament'
 
 function AppNav() {
@@ -21,6 +22,7 @@ function AppNav() {
     { to: `/knockout${qs}`, label: '淘汰赛' },
     { to: `/schedule${qs}`, label: '选手赛程' },
     { to: `/bigscreen${qs}`, label: '赛事大屏' },
+    { to: `/register${qs}`, label: '在线报名' },
   ]
   return (
     <nav>
@@ -54,6 +56,7 @@ export default function App() {
           <Route path="/knockout" element={<KnockoutPage />} />
           <Route path="/schedule" element={<SchedulePage />} />
           <Route path="/bigscreen" element={<BigScreenPage />} />
+          <Route path="/register" element={<RegisterPage />} />
         </Routes>
       </main>
     </div>

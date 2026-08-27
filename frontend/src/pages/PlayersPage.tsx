@@ -58,6 +58,21 @@ export default function PlayersPage() {
     }
   }, [tid, load])
 
+  // 在线报名轻量轮询：REGISTRATION 阶段每 5s 静默刷新选手列表；编辑/操作/弹窗中暂停
+  useEffect(() => {
+    if (tid === null) return
+    const interval = setInterval(() => {
+      if (editingId !== null || busy || demoModal !== null || importOpen) return
+      api
+        .listPlayers(tid)
+        .then(setPlayers)
+        .catch(() => {
+          /* 忽略瞬时失败，下轮恢复 */
+        })
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [tid, editingId, busy, demoModal, importOpen])
+
   if (tid === null) {
     return (
       <div className="card">
