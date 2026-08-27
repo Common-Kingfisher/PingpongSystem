@@ -116,9 +116,17 @@ export default function KnockoutPage() {
     )
   }
 
+  // 小组赛完成 = 已分组且每组所有比赛都已结束
   const groupsAllDone =
     (rankings?.rankings.length ?? 0) > 0 &&
     rankings!.rankings.every((g) => g.finished_matches === g.total_matches && g.total_matches > 0)
+
+  // 尚未完成的小组赛场数（用于提示）
+  const remainingGroupMatches =
+    rankings?.rankings.reduce((acc, g) => acc + (g.total_matches - g.finished_matches), 0) ?? 0
+
+  // 淘汰赛仅支持每组晋级 2 人：根据真实赛事配置判断，不 hardcode
+  const koConfigInvalid = tournament !== null && tournament.qualify_per_group !== 2
 
   return (
     <div className="page">
@@ -132,33 +140,49 @@ export default function KnockoutPage() {
         {tournament && (
           <p className="muted">
             阶段 <span className="badge">{tournament.stage}</span>
-            {!knockoutReady && groupsAllDone && ' · 小组赛已全部结束，可生成淘汰赛'}
           </p>
         )}
         {error && <p className="status-error">{error}</p>}
-
-        {!knockoutReady && groupsAllDone && (
-          <div className="button-row">
-            <button className="btn primary" onClick={doGenerate} disabled={busy}>
-              {busy ? '处理中…' : '生成淘汰赛（自动晋级）'}
-            </button>
-          </div>
-        )}
       </div>
 
-      {knockoutReady ? (
+      {!knockoutReady && groupsAllDone && (
+        <div className="card">
+          <p className="status-ok">✅ 小组赛已全部完成，晋级名单已经确定，可以生成 8 强淘汰赛。</p>
+          {koConfigInvalid ? (
+            <>
+              <p className="status-error">淘汰赛仅支持每组晋级 2 人的交叉对阵</p>
+              <p className="muted">
+                当前赛制为每组晋级 {tournament?.qualify_per_group} 人，无法生成淘汰赛。
+              </p>
+            </>
+          ) : (
+            <div className="button-row">
+              <button className="btn primary" onClick={doGenerate} disabled={busy}>
+                {busy ? '处理中…' : '生成淘汰赛（自动晋级）'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!knockoutReady && !groupsAllDone && (
+        <div className="card">
+          <p className="muted">淘汰赛尚不可生成</p>
+          {remainingGroupMatches > 0 ? (
+            <p className="muted">请先完成剩余 {remainingGroupMatches} 场小组赛。</p>
+          ) : (
+            <p className="muted">请先在「选手与分组」页完成分组并生成小组赛，再在「比赛控制台」录入比分。</p>
+          )}
+        </div>
+      )}
+
+      {knockoutReady && (
         <KnockoutBracket
           rounds={tree!.rounds}
           champion={tree!.champion}
           runnerUp={tree!.runner_up}
           onScore={openScore}
         />
-      ) : (
-        <div className="card">
-          <p className="muted">
-            淘汰赛尚未生成。需要先完成全部小组赛并确定晋级选手（可在「比赛控制台」录入比分）。
-          </p>
-        </div>
       )}
 
       {modal && (

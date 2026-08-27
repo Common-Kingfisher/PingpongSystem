@@ -192,8 +192,22 @@ export default function ConsolePage() {
   }
 
   const stats = dash?.stats
-  const allGroupsDone =
-    tournament?.stage === 'GROUP_STAGE' && stats !== undefined && stats.finished === stats.total && stats.total > 0
+
+  // 小组赛完成判定：按真实 GROUP Match 状态统计，不依赖 total 为 0 的边界
+  const waitingGroupMatches = waiting.filter((m) => m.stage === 'GROUP')
+  const playingGroupMatches =
+    dash?.tables.filter((t) => t.match !== null && t.match.stage === 'GROUP').map((t) => t.match as Match) ?? []
+  const finishedGroupMatches = finished.filter((m) => m.stage === 'GROUP')
+  const groupTotal =
+    waitingGroupMatches.length + playingGroupMatches.length + finishedGroupMatches.length
+  const groupStageCompleted =
+    groupTotal > 0 &&
+    finishedGroupMatches.length === groupTotal &&
+    waitingGroupMatches.length === 0 &&
+    playingGroupMatches.length === 0
+  // 展示用：仅当赛事仍在小组赛阶段且小组赛全部结束时给出"已完成"状态
+  const showGroupCompleted = tournament?.stage === 'GROUP_STAGE' && groupStageCompleted
+
   const hasUnfinishedGroup = stats !== undefined && (stats.waiting > 0 || stats.playing > 0)
 
   const confirmDemoFinish = async () => {
@@ -254,9 +268,6 @@ export default function ConsolePage() {
         {tournament && (
           <p className="muted">
             阶段 <span className="badge">{tournament.stage}</span>
-            {allGroupsDone && (
-              <span className="status-ok"> 小组赛全部结束，可前往淘汰赛页生成 8 强</span>
-            )}
           </p>
         )}
         {dash && (
@@ -277,7 +288,7 @@ export default function ConsolePage() {
         )}
         {error && <p className="status-error">{error}</p>}
         <div className="button-row">
-          {tournament?.stage !== 'FINISHED' && (
+          {tournament?.stage !== 'FINISHED' && !showGroupCompleted && (
             <button className="btn primary" onClick={scheduleBatch} disabled={busy}>
               自动安排下一批比赛
             </button>
@@ -296,6 +307,20 @@ export default function ConsolePage() {
       {!loaded && !error && (
         <div className="card">
           <p className="muted">正在加载赛事数据…</p>
+        </div>
+      )}
+
+      {showGroupCompleted && (
+        <div className="card">
+          <p className="status-ok">✅ 小组赛已全部完成，晋级名单已经确定，可以进入淘汰赛。</p>
+          <div className="button-row">
+            <Link className="btn" to={`/rankings?tid=${tid}`}>
+              查看小组排名
+            </Link>
+            <Link className="btn primary" to={`/knockout?tid=${tid}`}>
+              进入淘汰赛
+            </Link>
+          </div>
         </div>
       )}
 
@@ -338,13 +363,17 @@ export default function ConsolePage() {
                 <div className="table-card free" key={tb.id}>
                   <div className="table-name">{tb.name}</div>
                   <div className="table-status">空闲</div>
-                  <button
-                    className="btn small primary"
-                    onClick={() => assignFreeTable(tb.id)}
-                    disabled={busy}
-                  >
-                    安排比赛
-                  </button>
+                  {showGroupCompleted ? (
+                    <span className="muted">小组赛已结束</span>
+                  ) : (
+                    <button
+                      className="btn small primary"
+                      onClick={() => assignFreeTable(tb.id)}
+                      disabled={busy}
+                    >
+                      安排比赛
+                    </button>
+                  )}
                 </div>
               )
             }
