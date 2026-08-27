@@ -64,6 +64,10 @@ body {
   margin: 0 auto;
 }
 
+.app-main.fullwidth {
+  max-width: none;
+}
+
 .page-placeholder {
   background: #fff;
   border: 1px dashed #cbd2d9;
@@ -783,34 +787,34 @@ body {
 .bigscreen {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
   padding: 8px 0 24px;
 }
 
 .bigscreen-header h1 {
   margin: 0 0 6px;
   color: #1e3a5f;
-  font-size: 30px;
+  font-size: 36px;
 }
 
 .bigscreen-stage {
-  font-size: 18px;
+  font-size: 20px;
   color: #52606d;
 }
 
 .bigscreen-champion {
-  margin-top: 10px;
-  font-size: 26px;
+  margin-top: 12px;
+  font-size: 30px;
   font-weight: 700;
   color: #8a5a00;
 }
 
 .bigscreen-trophy {
-  font-size: 32px;
+  font-size: 38px;
 }
 
 .bigscreen-sub {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 400;
   margin-left: 12px;
 }
@@ -818,15 +822,15 @@ body {
 .bigscreen-progress {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 15px;
+  gap: 14px;
+  font-size: 17px;
   color: #52606d;
 }
 
 .bigscreen-progress-bar {
   flex: 1;
-  height: 18px;
-  border-radius: 9px;
+  height: 20px;
+  border-radius: 10px;
   background: #e4e7eb;
   overflow: hidden;
 }
@@ -834,32 +838,40 @@ body {
 .bigscreen-progress-fill {
   height: 100%;
   background: #2f6fb2;
+  transition: width 0.4s ease;
 }
 
 .bigscreen-playing h2,
 .bigscreen-cols h2 {
   color: #1e3a5f;
   margin: 0 0 12px;
-  font-size: 22px;
+  font-size: 26px;
 }
 
+/* 大屏：进行中的比赛固定两列（如 4 张球台 → 2×2） */
 .bigscreen-tables {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+@media (max-width: 720px) {
+  .bigscreen-tables {
+    grid-template-columns: 1fr;
+  }
 }
 
 .bigscreen-table {
   border: 2px solid #2f6fb2;
-  border-radius: 12px;
+  border-radius: 14px;
   background: #f0f6fd;
-  padding: 20px;
+  padding: 22px 20px;
   text-align: center;
 }
 
 .bigscreen-table-name {
   font-weight: 700;
-  font-size: 18px;
+  font-size: 20px;
   color: #1e3a5f;
 }
 
@@ -867,14 +879,14 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 700;
-  padding: 16px 0;
+  padding: 18px 0;
 }
 
 .bigscreen-vs {
   color: #9aa5b1;
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .bigscreen-idle {
@@ -888,7 +900,7 @@ body {
   border-radius: 8px;
   padding: 6px 12px;
   color: #7b8794;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .bigscreen-cols {
@@ -903,7 +915,7 @@ body {
 }
 
 .bigscreen-upcoming li {
-  font-size: 17px;
+  font-size: 19px;
   line-height: 2.1;
 }
 
@@ -915,10 +927,11 @@ body {
   font-weight: 700;
   color: #1e3a5f;
   margin-bottom: 2px;
+  font-size: 17px;
 }
 
 .bigscreen-group div {
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.9;
 }
 

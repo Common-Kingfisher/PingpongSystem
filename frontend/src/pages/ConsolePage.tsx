@@ -19,6 +19,7 @@ export default function ConsolePage() {
   const [finished, setFinished] = useState<Match[]>([])
   const [waiting, setWaiting] = useState<Match[]>([])
   const [groupNames, setGroupNames] = useState<Record<number, string>>({})
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [scores, setScores] = useState<Record<string, ScoreInput>>({})
@@ -50,6 +51,7 @@ export default function ConsolePage() {
     const names: Record<number, string> = {}
     for (const g of gs.groups) names[g.id] = g.name
     setGroupNames(names)
+    setLoaded(true)
   }, [tid])
 
   useEffect(() => {
@@ -95,6 +97,11 @@ export default function ConsolePage() {
     }
     if (a === b) {
       setError('比分不允许平局')
+      return
+    }
+    // Demo 仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3
+    if (!((a === 3 && b <= 2) || (b === 3 && a <= 2))) {
+      setError('Demo 比分仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3')
       return
     }
     setError(null)
@@ -167,6 +174,11 @@ export default function ConsolePage() {
       }
       if (ra === rb) {
         setError('比分不允许平局')
+        return
+      }
+      // Demo 仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3
+      if (!((ra === 3 && rb <= 2) || (rb === 3 && ra <= 2))) {
+        setError('Demo 比分仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3')
         return
       }
       await api.reviseScore(m.id, ra, rb)
@@ -248,16 +260,28 @@ export default function ConsolePage() {
           </p>
         )}
         {dash && (
-          <p className="muted">
-            比赛进度 {dash.stats.finished} / {dash.stats.total} · 正在进行 {dash.stats.playing} ·
-            等待 {dash.stats.waiting} · 球台 {dash.tables.length}
-          </p>
+          <>
+            <p className="muted">
+              比赛进度 {dash.stats.finished} / {dash.stats.total} · 正在进行 {dash.stats.playing} ·
+              等待 {dash.stats.waiting} · 球台 {dash.tables.length}
+            </p>
+            <div className="progress-bar">
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${dash.stats.total > 0 ? Math.round((dash.stats.finished / dash.stats.total) * 100) : 0}%`,
+                }}
+              />
+            </div>
+          </>
         )}
         {error && <p className="status-error">{error}</p>}
         <div className="button-row">
-          <button className="btn primary" onClick={scheduleBatch} disabled={busy}>
-            自动安排下一批比赛
-          </button>
+          {tournament?.stage !== 'FINISHED' && (
+            <button className="btn primary" onClick={scheduleBatch} disabled={busy}>
+              自动安排下一批比赛
+            </button>
+          )}
           {tournament?.stage === 'GROUP_STAGE' && hasUnfinishedGroup && (
             <button className="btn" onClick={confirmDemoFinish} disabled={busy}>
               <span className="demo-tag">Demo</span> 模拟完成剩余小组赛
@@ -268,6 +292,12 @@ export default function ConsolePage() {
           </button>
         </div>
       </div>
+
+      {!loaded && !error && (
+        <div className="card">
+          <p className="muted">正在加载赛事数据…</p>
+        </div>
+      )}
 
       {tournament?.stage === 'REGISTRATION' && (
         <div className="card">

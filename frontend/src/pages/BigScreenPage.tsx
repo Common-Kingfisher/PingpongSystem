@@ -14,6 +14,7 @@ export default function BigScreenPage() {
   const [players, setPlayers] = useState<Player[]>([])
   const [rankings, setRankings] = useState<RankingsResult | null>(null)
   const [tree, setTree] = useState<KnockoutTree | null>(null)
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -30,6 +31,7 @@ export default function BigScreenPage() {
     setPlayers(ps)
     setRankings(r)
     setTree(k)
+    setLoaded(true)
   }, [tid])
 
   // 初始加载：失败时展示错误
@@ -69,6 +71,17 @@ export default function BigScreenPage() {
         <p className="muted">
           请先在<Link to="/">赛事首页</Link>创建并选择一场赛事。
         </p>
+      </div>
+    )
+  }
+
+  if (!loaded && !error) {
+    return (
+      <div className="bigscreen">
+        <div className="bigscreen-header">
+          <h1>赛事大屏</h1>
+        </div>
+        <p className="muted">正在加载赛事数据…</p>
       </div>
     )
   }

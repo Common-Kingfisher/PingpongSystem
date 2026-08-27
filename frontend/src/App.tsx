@@ -41,13 +41,15 @@ function AppNav() {
 }
 
 export default function App() {
+  const { pathname } = useLocation()
+  const fullwidth = pathname === '/bigscreen'
   return (
     <div className="app">
       <header className="app-header">
         <span className="app-title">🏓 乒乓球赛事编排 Demo</span>
         <AppNav />
       </header>
-      <main className="app-main">
+      <main className={fullwidth ? 'app-main fullwidth' : 'app-main'}>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/players" element={<PlayersPage />} />

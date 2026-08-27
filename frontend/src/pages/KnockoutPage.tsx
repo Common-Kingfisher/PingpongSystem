@@ -18,6 +18,7 @@ export default function KnockoutPage() {
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [tree, setTree] = useState<KnockoutTree | null>(null)
   const [rankings, setRankings] = useState<RankingsResult | null>(null)
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [modal, setModal] = useState<ScoreModalState | null>(null)
@@ -32,6 +33,7 @@ export default function KnockoutPage() {
     setTournament(t)
     setTree(k)
     setRankings(r)
+    setLoaded(true)
   }, [tid])
 
   useEffect(() => {
@@ -72,6 +74,11 @@ export default function KnockoutPage() {
       setError('比分不允许平局')
       return
     }
+    // Demo 仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3
+    if (!((a === 3 && b <= 2) || (b === 3 && a <= 2))) {
+      setError('Demo 比分仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3')
+      return
+    }
     setError(null)
     setBusy(true)
     try {
@@ -97,6 +104,18 @@ export default function KnockoutPage() {
   }
 
   const knockoutReady = tree !== null && tree.rounds.length > 0
+
+  if (!loaded && !error) {
+    return (
+      <div className="page">
+        <div className="card">
+          <h2>淘汰赛</h2>
+          <p className="muted">正在加载赛事数据…</p>
+        </div>
+      </div>
+    )
+  }
+
   const groupsAllDone =
     (rankings?.rankings.length ?? 0) > 0 &&
     rankings!.rankings.every((g) => g.finished_matches === g.total_matches && g.total_matches > 0)
@@ -146,6 +165,7 @@ export default function KnockoutPage() {
         <div className="modal-overlay" onClick={() => setModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>录入比分</h3>
+            <p className="muted">合法比分：3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3</p>
             <div className="modal-pair">
               <div className="modal-line">
                 <span className="modal-name">{modal.match.player_a?.name ?? '待定'}</span>

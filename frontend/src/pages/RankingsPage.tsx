@@ -10,6 +10,7 @@ export default function RankingsPage() {
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [rankings, setRankings] = useState<RankingsResult>({ rankings: [] })
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -18,6 +19,7 @@ export default function RankingsPage() {
     const [t, r] = await Promise.all([api.getTournament(tid), api.getRankings(tid)])
     setTournament(t)
     setRankings(r)
+    setLoaded(true)
   }, [tid])
 
   useEffect(() => {
@@ -54,6 +56,17 @@ export default function RankingsPage() {
         <p className="muted">
           请先在<Link to="/">赛事首页</Link>创建并选择一场赛事。
         </p>
+      </div>
+    )
+  }
+
+  if (!loaded && !error) {
+    return (
+      <div className="page">
+        <div className="card">
+          <h2>小组排名</h2>
+          <p className="muted">正在加载赛事数据…</p>
+        </div>
       </div>
     )
   }
