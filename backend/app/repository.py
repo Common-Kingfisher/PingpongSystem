@@ -11,7 +11,11 @@ from .models import TableStatus
 
 # ---------------------------------------------------------------- tournaments
 
-_TOURNAMENT_COLS = "id, name, date, table_count, group_count, qualify_per_group, stage, created_at"
+_TOURNAMENT_COLS = (
+    "id, name, date, table_count, group_count, qualify_per_group, stage, created_at, "
+    "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, "
+    "roster_confirmed, confirmed_at"
+)
 
 
 def create_tournament(
@@ -21,11 +25,18 @@ def create_tournament(
     table_count: int,
     group_count: int,
     qualify_per_group: int,
+    event_type: str = "SINGLES",
+    bronze_mode: str = "JOINT_BRONZE",
+    placement_mode: str = "OFF",
+    games_to_win: int = 2,
+    points_to_win: int = 11,
 ) -> dict:
     cur = conn.execute(
-        "INSERT INTO tournaments (name, date, table_count, group_count, qualify_per_group) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (name, date, table_count, group_count, qualify_per_group),
+        "INSERT INTO tournaments (name, date, table_count, group_count, qualify_per_group, "
+        "event_type, bronze_mode, placement_mode, games_to_win, points_to_win) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (name, date, table_count, group_count, qualify_per_group, event_type,
+         bronze_mode, placement_mode, games_to_win, points_to_win),
     )
     row = conn.execute(
         f"SELECT {_TOURNAMENT_COLS} FROM tournaments WHERE id = ?", (cur.lastrowid,)
@@ -50,6 +61,13 @@ def list_tournaments(conn: sqlite3.Connection) -> list[dict]:
 def update_tournament_stage(conn: sqlite3.Connection, tournament_id: int, stage: str) -> None:
     conn.execute(
         "UPDATE tournaments SET stage = ? WHERE id = ?", (stage, tournament_id)
+    )
+
+
+def confirm_tournament_roster(conn: sqlite3.Connection, tournament_id: int) -> None:
+    conn.execute(
+        "UPDATE tournaments SET roster_confirmed = 1, confirmed_at = datetime('now') WHERE id = ?",
+        (tournament_id,),
     )
 
 
@@ -94,13 +112,19 @@ def update_table_status(conn: sqlite3.Connection, table_id: int, status: str) ->
 
 # ------------------------------------------------------------------ players
 
-_PLAYER_COLS = "id, tournament_id, name, college, group_id, seed_no"
+_PLAYER_COLS = "id, tournament_id, name, college, group_id, seed_no, rating_points"
 
 
-def add_player(conn: sqlite3.Connection, tournament_id: int, name: str, college: Optional[str]) -> dict:
+def add_player(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    name: str,
+    college: Optional[str],
+    rating_points: int = 1000,
+) -> dict:
     cur = conn.execute(
-        "INSERT INTO players (tournament_id, name, college) VALUES (?, ?, ?)",
-        (tournament_id, name, college),
+        "INSERT INTO players (tournament_id, name, college, rating_points) VALUES (?, ?, ?, ?)",
+        (tournament_id, name, college, rating_points),
     )
     row = conn.execute(
         f"SELECT {_PLAYER_COLS} FROM players WHERE id = ?", (cur.lastrowid,)
@@ -124,7 +148,11 @@ def list_players(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
 
 
 def update_player(
-    conn: sqlite3.Connection, player_id: int, name: Optional[str], college: Optional[str]
+    conn: sqlite3.Connection,
+    player_id: int,
+    name: Optional[str],
+    college: Optional[str],
+    rating_points: Optional[int] = None,
 ) -> Optional[dict]:
     """按给定字段更新；college 传 None 且原值存在时置空。返回更新后的选手。"""
     sets: list[str] = []
@@ -135,6 +163,9 @@ def update_player(
     if college is not None:
         sets.append("college = ?")
         params.append(college)
+    if rating_points is not None:
+        sets.append("rating_points = ?")
+        params.append(rating_points)
     if sets:
         params.append(player_id)
         conn.execute(f"UPDATE players SET {', '.join(sets)} WHERE id = ?", params)
@@ -155,9 +186,81 @@ def set_player_seed(conn: sqlite3.Connection, player_id: int, seed_no: int) -> N
     conn.execute("UPDATE players SET seed_no = ? WHERE id = ?", (seed_no, player_id))
 
 
+# ------------------------------------------------------------------ entries
+
+_ENTRY_COLS = "id, tournament_id, entry_type, display_name, rating_points, group_id, seed_no, status"
+
+
+def clear_entries(conn: sqlite3.Connection, tournament_id: int) -> None:
+    conn.execute("DELETE FROM entries WHERE tournament_id = ?", (tournament_id,))
+
+
+def create_entry(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    entry_type: str,
+    display_name: str,
+    rating_points: int,
+    member_ids: list[int],
+    seed_no: int | None = None,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO entries (tournament_id, entry_type, display_name, rating_points, seed_no) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (tournament_id, entry_type, display_name, rating_points, seed_no),
+    )
+    entry_id = int(cur.lastrowid)
+    for order, player_id in enumerate(member_ids, start=1):
+        conn.execute(
+            "INSERT INTO entry_members (entry_id, player_id, member_order) VALUES (?, ?, ?)",
+            (entry_id, player_id, order),
+        )
+    return get_entry(conn, entry_id)
+
+
+def get_entry(conn: sqlite3.Connection, entry_id: int) -> Optional[dict]:
+    row = conn.execute(f"SELECT {_ENTRY_COLS} FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    if not row:
+        return None
+    entry = dict(row)
+    entry["members"] = list_entry_members(conn, entry_id)
+    return entry
+
+
+def list_entry_members(conn: sqlite3.Connection, entry_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT p.id AS player_id, p.name, p.college, p.rating_points, em.member_order "
+        "FROM entry_members em JOIN players p ON p.id = em.player_id "
+        "WHERE em.entry_id = ? ORDER BY em.member_order",
+        (entry_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_entries(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    rows = conn.execute(
+        f"SELECT {_ENTRY_COLS} FROM entries WHERE tournament_id = ? ORDER BY id",
+        (tournament_id,),
+    ).fetchall()
+    result = []
+    for row in rows:
+        entry = dict(row)
+        entry["members"] = list_entry_members(conn, entry["id"])
+        result.append(entry)
+    return result
+
+
+def clear_entry_groups(conn: sqlite3.Connection, tournament_id: int) -> None:
+    conn.execute("UPDATE entries SET group_id = NULL WHERE tournament_id = ?", (tournament_id,))
+
+
+def set_entry_group(conn: sqlite3.Connection, entry_id: int, group_id: int) -> None:
+    conn.execute("UPDATE entries SET group_id = ? WHERE id = ?", (group_id, entry_id))
+
+
 # ------------------------------------------------------------------ groups
 
-_GROUP_COLS = "id, tournament_id, name, sort_order"
+_GROUP_COLS = "id, tournament_id, name, sort_order, qualify_count"
 
 
 def create_group(
@@ -186,6 +289,16 @@ def get_group(conn: sqlite3.Connection, group_id: int) -> Optional[dict]:
         f"SELECT {_GROUP_COLS} FROM groups WHERE id = ?", (group_id,)
     ).fetchone()
     return dict(row) if row else None
+
+
+def update_group_qualify_count(
+    conn: sqlite3.Connection, group_id: int, qualify_count: int
+) -> dict | None:
+    conn.execute(
+        "UPDATE groups SET qualify_count = ? WHERE id = ?", (qualify_count, group_id)
+    )
+    conn.commit()
+    return get_group(conn, group_id)
 
 
 def delete_groups_for_tournament(conn: sqlite3.Connection, tournament_id: int) -> None:
@@ -218,11 +331,17 @@ def create_match(
     player_b_id: int | None,
     prev_match_a_id: int | None = None,
     prev_match_b_id: int | None = None,
+    entry_a_id: int | None = None,
+    entry_b_id: int | None = None,
+    bracket: str | None = None,
+    placement_min: int | None = None,
+    placement_max: int | None = None,
 ) -> dict:
     cur = conn.execute(
         "INSERT INTO matches (tournament_id, stage, group_id, round, match_index, "
-        "player_a_id, player_b_id, prev_match_a_id, prev_match_b_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "player_a_id, player_b_id, prev_match_a_id, prev_match_b_id, entry_a_id, entry_b_id, "
+        "bracket, placement_min, placement_max) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             tournament_id,
             stage,
@@ -233,6 +352,11 @@ def create_match(
             player_b_id,
             prev_match_a_id,
             prev_match_b_id,
+            entry_a_id,
+            entry_b_id,
+            bracket or ("GROUP" if stage == "GROUP" else "MAIN"),
+            placement_min,
+            placement_max,
         ),
     )
     row = conn.execute("SELECT * FROM matches WHERE id = ?", (cur.lastrowid,)).fetchone()
@@ -286,6 +410,15 @@ _MATCH_UPDATEABLE = {
     "player_a_score",
     "player_b_score",
     "winner_id",
+    "entry_a_id",
+    "entry_b_id",
+    "winner_entry_id",
+    "result_type",
+    "forfeit_entry_id",
+    "result_note",
+    "bracket",
+    "placement_min",
+    "placement_max",
 }
 
 
@@ -318,3 +451,43 @@ def list_matches_by_prev(conn: sqlite3.Connection, match_id: int) -> list[dict]:
         (match_id, match_id),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def replace_match_games(
+    conn: sqlite3.Connection,
+    match_id: int,
+    games: list[tuple[int, int]],
+    entry_a_id: int | None,
+    entry_b_id: int | None,
+) -> list[dict]:
+    conn.execute("DELETE FROM match_games WHERE match_id = ?", (match_id,))
+    for game_no, (score_a, score_b) in enumerate(games, start=1):
+        winner = entry_a_id if score_a > score_b else entry_b_id
+        conn.execute(
+            "INSERT INTO match_games (match_id, game_no, side_a_score, side_b_score, winner_entry_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (match_id, game_no, score_a, score_b, winner),
+        )
+    return list_match_games(conn, match_id)
+
+
+def list_match_games(conn: sqlite3.Connection, match_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT id, match_id, game_no, side_a_score, side_b_score, winner_entry_id "
+        "FROM match_games WHERE match_id = ? ORDER BY game_no",
+        (match_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def decorate_match(conn: sqlite3.Connection, match: dict) -> dict:
+    result = dict(match)
+    entries = {}
+    for key in ("entry_a_id", "entry_b_id"):
+        entry_id = result.get(key)
+        if entry_id is not None:
+            entries[entry_id] = get_entry(conn, entry_id)
+    result["entry_a_name"] = (entries.get(result.get("entry_a_id")) or {}).get("display_name")
+    result["entry_b_name"] = (entries.get(result.get("entry_b_id")) or {}).get("display_name")
+    result["games"] = list_match_games(conn, result["id"])
+    return result

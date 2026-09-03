@@ -44,11 +44,12 @@ def generate_group_matches(
     if repo.count_matches(conn, tournament_id, stage=MatchStage.GROUP.value) > 0:
         raise MatchesExistError("小组比赛已生成，不能重复生成")
 
-    players = repo.list_players(conn, tournament_id)
+    entries = repo.list_entries(conn, tournament_id)
     by_group: dict[int, list[int]] = {}
-    for p in players:
-        if p["group_id"] is not None:
-            by_group.setdefault(p["group_id"], []).append(p["id"])
+    for entry in entries:
+        if entry["group_id"] is not None:
+            by_group.setdefault(entry["group_id"], []).append(entry["id"])
+    entry_by_id = {e["id"]: e for e in entries}
 
     total = 0
     per_group: dict[str, int] = {}
@@ -57,6 +58,9 @@ def generate_group_matches(
         schedule = round_robin.round_robin(member_ids)
         per_group[group["name"]] = len(schedule)
         for round_num, a, b in schedule:
+            ea, eb = entry_by_id[a], entry_by_id[b]
+            player_a = ea["members"][0]["player_id"] if ea["entry_type"] == "SINGLES" else None
+            player_b = eb["members"][0]["player_id"] if eb["entry_type"] == "SINGLES" else None
             repo.create_match(
                 conn,
                 tournament_id,
@@ -64,8 +68,11 @@ def generate_group_matches(
                 group["id"],
                 round_num,
                 None,
-                a,
-                b,
+                player_a,
+                player_b,
+                entry_a_id=a,
+                entry_b_id=b,
+                bracket="GROUP",
             )
         total += len(schedule)
 
@@ -74,7 +81,7 @@ def generate_group_matches(
     return total, per_group
 
 
-DEMO_SCORE_OPTIONS = [(3, 0), (3, 1), (3, 2), (0, 3), (1, 3), (2, 3)]
+DEMO_SCORE_OPTIONS = [(2, 0), (2, 1), (0, 2), (1, 2)]
 
 
 def finish_group_stage(

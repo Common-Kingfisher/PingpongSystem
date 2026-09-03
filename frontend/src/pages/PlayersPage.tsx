@@ -1,7 +1,8 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, GenerateMatchesResult, GroupingResult, ImportPlayersResult, Player, Tournament } from '../api'
+import { api, ApiError, GenerateMatchesResult, GroupingResult, ImportPlayersResult, ImportPreviewResult, Player, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
+import RosterLaunch from '../components/RosterLaunch'
 
 export default function PlayersPage() {
   const [params] = useSearchParams()
@@ -14,9 +15,11 @@ export default function PlayersPage() {
 
   const [name, setName] = useState('')
   const [college, setCollege] = useState('')
+  const [ratingPoints, setRatingPoints] = useState(1000)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
   const [editCollege, setEditCollege] = useState('')
+  const [editRatingPoints, setEditRatingPoints] = useState(1000)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [matchSummary, setMatchSummary] = useState<GenerateMatchesResult | null>(null)
@@ -26,6 +29,7 @@ export default function PlayersPage() {
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportPlayersResult | null>(null)
+  const [importPreview, setImportPreview] = useState<ImportPreviewResult | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -98,9 +102,10 @@ export default function PlayersPage() {
     setError(null)
     setBusy(true)
     try {
-      await api.addPlayer(tid, { name, college: college || null })
+      await api.addPlayer(tid, { name, college: college || null, rating_points: ratingPoints })
       setName('')
       setCollege('')
+      setRatingPoints(1000)
       await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '添加选手失败')
@@ -113,12 +118,17 @@ export default function PlayersPage() {
     setEditingId(p.id)
     setEditName(p.name)
     setEditCollege(p.college ?? '')
+    setEditRatingPoints(p.rating_points)
   }
 
   const saveEdit = async (p: Player) => {
     setError(null)
     try {
-      await api.updatePlayer(tid, p.id, { name: editName, college: editCollege || null })
+      await api.updatePlayer(tid, p.id, {
+        name: editName,
+        college: editCollege || null,
+        rating_points: editRatingPoints,
+      })
       setEditingId(null)
       await refresh()
     } catch (err) {
@@ -146,6 +156,16 @@ export default function PlayersPage() {
       setError(err instanceof ApiError ? err.message : '自动分组失败')
     } finally {
       setBusy(false)
+    }
+  }
+
+  const setGroupQualification = async (groupId: number, count: number) => {
+    setError(null)
+    try {
+      await api.setGroupQualification(tid, groupId, count)
+      setGroups(await api.getGroups(tid))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '修改出线人数失败')
     }
   }
 
@@ -202,6 +222,7 @@ export default function PlayersPage() {
   const openImport = () => {
     setImportFile(null)
     setImportResult(null)
+    setImportPreview(null)
     setImportError(null)
     setImportOpen(true)
   }
@@ -210,12 +231,13 @@ export default function PlayersPage() {
     setImportOpen(false)
     setImportFile(null)
     setImportResult(null)
+    setImportPreview(null)
     setImportError(null)
   }
 
   const downloadTemplate = () => {
     const csv =
-      '\uFEFF姓名,学院/单位,种子序号\n张三,计算机学院,1\n李四,自动化学院,2\n王五,机械学院,\n'
+      '\uFEFF姓名,学院/单位,运动员积分,种子序号\n张三,计算机学院,1450,1\n李四,自动化学院,1420,2\n王五,机械学院,1380,\n'
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -235,6 +257,19 @@ export default function PlayersPage() {
       await refresh()
     } catch (err) {
       setImportError(err instanceof ApiError ? err.message : '导入失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const previewImport = async () => {
+    if (!importFile) return
+    setImportError(null)
+    setImporting(true)
+    try {
+      setImportPreview(await api.previewPlayersImport(tid, importFile))
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '预览失败')
     } finally {
       setImporting(false)
     }
@@ -298,6 +333,10 @@ export default function PlayersPage() {
         )}
       </div>
 
+      {tournament && (
+        <RosterLaunch tournament={tournament} players={players} onComplete={refresh} />
+      )}
+
       <div className="card">
         <h3>添加选手</h3>
         <form className="form-inline" onSubmit={addPlayer}>
@@ -315,6 +354,15 @@ export default function PlayersPage() {
             value={college}
             disabled={locked}
             onChange={(e) => setCollege(e.target.value)}
+          />
+          <input
+            type="number"
+            min={0}
+            max={99999}
+            placeholder="运动员积分"
+            value={ratingPoints}
+            disabled={locked}
+            onChange={(e) => setRatingPoints(Number(e.target.value))}
           />
           <button type="submit" className="btn primary" disabled={locked || busy}>
             {busy ? '添加中…' : '添加'}
@@ -339,6 +387,7 @@ export default function PlayersPage() {
               <th>ID</th>
               <th>姓名</th>
               <th>学院/单位</th>
+              <th>积分</th>
               <th>种子</th>
               <th>分组</th>
               <th>操作</th>
@@ -365,6 +414,7 @@ export default function PlayersPage() {
                         onChange={(e) => setEditCollege(e.target.value)}
                       />
                     </td>
+                    <td><input type="number" min={0} value={editRatingPoints} onChange={(e) => setEditRatingPoints(Number(e.target.value))} /></td>
                     <td>{p.seed_no !== null ? `⭐ ${p.seed_no}号` : '—'}</td>
                     <td>{p.group_id !== null ? '已分组' : '—'}</td>
                     <td>
@@ -378,9 +428,9 @@ export default function PlayersPage() {
                   </>
                 ) : (
                   <>
-                    <td>{p.id}</td>
                     <td>{p.name}</td>
                     <td>{p.college || '—'}</td>
+                    <td className="rating-cell">{p.rating_points}</td>
                     <td>
                       {p.seed_no !== null ? (
                         <span className="seed-badge">⭐ {p.seed_no}号</span>
@@ -457,17 +507,19 @@ export default function PlayersPage() {
       </div>
 
       <div className="card">
-        <h3>自动分组</h3>
+        <h3>抽签与分组</h3>
         <p className="muted">
-          将 {players.length} 名选手随机、均衡地分入 {tournament?.group_count ?? '—'} 个小组。
+          {tournament?.roster_confirmed
+            ? `名单已确认，可将参赛位重新抽入 ${tournament.group_count} 个小组。`
+            : '请先在上方确认参赛名单；确认后会播放抽签过场并自动生成分组。'}
         </p>
         <div className="button-row">
           <button
             className="btn primary"
             onClick={doAutoGroup}
-            disabled={busy || players.length === 0 || locked}
+            disabled={busy || players.length === 0 || locked || !tournament?.roster_confirmed}
           >
-            {busy ? '处理中…' : '自动分组'}
+            {busy ? '处理中…' : groups.groups.length ? '重新抽签分组' : '抽签分组'}
           </button>
           {groups.groups.length > 0 && (
             <button className="btn" onClick={doUngroup} disabled={busy || locked}>
@@ -480,20 +532,35 @@ export default function PlayersPage() {
           <div className="group-grid">
             {groups.groups.map((g) => (
               <div className="group-card" key={g.id}>
-                <h4>{g.name}</h4>
+                <div className="group-card-head">
+                  <h4>{g.name}</h4>
+                  <label className="qualification-control">
+                    出线
+                    <select
+                      value={g.qualify_count ?? tournament?.qualify_per_group ?? 2}
+                      disabled={locked}
+                      onChange={(e) => setGroupQualification(g.id, Number(e.target.value))}
+                    >
+                      {Array.from(
+                        { length: Math.max(1, (g.entries.length || g.players.length) - 1) },
+                        (_, i) => i + 1,
+                      ).map((n) => <option key={n} value={n}>{n} 名</option>)}
+                    </select>
+                  </label>
+                </div>
                 <ul>
-                  {g.players.map((p) => {
+                  {(g.entries.length > 0 ? g.entries : g.players).map((p) => {
                     const sp = players.find((x) => x.id === p.id)
                     return (
                       <li key={p.id}>
                         {sp?.seed_no != null && <span className="seed-badge">⭐{sp.seed_no}</span>}{' '}
-                        {p.name}
-                        {p.college ? <span className="muted">（{p.college}）</span> : null}
+                        {'display_name' in p ? p.display_name : p.name}
+                        {'college' in p && p.college ? <span className="muted">（{p.college}）</span> : null}
                       </li>
                     )
                   })}
                 </ul>
-                <p className="muted">{g.players.length} 人</p>
+                <p className="muted">{g.entries.length || g.players.length} 个参赛位</p>
               </div>
             ))}
           </div>
@@ -511,7 +578,7 @@ export default function PlayersPage() {
               <button
                 className="btn primary"
                 onClick={doGenerateMatches}
-                disabled={busy || groups.groups.length === 0}
+                disabled={busy || groups.groups.length === 0 || !tournament?.roster_confirmed}
               >
                 {busy ? '处理中…' : '生成小组比赛'}
               </button>
@@ -603,6 +670,7 @@ export default function PlayersPage() {
                         return
                       }
                       setImportFile(f)
+                      setImportPreview(null)
                       setImportError(null)
                     }}
                   />
@@ -615,12 +683,19 @@ export default function PlayersPage() {
                   </button>
                   <button
                     className="btn primary"
-                    onClick={doImport}
+                    onClick={importPreview ? doImport : previewImport}
                     disabled={!importFile || importing}
                   >
-                    {importing ? '正在导入...' : '开始导入'}
+                    {importing ? '正在处理…' : importPreview ? `确认导入 ${importPreview.valid_rows} 人` : '预览并校验'}
                   </button>
                 </div>
+                {importPreview && <div className="import-preview">
+                  <div className="import-preview-summary"><strong>{importPreview.valid_rows}</strong> 行可导入 <span>· {importPreview.skipped} 行跳过 · 请确认后再写入</span></div>
+                  <div className="import-preview-table"><table className="data-table"><thead><tr><th>行</th><th>姓名</th><th>单位</th><th>积分</th><th>种子</th><th>校验</th></tr></thead><tbody>
+                    {importPreview.rows.map((row) => <tr key={row.row}><td>{row.row}</td><td>{row.name || '—'}</td><td>{row.college || '—'}</td><td>{row.rating_points}</td><td>{row.seed_no ?? '—'}</td><td className={`preview-${row.status}`}>{row.message ?? '可导入'}</td></tr>)}
+                  </tbody></table></div>
+                  <p className="muted">已显示全部 {importPreview.total_rows} 行。</p>
+                </div>}
               </>
             ) : (
               <>

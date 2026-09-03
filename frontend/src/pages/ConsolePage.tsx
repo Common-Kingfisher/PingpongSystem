@@ -2,11 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, Dashboard, Match, Player, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
-
-interface ScoreInput {
-  a: string
-  b: string
-}
+import ScoreSheet from '../components/ScoreSheet'
+import LiveTableCard from '../components/LiveTableCard'
 
 export default function ConsolePage() {
   const [params] = useSearchParams()
@@ -22,8 +19,9 @@ export default function ConsolePage() {
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [scores, setScores] = useState<Record<string, ScoreInput>>({})
-  const [revisingId, setRevisingId] = useState<number | null>(null)
+  const [scoringMatch, setScoringMatch] = useState<Match | null>(null)
+  const [scoreMode, setScoreMode] = useState<'record' | 'revise'>('record')
+  const [scoreDetailMode, setScoreDetailMode] = useState(false)
 
   const nameOf = useCallback(
     (id: number | null) => {
@@ -32,6 +30,10 @@ export default function ConsolePage() {
     },
     [players],
   )
+
+  const sideName = (match: Match, side: 'a' | 'b') =>
+    (side === 'a' ? match.entry_a_name : match.entry_b_name)
+    ?? nameOf(side === 'a' ? match.player_a_id : match.player_b_id)
 
   const load = useCallback(async () => {
     if (tid === null) return
@@ -84,30 +86,14 @@ export default function ConsolePage() {
 
   const fail = (e: unknown) => setError(e instanceof ApiError ? e.message : '操作失败')
 
-  const setScore = (matchId: number, field: 'a' | 'b', value: string) =>
-    setScores((s) => ({ ...s, [matchId]: { ...(s[matchId] ?? { a: '', b: '' }), [field]: value } }))
-
-  const submitScore = async (m: Match) => {
-    const input = scores[m.id] ?? { a: '', b: '' }
-    const a = Number(input.a)
-    const b = Number(input.b)
-    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0) {
-      setError('比分必须是非负整数')
-      return
-    }
-    if (a === b) {
-      setError('比分不允许平局')
-      return
-    }
-    // Demo 仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3
-    if (!((a === 3 && b <= 2) || (b === 3 && a <= 2))) {
-      setError('Demo 比分仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3')
-      return
-    }
-    setError(null)
+  const saveScoreSheet = async (payload: import('../api').ScorePayload) => {
+    if (!scoringMatch) return
     setBusy(true)
+    setError(null)
     try {
-      await api.recordScore(m.id, a, b)
+      if (scoreMode === 'revise') await api.reviseScore(scoringMatch.id, payload)
+      else await api.recordScore(scoringMatch.id, payload)
+      setScoringMatch(null)
       await refresh()
     } catch (e) {
       fail(e)
@@ -154,36 +140,6 @@ export default function ConsolePage() {
       const r = await api.scheduleNext(tid as number)
       if (r.assigned === 0) setError('没有可安排的比赛（或选手均在比赛）')
       await refresh()
-    } catch (e) {
-      fail(e)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const submitRevise = async (m: Match) => {
-    setError(null)
-    setBusy(true)
-    try {
-      const input = scores[`revise-${m.id}`] ?? { a: '', b: '' }
-      const ra = Number(input.a)
-      const rb = Number(input.b)
-      if (!Number.isInteger(ra) || !Number.isInteger(rb) || ra < 0 || rb < 0) {
-        setError('比分必须是非负整数')
-        return
-      }
-      if (ra === rb) {
-        setError('比分不允许平局')
-        return
-      }
-      // Demo 仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3
-      if (!((ra === 3 && rb <= 2) || (rb === 3 && ra <= 2))) {
-        setError('Demo 比分仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3')
-        return
-      }
-      await api.reviseScore(m.id, ra, rb)
-      await refresh()
-      setRevisingId(null)
     } catch (e) {
       fail(e)
     } finally {
@@ -240,21 +196,15 @@ export default function ConsolePage() {
     .map(Number)
     .sort((a, b) => a - b)
 
-  // 待进行比赛分组展示（最多前 20 场，超出提示）
+  // 待进行比赛分组展示：全量横向换行，不再截断为前 20 场。
   const displayWaiting: { label: string; matches: Match[] }[] = []
-  let shown = 0
   for (const gid of groupIds) {
-    if (shown >= 20) break
-    const ms = waitingByGroup[gid].slice(0, 20 - shown)
-    displayWaiting.push({ label: groupNames[gid] ?? `组${gid}`, matches: ms })
-    shown += ms.length
+    displayWaiting.push({ label: groupNames[gid] ?? `组${gid}`, matches: waitingByGroup[gid] })
   }
-  if (shown < 20 && knockoutWaiting.length > 0) {
-    const ms = knockoutWaiting.slice(0, 20 - shown)
-    displayWaiting.push({ label: '淘汰赛', matches: ms })
-    shown += ms.length
-  }
-  const hiddenCount = waiting.length - shown
+  if (knockoutWaiting.length > 0) displayWaiting.push({ label: '淘汰赛', matches: knockoutWaiting })
+  const stageLabel = (match: Match) => match.stage === 'GROUP'
+    ? (match.group_id === null ? '小组赛' : `${groupNames[match.group_id] ?? '小组赛'} · 小组赛`)
+    : '淘汰赛'
 
   return (
     <div className="page">
@@ -353,69 +303,23 @@ export default function ConsolePage() {
         </div>
       )}
 
-      <div className="card">
-        <h3>球台</h3>
-        <div className="table-grid">
-          {dash?.tables.map((tb) => {
-            const m = tb.match
-            if (!m) {
-              return (
-                <div className="table-card free" key={tb.id}>
-                  <div className="table-name">{tb.name}</div>
-                  <div className="table-status">空闲</div>
-                  {showGroupCompleted ? (
-                    <span className="muted">小组赛已结束</span>
-                  ) : (
-                    <button
-                      className="btn small primary"
-                      onClick={() => assignFreeTable(tb.id)}
-                      disabled={busy}
-                    >
-                      安排比赛
-                    </button>
-                  )}
-                </div>
-              )
-            }
-            const input = scores[m.id] ?? { a: '', b: '' }
-            return (
-              <div className="table-card occupied" key={tb.id}>
-                <div className="table-name">
-                  {tb.name} <span className="badge">进行中</span>
-                </div>
-                <div className="table-players">
-                  <div>{nameOf(m.player_a_id)}</div>
-                  <div>VS</div>
-                  <div>{nameOf(m.player_b_id)}</div>
-                </div>
-                <div className="score-row">
-                  <input
-                    type="number"
-                    min={0}
-                    placeholder="A分"
-                    value={input.a}
-                    onChange={(e) => setScore(m.id, 'a', e.target.value)}
-                  />
-                  <span>:</span>
-                  <input
-                    type="number"
-                    min={0}
-                    placeholder="B分"
-                    value={input.b}
-                    onChange={(e) => setScore(m.id, 'b', e.target.value)}
-                  />
-                </div>
-                <div className="button-row">
-                  <button className="btn small primary" onClick={() => submitScore(m)} disabled={busy}>
-                    录入比分
-                  </button>
-                  <button className="btn small" onClick={() => release(m)} disabled={busy}>
-                    下球台
-                  </button>
-                </div>
-              </div>
-            )
-          })}
+      <div className="card live-floor-card">
+        <div className="live-floor-heading">
+          <div><span className="eyebrow">LIVE FLOOR</span><h3>比赛现场</h3></div>
+          <span className="live-floor-hint">点击球台录入本场大比分</span>
+        </div>
+        <div className="live-table-stack">
+          {dash?.tables.map((table) => <LiveTableCard
+            key={table.id}
+            table={table}
+            sideName={sideName}
+            stageLabel={stageLabel}
+            busy={busy}
+            groupFinished={showGroupCompleted}
+            onAssign={assignFreeTable}
+            onScore={(match) => { setScoreDetailMode(false); setScoreMode('record'); setScoringMatch(match) }}
+            onRelease={release}
+          />)}
         </div>
       </div>
 
@@ -427,16 +331,15 @@ export default function ConsolePage() {
             <h4>
               {sec.label}（{sec.matches.length} 场）
             </h4>
-            <ul>
+            <div className="waiting-match-grid">
               {sec.matches.map((m) => (
-                <li key={m.id}>
-                  {nameOf(m.player_a_id) || '待定'} VS {nameOf(m.player_b_id) || '待定'}
-                </li>
+                <article key={m.id} className="waiting-match-card">
+                  <span>#{m.id}</span><strong>{sideName(m, 'a')}</strong><i>VS</i><strong>{sideName(m, 'b')}</strong>
+                </article>
               ))}
-            </ul>
+            </div>
           </div>
         ))}
-        {hiddenCount > 0 && <p className="muted">还有 {hiddenCount} 场等待比赛</p>}
       </div>
 
       <div className="card">
@@ -452,64 +355,24 @@ export default function ConsolePage() {
             </tr>
           </thead>
           <tbody>
-            {finished.slice(0, 40).map((m) => {
-              const isEditing = revisingId === m.id
-              const rev = scores[`revise-${m.id}`] ?? { a: '', b: '' }
+            {finished.map((m) => {
               return (
                 <tr key={m.id}>
                   <td>{m.stage === 'GROUP' ? '小组赛' : '淘汰赛'}</td>
                   <td>
-                    {nameOf(m.player_a_id)} VS {nameOf(m.player_b_id)}
+                    {sideName(m, 'a')} VS {sideName(m, 'b')}
                   </td>
                   <td>
-                    {isEditing ? (
-                      <span className="score-row inline">
-                        <input
-                          type="number"
-                          min={0}
-                          value={rev.a}
-                          onChange={(e) =>
-                            setScores((s) => ({
-                              ...s,
-                              [`revise-${m.id}`]: { ...rev, a: e.target.value },
-                            }))
-                          }
-                        />
-                        :
-                        <input
-                          type="number"
-                          min={0}
-                          value={rev.b}
-                          onChange={(e) =>
-                            setScores((s) => ({
-                              ...s,
-                              [`revise-${m.id}`]: { ...rev, b: e.target.value },
-                            }))
-                          }
-                        />
-                      </span>
-                    ) : (
-                      <>
-                        {m.player_a_score} : {m.player_b_score}{' '}
-                        <span className="muted">（胜：{nameOf(m.winner_id)}）</span>
-                      </>
-                    )}
+                    {m.result_type && m.result_type !== 'NORMAL' ? 'W/O' : `${m.player_a_score} : ${m.player_b_score}`}{' '}
+                    {m.games.length > 0 && <span className="muted">{m.games.map((g) => `${g.side_a_score}-${g.side_b_score}`).join(' / ')}</span>}
                   </td>
                   <td>
-                    {isEditing ? (
-                      <>
-                        <button className="btn small primary" onClick={() => submitRevise(m)} disabled={busy}>
-                          保存
-                        </button>{' '}
-                        <button className="btn small" onClick={() => setRevisingId(null)}>
-                          取消
-                        </button>
-                      </>
-                    ) : (
-                      <button className="btn small" onClick={() => setRevisingId(m.id)}>
-                        修改比分
-                      </button>
-                    )}
+                    <button className="btn small" onClick={() => { setScoreDetailMode(false); setScoreMode('revise'); setScoringMatch(m) }}>
+                      修改大比分
+                    </button>
+                    {m.stage === 'GROUP' && m.result_type === 'NORMAL' && <button className="btn small" onClick={() => { setScoreDetailMode(true); setScoreMode('revise'); setScoringMatch(m) }}>
+                      {m.games.length ? '修改小比分' : '补录小比分'}
+                    </button>}
                   </td>
                 </tr>
               )
@@ -517,6 +380,19 @@ export default function ConsolePage() {
           </tbody>
         </table>
       </div>
+      {scoringMatch && tournament && (
+        <ScoreSheet
+          match={scoringMatch}
+          sideA={sideName(scoringMatch, 'a')}
+          sideB={sideName(scoringMatch, 'b')}
+          gamesToWin={tournament.games_to_win}
+          pointsToWin={tournament.points_to_win}
+          busy={busy}
+          detailMode={scoreDetailMode}
+          onClose={() => setScoringMatch(null)}
+          onSave={saveScoreSheet}
+        />
+      )}
     </div>
   )
 }

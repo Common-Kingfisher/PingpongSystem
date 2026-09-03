@@ -21,7 +21,14 @@ def record_score(
 ):
     try:
         match = scores_service.record_score(
-            conn, match_id, payload.player_a_score, payload.player_b_score
+            conn,
+            match_id,
+            payload.player_a_score,
+            payload.player_b_score,
+            [(g.side_a_score, g.side_b_score) for g in payload.games] if payload.games else None,
+            payload.result_type.value,
+            payload.forfeit_entry_id,
+            payload.note,
         )
     except scores_service.ScoreError as exc:
         raise _http(exc)
@@ -34,7 +41,14 @@ def revise_score(
 ):
     try:
         match = scores_service.revise_score(
-            conn, match_id, payload.player_a_score, payload.player_b_score
+            conn,
+            match_id,
+            payload.player_a_score,
+            payload.player_b_score,
+            [(g.side_a_score, g.side_b_score) for g in payload.games] if payload.games else None,
+            payload.result_type.value,
+            payload.forfeit_entry_id,
+            payload.note,
         )
     except scores_service.ScoreError as exc:
         raise _http(exc)

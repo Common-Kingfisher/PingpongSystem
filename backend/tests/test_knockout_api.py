@@ -1,10 +1,10 @@
 """淘汰赛 API 端点测试。"""
 
 
-def _full_group_stage(client, n_players=8, group_count=4):
+def _full_group_stage(client, n_players=8, group_count=4, bronze_mode="JOINT_BRONZE"):
     resp = client.post(
         "/api/tournaments",
-        json={"name": "KO", "date": "2025-06-01", "table_count": 6, "group_count": group_count, "qualify_per_group": 2},
+        json={"name": "KO", "date": "2025-06-01", "table_count": 6, "group_count": group_count, "qualify_per_group": 2, "bronze_mode": bronze_mode},
     )
     tid = resp.json()["id"]
     for i in range(1, n_players + 1):
@@ -52,6 +52,28 @@ def test_generate_knockout_before_group_stage_409(client):
     # 未生成小组赛（阶段还是 REGISTRATION）
     resp = client.post(f"/api/tournaments/{tid}/generate-knockout")
     assert resp.status_code == 409
+
+
+def test_bronze_match_is_returned_after_both_semifinals(client):
+    """选择季军赛时，两场半决赛结束后 API 必须返回三四名比赛。"""
+    tid = _full_group_stage(client, bronze_mode="BRONZE_MATCH")
+    generated = client.post(f"/api/tournaments/{tid}/generate-knockout").json()
+
+    for round_index in (0, 1):
+        current = client.get(f"/api/tournaments/{tid}/knockout").json()["rounds"][round_index]["matches"]
+        for match in current:
+            response = client.post(
+                f"/api/matches/{match['id']}/score",
+                json={"player_a_score": 2, "player_b_score": 0},
+            )
+            assert response.status_code == 200, response.text
+
+    tree = client.get(f"/api/tournaments/{tid}/knockout").json()
+    bronze = [item for item in tree["placement_matches"] if item["range"] == [3, 4]]
+    assert len(bronze) == 1
+    assert bronze[0]["match"]["player_a"] is not None
+    assert bronze[0]["match"]["player_b"] is not None
+    assert bronze[0]["match"]["status"] == "WAITING"
 
 
 def test_knockout_full_flow_to_champion(client):

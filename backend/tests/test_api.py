@@ -34,8 +34,8 @@ def test_create_tournament_ok(client):
 
 
 def test_create_tournament_table_count_out_of_range(client):
-    resp = _create_tournament(client, table_count=3)
-    assert resp.status_code == 422  # 球台数 4~8
+    resp = _create_tournament(client, table_count=16)
+    assert resp.status_code == 422  # 球台数 1~15
 
 
 def test_create_tournament_empty_name(client):

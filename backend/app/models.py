@@ -36,3 +36,35 @@ class MatchStage(str, Enum):
 
     GROUP = "GROUP"          # 小组循环赛
     KNOCKOUT = "KNOCKOUT"    # 淘汰赛
+
+
+class EventType(str, Enum):
+    """参赛项目。第一版完整支持单打与固定搭档双打。"""
+
+    SINGLES = "SINGLES"
+    DOUBLES = "DOUBLES"
+
+
+class BronzeMode(str, Enum):
+    BRONZE_MATCH = "BRONZE_MATCH"
+    JOINT_BRONZE = "JOINT_BRONZE"
+
+
+class PlacementMode(str, Enum):
+    OFF = "OFF"
+    COMPLETE = "COMPLETE"
+    TIERED = "TIERED"
+
+
+class ResultType(str, Enum):
+    NORMAL = "NORMAL"
+    FORFEIT = "FORFEIT"
+    WALKOVER = "WALKOVER"
+    NO_SHOW = "NO_SHOW"
+    DISQUALIFIED = "DISQUALIFIED"
+
+
+class MatchBracket(str, Enum):
+    GROUP = "GROUP"
+    MAIN = "MAIN"
+    PLACEMENT = "PLACEMENT"

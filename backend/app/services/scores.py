@@ -11,7 +11,7 @@
 import sqlite3
 
 from .. import repository as repo
-from ..models import MatchStage, MatchStatus, TableStatus
+from ..models import MatchStage, MatchStatus, ResultType, TableStatus
 from . import knockout as knockout_service
 
 
@@ -35,6 +35,31 @@ def _winner_id(
     return player_a_id if score_a > score_b else player_b_id
 
 
+def _validate_games(games: list[tuple[int, int]], games_to_win: int, points_to_win: int) -> tuple[int, int]:
+    if not games:
+        raise ScoreError("请至少录入一局比分", 422)
+    wins_a = wins_b = 0
+    for index, (a, b) in enumerate(games, start=1):
+        if a == b or max(a, b) < points_to_win or abs(a - b) < 2:
+            raise ScoreError(f"第 {index} 局比分不符合 {points_to_win} 分且领先 2 分的规则", 422)
+        if a > b:
+            wins_a += 1
+        else:
+            wins_b += 1
+        if max(wins_a, wins_b) >= games_to_win and index != len(games):
+            raise ScoreError("比赛已经分出胜负，请删除多余局分", 422)
+    if max(wins_a, wins_b) != games_to_win:
+        raise ScoreError(f"比赛尚未达到 {games_to_win} 局胜利", 422)
+    return wins_a, wins_b
+
+
+def _side_ids(match: dict) -> tuple[int | None, int | None]:
+    return (
+        match.get("entry_a_id") or match.get("player_a_id"),
+        match.get("entry_b_id") or match.get("player_b_id"),
+    )
+
+
 def _ensure_match(conn: sqlite3.Connection, match_id: int) -> dict:
     match = repo.get_match(conn, match_id)
     if match is None:
@@ -43,7 +68,14 @@ def _ensure_match(conn: sqlite3.Connection, match_id: int) -> dict:
 
 
 def record_score(
-    conn: sqlite3.Connection, match_id: int, score_a: int, score_b: int
+    conn: sqlite3.Connection,
+    match_id: int,
+    score_a: int | None,
+    score_b: int | None,
+    games: list[tuple[int, int]] | None = None,
+    result_type: str = ResultType.NORMAL.value,
+    forfeit_entry_id: int | None = None,
+    note: str | None = None,
 ) -> dict:
     """录入比分：允许 PLAYING 或 WAITING 比赛 → FINISHED。
 
@@ -53,8 +85,39 @@ def record_score(
     match = _ensure_match(conn, match_id)
     if match["status"] not in (MatchStatus.PLAYING.value, MatchStatus.WAITING.value):
         raise ScoreError("只有进行中或待安排的比赛可以录入比分")
-    _validate_scores(score_a, score_b)
-    winner = _winner_id(match["player_a_id"], match["player_b_id"], score_a, score_b)
+    side_a, side_b = _side_ids(match)
+    if side_a is None or side_b is None:
+        raise ScoreError("比赛双方尚未就绪")
+    tournament = repo.get_tournament(conn, match["tournament_id"])
+    if result_type == ResultType.NORMAL.value:
+        if games is not None:
+            score_a, score_b = _validate_games(
+                games, tournament["games_to_win"], tournament["points_to_win"]
+            )
+            repo.replace_match_games(conn, match_id, games, match.get("entry_a_id"), match.get("entry_b_id"))
+        else:
+            # 常规现场录入只有大比分；避免旧的逐局数据被误用于本次排名。
+            repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
+        if score_a is None or score_b is None:
+            raise ScoreError("请录入完整比分", 422)
+        _validate_scores(score_a, score_b)
+        winner_side = side_a if score_a > score_b else side_b
+    else:
+        if forfeit_entry_id not in (side_a, side_b):
+            raise ScoreError("请选择弃权或未到场的一方", 422)
+        winner_side = side_b if forfeit_entry_id == side_a else side_a
+        # 小组赛按弃权负处理：胜方取得本场胜利及应胜局数，弃权方赛事积分为 0；
+        # 淘汰赛只表达直接晋级，不伪造逐局比分。
+        if match["stage"] == MatchStage.GROUP.value:
+            score_a = tournament["games_to_win"] if winner_side == side_a else 0
+            score_b = tournament["games_to_win"] if winner_side == side_b else 0
+        else:
+            score_a = score_b = 0
+        repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
+    winner_entry = winner_side if match.get("entry_a_id") is not None else None
+    winner_player = winner_side if match.get("entry_a_id") is None else (
+        match.get("player_a_id") if winner_side == side_a else match.get("player_b_id")
+    )
 
     repo.update_match(
         conn,
@@ -62,7 +125,11 @@ def record_score(
         status=MatchStatus.FINISHED.value,
         player_a_score=score_a,
         player_b_score=score_b,
-        winner_id=winner,
+        winner_id=winner_player,
+        winner_entry_id=winner_entry,
+        result_type=result_type,
+        forfeit_entry_id=forfeit_entry_id,
+        result_note=note,
     )
     if match["table_id"] is not None:
         repo.update_table_status(conn, match["table_id"], TableStatus.FREE.value)
@@ -71,11 +138,18 @@ def record_score(
         knockout_service.advance_winner(conn, repo.get_match(conn, match_id))
         knockout_service.sync_stage(conn, match["tournament_id"])
     conn.commit()
-    return repo.get_match(conn, match_id)
+    return repo.decorate_match(conn, repo.get_match(conn, match_id))
 
 
 def revise_score(
-    conn: sqlite3.Connection, match_id: int, score_a: int, score_b: int
+    conn: sqlite3.Connection,
+    match_id: int,
+    score_a: int | None,
+    score_b: int | None,
+    games: list[tuple[int, int]] | None = None,
+    result_type: str = ResultType.NORMAL.value,
+    forfeit_entry_id: int | None = None,
+    note: str | None = None,
 ) -> dict:
     """修改已结束比赛的比分（纠错）。
 
@@ -92,15 +166,46 @@ def revise_score(
                 MatchStatus.FINISHED.value,
             ):
                 raise ScoreError("该结果已经影响后续比赛。请先处理后续比赛后再修改本场结果。")
-    _validate_scores(score_a, score_b)
-    winner = _winner_id(match["player_a_id"], match["player_b_id"], score_a, score_b)
+    side_a, side_b = _side_ids(match)
+    tournament = repo.get_tournament(conn, match["tournament_id"])
+    if result_type == ResultType.NORMAL.value:
+        if games is not None:
+            score_a, score_b = _validate_games(
+                games, tournament["games_to_win"], tournament["points_to_win"]
+            )
+            repo.replace_match_games(conn, match_id, games, match.get("entry_a_id"), match.get("entry_b_id"))
+        else:
+            # 改大比分即撤销旧小分；若出线仍并列，排名页会再次精确提示补录。
+            repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
+        if score_a is None or score_b is None:
+            raise ScoreError("请录入完整比分", 422)
+        _validate_scores(score_a, score_b)
+        winner_side = side_a if score_a > score_b else side_b
+    else:
+        if forfeit_entry_id not in (side_a, side_b):
+            raise ScoreError("请选择弃权或未到场的一方", 422)
+        winner_side = side_b if forfeit_entry_id == side_a else side_a
+        if match["stage"] == MatchStage.GROUP.value:
+            score_a = tournament["games_to_win"] if winner_side == side_a else 0
+            score_b = tournament["games_to_win"] if winner_side == side_b else 0
+        else:
+            score_a = score_b = 0
+        repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
+    winner_entry = winner_side if match.get("entry_a_id") is not None else None
+    winner_player = winner_side if match.get("entry_a_id") is None else (
+        match.get("player_a_id") if winner_side == side_a else match.get("player_b_id")
+    )
 
     repo.update_match(
         conn,
         match_id,
         player_a_score=score_a,
         player_b_score=score_b,
-        winner_id=winner,
+        winner_id=winner_player,
+        winner_entry_id=winner_entry,
+        result_type=result_type,
+        forfeit_entry_id=forfeit_entry_id,
+        result_note=note,
     )
     if match["stage"] == MatchStage.KNOCKOUT.value:
         # 改分：下游链重置（撤销旧晋级槽位），再按新结果重新晋级
@@ -108,4 +213,4 @@ def revise_score(
         knockout_service.advance_winner(conn, repo.get_match(conn, match_id))
         knockout_service.sync_stage(conn, match["tournament_id"])
     conn.commit()
-    return repo.get_match(conn, match_id)
+    return repo.decorate_match(conn, repo.get_match(conn, match_id))

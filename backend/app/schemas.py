@@ -4,15 +4,30 @@ from datetime import date
 
 from pydantic import BaseModel, Field
 
-from .models import MatchStage, MatchStatus, TableStatus, TournamentStage
+from .models import (
+    BronzeMode,
+    EventType,
+    MatchBracket,
+    MatchStage,
+    MatchStatus,
+    PlacementMode,
+    ResultType,
+    TableStatus,
+    TournamentStage,
+)
 
 
 class TournamentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     date: date
-    table_count: int = Field(ge=4, le=8)
-    group_count: int = Field(ge=1, le=8)
+    table_count: int = Field(ge=1, le=15)
+    group_count: int = Field(ge=1, le=26)
     qualify_per_group: int = Field(ge=1, le=20)
+    event_type: EventType = EventType.SINGLES
+    bronze_mode: BronzeMode = BronzeMode.JOINT_BRONZE
+    placement_mode: PlacementMode = PlacementMode.OFF
+    games_to_win: int = Field(default=2, ge=1, le=4)
+    points_to_win: int = Field(default=11, ge=1, le=99)
 
 
 class TournamentOut(BaseModel):
@@ -24,16 +39,25 @@ class TournamentOut(BaseModel):
     qualify_per_group: int
     stage: TournamentStage
     created_at: str
+    event_type: EventType = EventType.SINGLES
+    bronze_mode: BronzeMode = BronzeMode.JOINT_BRONZE
+    placement_mode: PlacementMode = PlacementMode.OFF
+    games_to_win: int = 2
+    points_to_win: int = 11
+    roster_confirmed: bool = False
+    confirmed_at: str | None = None
 
 
 class PlayerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     college: str | None = Field(default=None, max_length=100)
+    rating_points: int = Field(default=1000, ge=0, le=99999)
 
 
 class PlayerUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=50)
     college: str | None = Field(default=None, max_length=100)
+    rating_points: int | None = Field(default=None, ge=0, le=99999)
 
 
 class PlayerOut(BaseModel):
@@ -43,6 +67,42 @@ class PlayerOut(BaseModel):
     college: str | None
     group_id: int | None
     seed_no: int | None
+    rating_points: int = 1000
+
+
+class EntryMemberOut(BaseModel):
+    player_id: int
+    name: str
+    college: str | None
+    rating_points: int
+    member_order: int
+
+
+class EntryOut(BaseModel):
+    id: int
+    tournament_id: int
+    entry_type: EventType
+    display_name: str
+    rating_points: int
+    group_id: int | None
+    seed_no: int | None
+    status: str
+    members: list[EntryMemberOut]
+
+
+class PairingResult(BaseModel):
+    entries: list[EntryOut]
+    unpaired_players: list[PlayerOut]
+    pairing_seed: int
+
+
+class PairingRequest(BaseModel):
+    pairing_seed: int | None = None
+
+
+class ConfirmRosterResult(BaseModel):
+    tournament: TournamentOut
+    entries: list[EntryOut]
 
 
 class SetSeedsRequest(BaseModel):
@@ -70,6 +130,24 @@ class ImportPlayersResult(BaseModel):
     errors: list[ImportRowError]
 
 
+class ImportPreviewRow(BaseModel):
+    row: int
+    name: str
+    college: str | None
+    rating_points: int
+    seed_no: int | None
+    status: str
+    message: str | None
+
+
+class ImportPreviewResult(BaseModel):
+    total_rows: int
+    valid_rows: int
+    skipped: int
+    errors: list[ImportRowError]
+    rows: list[ImportPreviewRow]
+
+
 class TableOut(BaseModel):
     id: int
     tournament_id: int
@@ -87,11 +165,17 @@ class GroupOut(BaseModel):
     id: int
     name: str
     sort_order: int
+    qualify_count: int | None = None
     players: list[GroupPlayerOut]
+    entries: list[EntryOut] = []
 
 
 class GroupingResult(BaseModel):
     groups: list[GroupOut]
+
+
+class GroupQualifyUpdate(BaseModel):
+    qualify_count: int = Field(ge=1, le=20)
 
 
 class MatchOut(BaseModel):
@@ -110,6 +194,17 @@ class MatchOut(BaseModel):
     status: MatchStatus
     prev_match_a_id: int | None
     prev_match_b_id: int | None
+    entry_a_id: int | None = None
+    entry_b_id: int | None = None
+    winner_entry_id: int | None = None
+    entry_a_name: str | None = None
+    entry_b_name: str | None = None
+    result_type: ResultType | None = None
+    forfeit_entry_id: int | None = None
+    bracket: MatchBracket = MatchBracket.GROUP
+    placement_min: int | None = None
+    placement_max: int | None = None
+    games: list["MatchGameOut"] = []
 
 
 class GenerateMatchesResult(BaseModel):
@@ -148,9 +243,27 @@ class Dashboard(BaseModel):
     next_playable: list[MatchOut]
 
 
+class MatchGameInput(BaseModel):
+    side_a_score: int = Field(ge=0, le=99)
+    side_b_score: int = Field(ge=0, le=99)
+
+
+class MatchGameOut(BaseModel):
+    id: int
+    match_id: int
+    game_no: int
+    side_a_score: int
+    side_b_score: int
+    winner_entry_id: int | None = None
+
+
 class ScoreRequest(BaseModel):
-    player_a_score: int = Field(ge=0)
-    player_b_score: int = Field(ge=0)
+    player_a_score: int | None = Field(default=None, ge=0)
+    player_b_score: int | None = Field(default=None, ge=0)
+    games: list[MatchGameInput] | None = None
+    result_type: ResultType = ResultType.NORMAL
+    forfeit_entry_id: int | None = None
+    note: str | None = Field(default=None, max_length=500)
 
 
 class RankingEntryOut(BaseModel):
@@ -163,14 +276,23 @@ class RankingEntryOut(BaseModel):
     rank: int
     tied: bool
     qualified: bool
+    entry_id: int | None = None
+    match_points: int = 0
+    points_won: int = 0
+    points_lost: int = 0
+    point_difference: int = 0
+    point_ratio: float = 0
 
 
 class GroupRankingOut(BaseModel):
     group_id: int
     group_name: str
+    qualify_count: int
     total_matches: int
     finished_matches: int
     ambiguous_qualification: bool
+    needs_point_scores: bool = False
+    point_score_match_ids: list[int] = []
     entries: list[RankingEntryOut]
 
 
@@ -182,6 +304,7 @@ class PlayerBrief(BaseModel):
     id: int
     name: str | None
     seed_no: int | None = None
+    member_names: list[str] = []
 
 
 class KnockoutMatchOut(BaseModel):
@@ -197,6 +320,10 @@ class KnockoutMatchOut(BaseModel):
     table_id: int | None
     prev_match_a_id: int | None
     prev_match_b_id: int | None
+    bracket: MatchBracket = MatchBracket.MAIN
+    placement_min: int | None = None
+    placement_max: int | None = None
+    result_type: ResultType | None = None
 
 
 class KnockoutRoundOut(BaseModel):
@@ -210,3 +337,15 @@ class KnockoutTree(BaseModel):
     rounds: list[KnockoutRoundOut]
     champion: PlayerBrief | None
     runner_up: PlayerBrief | None
+    placements: list[dict] = []
+    placement_matches: list[dict] = []
+    champion_path_match_ids: list[int] = []
+
+
+class TournamentResults(BaseModel):
+    tournament: TournamentOut
+    champion: PlayerBrief | None
+    runner_up: PlayerBrief | None
+    placements: list[dict]
+    total_matches: int
+    finished_matches: int

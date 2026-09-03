@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, GroupingResult, Match, Player, Tournament } from '../api'
+import { api, ApiError, Entry, GroupingResult, Match, Player, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 
 export default function SchedulePage() {
@@ -10,6 +10,7 @@ export default function SchedulePage() {
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
+  const [entries, setEntries] = useState<Entry[]>([])
   const [groups, setGroups] = useState<GroupingResult>({ groups: [] })
   const [matches, setMatches] = useState<Match[]>([])
   const [tableNames, setTableNames] = useState<Record<number, string>>({})
@@ -18,15 +19,17 @@ export default function SchedulePage() {
 
   const load = useCallback(async () => {
     if (tid === null) return
-    const [t, ps, gs, ms, dash] = await Promise.all([
+    const [t, ps, es, gs, ms, dash] = await Promise.all([
       api.getTournament(tid),
       api.listPlayers(tid),
+      api.listEntries(tid),
       api.getGroups(tid),
       api.listMatches(tid),
       api.getDashboard(tid),
     ])
     setTournament(t)
     setPlayers(ps)
+    setEntries(es)
     setGroups(gs)
     setMatches(ms)
     const names: Record<number, string> = {}
@@ -42,7 +45,10 @@ export default function SchedulePage() {
     }
   }, [tid, load])
 
-  const selected = players.find((p) => p.id === selectedId) ?? null
+  const participants = useMemo(() => entries.length
+    ? entries.map((entry) => ({ id: entry.id, name: entry.display_name, group_id: entry.group_id, seed_no: entry.seed_no, member_ids: entry.members.map((m) => m.player_id) }))
+    : players.map((player) => ({ id: player.id, name: player.name, group_id: player.group_id, seed_no: player.seed_no, member_ids: [player.id] })), [entries, players])
+  const selected = participants.find((p) => p.id === selectedId) ?? null
   const groupName =
     selected?.group_id != null
       ? groups.groups.find((g) => g.id === selected.group_id)?.name ?? null
@@ -51,7 +57,7 @@ export default function SchedulePage() {
   const myMatches = useMemo(() => {
     if (!selected) return []
     return matches
-      .filter((m) => m.player_a_id === selected.id || m.player_b_id === selected.id)
+      .filter((m) => (m.entry_a_id ?? m.player_a_id) === selected.id || (m.entry_b_id ?? m.player_b_id) === selected.id)
       .sort((a, b) => a.id - b.id)
   }, [matches, selected])
 
@@ -70,10 +76,12 @@ export default function SchedulePage() {
     return `${participants}强赛`
   }
 
-  const opponentOf = (m: Match): Player | null => {
+  const opponentOf = (m: Match) => {
     if (!selected) return null
-    const oid = m.player_a_id === selected.id ? m.player_b_id : m.player_a_id
-    return players.find((p) => p.id === oid) ?? null
+    const a = m.entry_a_id ?? m.player_a_id
+    const b = m.entry_b_id ?? m.player_b_id
+    const oid = a === selected.id ? b : a
+    return participants.find((p) => p.id === oid) ?? null
   }
 
   const statusText = selected
@@ -107,7 +115,7 @@ export default function SchedulePage() {
             style={{ padding: 8, borderRadius: 6, border: '1px solid #cbd2d9', fontSize: 14 }}
           >
             <option value="">选择选手…</option>
-            {players.map((p) => (
+            {participants.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
@@ -150,8 +158,8 @@ export default function SchedulePage() {
             {history.length === 0 && <p className="muted">暂无已结束的比赛。</p>}
             <ul className="history-list">
               {history.map((m) => {
-                const won = m.winner_id === selected.id
-                const aIsSelected = m.player_a_id === selected.id
+                const won = (m.winner_entry_id ?? m.winner_id) === selected.id
+                const aIsSelected = (m.entry_a_id ?? m.player_a_id) === selected.id
                 const myScore = aIsSelected ? m.player_a_score : m.player_b_score
                 const oppScore = aIsSelected ? m.player_b_score : m.player_a_score
                 return (

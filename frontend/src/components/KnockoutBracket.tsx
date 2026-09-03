@@ -51,7 +51,7 @@ function KoCard({
         <span className="ko-card-status">{statusText}</span>
         {canScore && (
           <button className="btn small primary ko-score-btn" onClick={() => onScore(m)}>
-            录入比分
+            录入大比分
           </button>
         )}
       </div>

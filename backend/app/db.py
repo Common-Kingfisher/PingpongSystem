@@ -16,9 +16,16 @@ CREATE TABLE IF NOT EXISTS tournaments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     date TEXT NOT NULL,
-    table_count INTEGER NOT NULL CHECK (table_count BETWEEN 4 AND 8),
-    group_count INTEGER NOT NULL CHECK (group_count BETWEEN 1 AND 8),
+    table_count INTEGER NOT NULL CHECK (table_count BETWEEN 1 AND 15),
+    group_count INTEGER NOT NULL CHECK (group_count BETWEEN 1 AND 26),
     qualify_per_group INTEGER NOT NULL CHECK (qualify_per_group >= 1),
+    event_type TEXT NOT NULL DEFAULT 'SINGLES' CHECK (event_type IN ('SINGLES','DOUBLES')),
+    bronze_mode TEXT NOT NULL DEFAULT 'JOINT_BRONZE' CHECK (bronze_mode IN ('BRONZE_MATCH','JOINT_BRONZE')),
+    placement_mode TEXT NOT NULL DEFAULT 'OFF' CHECK (placement_mode IN ('OFF','COMPLETE','TIERED')),
+    games_to_win INTEGER NOT NULL DEFAULT 2 CHECK (games_to_win BETWEEN 1 AND 4),
+    points_to_win INTEGER NOT NULL DEFAULT 11 CHECK (points_to_win >= 1),
+    roster_confirmed INTEGER NOT NULL DEFAULT 0 CHECK (roster_confirmed IN (0,1)),
+    confirmed_at TEXT,
     stage TEXT NOT NULL DEFAULT 'REGISTRATION'
         CHECK (stage IN ('REGISTRATION','GROUP_STAGE','KNOCKOUT','FINISHED')),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -29,6 +36,7 @@ CREATE TABLE IF NOT EXISTS groups (
     tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     sort_order INTEGER NOT NULL,
+    qualify_count INTEGER,
     UNIQUE (tournament_id, name)
 );
 
@@ -39,7 +47,28 @@ CREATE TABLE IF NOT EXISTS players (
     college TEXT,
     group_id INTEGER REFERENCES groups(id),
     seed_no INTEGER,
+    rating_points INTEGER NOT NULL DEFAULT 1000 CHECK (rating_points >= 0),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    entry_type TEXT NOT NULL CHECK (entry_type IN ('SINGLES','DOUBLES','TEAM')),
+    display_name TEXT NOT NULL,
+    rating_points INTEGER NOT NULL DEFAULT 0,
+    group_id INTEGER REFERENCES groups(id),
+    seed_no INTEGER,
+    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','WITHDRAWN')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS entry_members (
+    entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    member_order INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (entry_id, player_id),
+    UNIQUE (player_id)
 );
 
 CREATE TABLE IF NOT EXISTS tables (
@@ -67,13 +96,75 @@ CREATE TABLE IF NOT EXISTS matches (
         CHECK (status IN ('WAITING','PLAYING','FINISHED')),
     prev_match_a_id INTEGER REFERENCES matches(id),
     prev_match_b_id INTEGER REFERENCES matches(id),
+    entry_a_id INTEGER REFERENCES entries(id),
+    entry_b_id INTEGER REFERENCES entries(id),
+    winner_entry_id INTEGER REFERENCES entries(id),
+    result_type TEXT CHECK (result_type IS NULL OR result_type IN ('NORMAL','FORFEIT','WALKOVER','NO_SHOW','DISQUALIFIED')),
+    forfeit_entry_id INTEGER REFERENCES entries(id),
+    result_note TEXT,
+    bracket TEXT NOT NULL DEFAULT 'GROUP' CHECK (bracket IN ('GROUP','MAIN','PLACEMENT')),
+    placement_min INTEGER,
+    placement_max INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS match_games (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    game_no INTEGER NOT NULL,
+    side_a_score INTEGER NOT NULL CHECK (side_a_score >= 0),
+    side_b_score INTEGER NOT NULL CHECK (side_b_score >= 0),
+    winner_entry_id INTEGER REFERENCES entries(id),
+    UNIQUE (match_id, game_no)
 );
 
 CREATE INDEX IF NOT EXISTS idx_players_tournament ON players(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
+CREATE INDEX IF NOT EXISTS idx_entries_tournament ON entries(tournament_id);
+CREATE INDEX IF NOT EXISTS idx_entry_members_player ON entry_members(player_id);
+CREATE INDEX IF NOT EXISTS idx_match_games_match ON match_games(match_id);
 """
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
+def _upgrade_tournament_limits(conn: sqlite3.Connection) -> None:
+    """Rebuild only the legacy tournaments table whose CHECK still caps tables at 8."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='tournaments'"
+    ).fetchone()
+    if not row or "BETWEEN 4 AND 8" not in (row[0] or ""):
+        return
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("PRAGMA legacy_alter_table = ON")
+    conn.execute("ALTER TABLE tournaments RENAME TO tournaments_legacy_v01")
+    conn.execute(
+        """CREATE TABLE tournaments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            date TEXT NOT NULL,
+            table_count INTEGER NOT NULL CHECK (table_count BETWEEN 1 AND 15),
+            group_count INTEGER NOT NULL CHECK (group_count BETWEEN 1 AND 26),
+            qualify_per_group INTEGER NOT NULL CHECK (qualify_per_group >= 1),
+            stage TEXT NOT NULL DEFAULT 'REGISTRATION'
+                CHECK (stage IN ('REGISTRATION','GROUP_STAGE','KNOCKOUT','FINISHED')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"""
+    )
+    conn.execute(
+        "INSERT INTO tournaments (id,name,date,table_count,group_count,qualify_per_group,stage,created_at) "
+        "SELECT id,name,date,table_count,group_count,qualify_per_group,stage,created_at FROM tournaments_legacy_v01"
+    )
+    conn.execute("DROP TABLE tournaments_legacy_v01")
+    conn.commit()
+    conn.execute("PRAGMA legacy_alter_table = OFF")
+    conn.execute("PRAGMA foreign_keys = ON")
 
 
 def _db_path() -> Path:
@@ -98,10 +189,37 @@ def init_db() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        _upgrade_tournament_limits(conn)
         # 轻量迁移：为旧库补充 seed_no 列（CREATE TABLE IF NOT EXISTS 不会改已有表）
         cols = [r[1] for r in conn.execute("PRAGMA table_info(players)")]
         if "seed_no" not in cols:
             conn.execute("ALTER TABLE players ADD COLUMN seed_no INTEGER")
+        _add_column_if_missing(conn, "players", "rating_points", "INTEGER NOT NULL DEFAULT 1000")
+        _add_column_if_missing(conn, "groups", "qualify_count", "INTEGER")
+        for column, ddl in (
+            ("event_type", "TEXT NOT NULL DEFAULT 'SINGLES'"),
+            ("bronze_mode", "TEXT NOT NULL DEFAULT 'JOINT_BRONZE'"),
+            ("placement_mode", "TEXT NOT NULL DEFAULT 'OFF'"),
+            ("games_to_win", "INTEGER NOT NULL DEFAULT 2"),
+            ("points_to_win", "INTEGER NOT NULL DEFAULT 11"),
+            ("roster_confirmed", "INTEGER NOT NULL DEFAULT 0"),
+            ("confirmed_at", "TEXT"),
+        ):
+            _add_column_if_missing(conn, "tournaments", column, ddl)
+        for column, ddl in (
+            ("entry_a_id", "INTEGER REFERENCES entries(id)"),
+            ("entry_b_id", "INTEGER REFERENCES entries(id)"),
+            ("winner_entry_id", "INTEGER REFERENCES entries(id)"),
+            ("result_type", "TEXT"),
+            ("forfeit_entry_id", "INTEGER REFERENCES entries(id)"),
+            ("result_note", "TEXT"),
+            ("bracket", "TEXT NOT NULL DEFAULT 'GROUP'"),
+            ("placement_min", "INTEGER"),
+            ("placement_max", "INTEGER"),
+        ):
+            _add_column_if_missing(conn, "matches", column, ddl)
+        # New tables are created after legacy tables have been upgraded so their FKs target the final table.
+        conn.executescript(SCHEMA)
         conn.commit()
     finally:
         conn.close()

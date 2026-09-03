@@ -130,6 +130,45 @@ def test_revise_no_pollution(conn):
     assert [e["player_id"] for e in entries] == [3, 2, 4, 1]
 
 
+def test_group_tie_requests_small_scores_then_resolves_by_point_ratio(conn):
+    """常规只录大比分；三人循环同分时才请求并使用相关比赛小分。"""
+    tid = _service_tournament(conn, n_players=3, group_count=1)
+    matches = repo.list_matches(conn, tid)
+
+    # P1 胜 P2、P2 胜 P3、P3 胜 P1，且均为 2:1：胜场、净胜局、积分完全相同。
+    outcomes = {
+        frozenset((1, 2)): (1, [(11, 1), (1, 11), (11, 1)]),
+        frozenset((2, 3)): (2, [(11, 5), (5, 11), (11, 5)]),
+        frozenset((1, 3)): (3, [(11, 9), (9, 11), (11, 9)]),
+    }
+    for match in matches:
+        a, b = match["player_a_id"], match["player_b_id"]
+        winner, canonical_games = outcomes[frozenset((a, b))]
+        if a == winner:
+            score = (2, 1)
+        else:
+            score = (1, 2)
+        scores_service.record_score(conn, match["id"], *score)
+
+    before = rankings_service.get_rankings(conn, tid)[0]
+    assert before["ambiguous_qualification"] is True
+    assert before["needs_point_scores"] is True
+    assert sorted(before["point_score_match_ids"]) == sorted(m["id"] for m in matches)
+
+    for match in matches:
+        a, b = match["player_a_id"], match["player_b_id"]
+        winner, canonical_games = outcomes[frozenset((a, b))]
+        # canonical_games 是“胜者:负者”，按数据库 A/B 方向翻转。
+        games = canonical_games if a == winner else [(right, left) for left, right in canonical_games]
+        score = (2, 1) if a == winner else (1, 2)
+        scores_service.revise_score(conn, match["id"], *score, games=games)
+
+    after = rankings_service.get_rankings(conn, tid)[0]
+    assert after["needs_point_scores"] is False
+    assert after["ambiguous_qualification"] is False
+    assert [entry["player_id"] for entry in after["entries"]] == [1, 3, 2]
+
+
 def _free_table(conn, tid):
     return next(t for t in repo.list_tables(conn, tid) if t["status"] == "FREE")
 

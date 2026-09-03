@@ -42,4 +42,4 @@ def list_matches(
     if repo.get_tournament(conn, tournament_id) is None:
         raise HTTPException(status_code=404, detail="赛事不存在")
     matches = repo.list_matches(conn, tournament_id, stage=stage, status=status, group_id=group_id)
-    return [schemas.MatchOut(**m) for m in matches]
+    return [schemas.MatchOut(**repo.decorate_match(conn, m)) for m in matches]

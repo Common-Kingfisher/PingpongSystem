@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, Dashboard, Tournament } from '../api'
+import { api, ApiError, BronzeMode, Dashboard, EventType, PlacementMode, Tournament } from '../api'
 import { getActiveTournamentId, setActiveTournamentId } from '../activeTournament'
 
 interface FormState {
@@ -9,6 +9,9 @@ interface FormState {
   table_count: number
   group_count: number
   qualify_per_group: number
+  event_type: EventType
+  bronze_mode: BronzeMode
+  placement_mode: PlacementMode
 }
 
 const emptyForm: FormState = {
@@ -17,6 +20,9 @@ const emptyForm: FormState = {
   table_count: 6,
   group_count: 4,
   qualify_per_group: 2,
+  event_type: 'SINGLES',
+  bronze_mode: 'JOINT_BRONZE',
+  placement_mode: 'COMPLETE',
 }
 
 export default function HomePage() {
@@ -118,8 +124,16 @@ export default function HomePage() {
 
   return (
     <div className="page">
+      <section className="home-hero">
+        <div>
+          <span className="eyebrow">FIELD CONTROL · V0.2</span>
+          <h1>从报名到冠军，<br />一条流程跑完整场比赛。</h1>
+          <p>单打与双打共用赛制引擎，现场先录大比分；小组赛逐局小比分可按需补录。</p>
+        </div>
+        <div className="hero-ball" aria-hidden="true"><span /></div>
+      </section>
       {current && (
-        <div className="card">
+        <div className="card current-event-card">
           <h2>
             {current.name}
             <span className="badge" style={{ marginLeft: 10 }}>
@@ -135,6 +149,7 @@ export default function HomePage() {
           <p className="muted">
             日期 {current.date} · 球台 {current.table_count} 张 · 小组 {current.group_count} 个 ·
             每组晋级 {current.qualify_per_group} 人
+            {` · ${current.event_type === 'DOUBLES' ? '双打' : '单打'}`}
             {dash && ` · 比赛 ${dash.stats.finished}/${dash.stats.total} 场`}
           </p>
           {dash && (
@@ -163,6 +178,12 @@ export default function HomePage() {
             </Link>
             <Link className="btn" to={`/bigscreen?tid=${current.id}`}>
               赛事大屏
+            </Link>
+            <Link className="btn" to={`/journey?tid=${current.id}`}>
+              冠军之路
+            </Link>
+            <Link className="btn" to={`/orderbook?tid=${current.id}`}>
+              秩序册
             </Link>
             <Link className="btn" to={`/register?tid=${current.id}`}>
               在线报名
@@ -202,27 +223,53 @@ export default function HomePage() {
             />
           </label>
           <label>
-            球台数量 (4~8)
+            球台数量 (1~15)
             <input
               type="number"
-              min={4}
-              max={8}
+              min={1}
+              max={15}
               required
               value={form.table_count}
               onChange={(e) => set('table_count', Number(e.target.value))}
             />
           </label>
           <label>
-            小组数量 (1~8)
+            小组数量 (1~26)
             <input
               type="number"
               min={1}
-              max={8}
+              max={26}
               required
               value={form.group_count}
               onChange={(e) => set('group_count', Number(e.target.value))}
             />
           </label>
+          <label>
+            比赛项目
+            <select value={form.event_type} onChange={(e) => set('event_type', e.target.value as EventType)}>
+              <option value="SINGLES">单打</option>
+              <option value="DOUBLES">双打 · 相近积分随机配对</option>
+            </select>
+          </label>
+          <label>
+            季军产生方式
+            <select value={form.bronze_mode} onChange={(e) => set('bronze_mode', e.target.value as BronzeMode)}>
+              <option value="JOINT_BRONZE">三、四名并列季军</option>
+              <option value="BRONZE_MATCH">增加季军赛</option>
+            </select>
+          </label>
+          <label>
+            名次排位赛
+            <select value={form.placement_mode} onChange={(e) => set('placement_mode', e.target.value as PlacementMode)}>
+              <option value="COMPLETE">8 人内完整排出名次</option>
+              <option value="TIERED">16 人以上按名次分档</option>
+              <option value="OFF">不增加排位赛</option>
+            </select>
+          </label>
+          <div className="rule-summary">
+            <strong>默认规则</strong>
+            <span>三局两胜 · 每局 11 分 · 胜 2 / 负 1 / 未赛弃权 0</span>
+          </div>
           <label>
             每组晋级人数
             <input
@@ -254,6 +301,7 @@ export default function HomePage() {
               <th>球台</th>
               <th>小组</th>
               <th>晋级/组</th>
+              <th>项目</th>
               <th>阶段</th>
               <th>操作</th>
             </tr>
@@ -274,6 +322,7 @@ export default function HomePage() {
                 <td>{t.table_count}</td>
                 <td>{t.group_count}</td>
                 <td>{t.qualify_per_group}</td>
+                <td>{t.event_type === 'DOUBLES' ? '双打' : '单打'}</td>
                 <td>
                   <span className="badge">{t.stage}</span>
                 </td>

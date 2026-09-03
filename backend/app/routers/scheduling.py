@@ -22,7 +22,7 @@ def assign_table(
         match = scheduling_service.assign_table(conn, match_id, payload.table_id)
     except scheduling_service.SchedulingError as exc:
         raise _http(exc)
-    return schemas.MatchOut(**match)
+    return schemas.MatchOut(**repo.decorate_match(conn, match))
 
 
 @router.post("/api/matches/{match_id}/release", response_model=schemas.MatchOut)
@@ -31,7 +31,7 @@ def release_match(match_id: int, conn: Connection = Depends(get_db)):
         match = scheduling_service.release_match(conn, match_id)
     except scheduling_service.SchedulingError as exc:
         raise _http(exc)
-    return schemas.MatchOut(**match)
+    return schemas.MatchOut(**repo.decorate_match(conn, match))
 
 
 @router.post(

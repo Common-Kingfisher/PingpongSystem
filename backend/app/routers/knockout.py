@@ -45,4 +45,7 @@ def _to_schema(tree: dict) -> schemas.KnockoutTree:
         ],
         champion=schemas.PlayerBrief(**tree["champion"]) if tree["champion"] else None,
         runner_up=schemas.PlayerBrief(**tree["runner_up"]) if tree["runner_up"] else None,
+        placements=tree.get("placements", []),
+        placement_matches=tree.get("placement_matches", []),
+        champion_path_match_ids=tree.get("champion_path_match_ids", []),
     )

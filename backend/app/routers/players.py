@@ -36,6 +36,30 @@ def import_players(
     return result
 
 
+@router.post("/import/preview", response_model=schemas.ImportPreviewResult)
+def preview_import_players(
+    tournament_id: int,
+    file: UploadFile = File(...),
+    conn: Connection = Depends(get_db),
+):
+    content = file.file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="文件过大，当前 Demo 仅支持 5MB 以内的名单文件")
+    try:
+        result = import_service.import_players_file(
+            conn, tournament_id, content, file.filename or "", commit=False
+        )
+    except import_service.ImportFileError as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc))
+    return {
+        "total_rows": result["total_rows"],
+        "valid_rows": result["imported"],
+        "skipped": result["skipped"],
+        "errors": result["errors"],
+        "rows": result["rows"],
+    }
+
+
 def _http(exc) -> HTTPException:
     return HTTPException(status_code=exc.code, detail=str(exc))
 
@@ -54,9 +78,11 @@ def add_player(
 ):
     try:
         players_service.ensure_players_editable(conn, tournament_id)
+        if len(repo.list_players(conn, tournament_id)) >= 120:
+            raise players_service.PlayerError("单场赛事最多支持 120 名运动员", 409)
     except players_service.PlayerError as exc:
         raise _http(exc)
-    player = repo.add_player(conn, tournament_id, payload.name, payload.college)
+    player = repo.add_player(conn, tournament_id, payload.name, payload.college, payload.rating_points)
     conn.commit()
     return player
 
@@ -72,7 +98,9 @@ def update_player(
         players_service.ensure_players_editable(conn, tournament_id)
     except players_service.PlayerError as exc:
         raise _http(exc)
-    player = repo.update_player(conn, player_id, payload.name, payload.college)
+    player = repo.update_player(
+        conn, player_id, payload.name, payload.college, payload.rating_points
+    )
     if player is None:
         raise HTTPException(status_code=404, detail="选手不存在")
     conn.commit()

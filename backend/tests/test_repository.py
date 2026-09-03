@@ -44,7 +44,7 @@ def test_get_missing_tournament_returns_none(conn):
 
 def test_tournament_check_table_count_range(conn):
     with pytest.raises(sqlite3.IntegrityError):
-        _make_tournament(conn, table_count=3)  # 小于 4 被 CHECK 拒绝
+        _make_tournament(conn, table_count=16)  # 超过 15 被 CHECK 拒绝
 
 
 def test_tournament_stage_update(conn):

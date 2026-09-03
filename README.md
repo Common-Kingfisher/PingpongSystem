@@ -1,6 +1,6 @@
 # 乒乓球赛事编排与赛务管理系统 Demo
 
-单机可运行的乒乓球比赛编排 Demo：从创建赛事、自动分组、小组循环赛编排、球台分配、比分录入、排名计算、自动晋级到淘汰赛产生冠军的完整闭环。
+单机可运行的乒乓球比赛编排 Field Demo v0.2：从报名校验、单打/双打组队、抽签分组、现场排台、大比分录入、自动排名、淘汰与名次排位，到冠军之路和可打印秩序册的完整闭环。
 
 ## 技术栈
 
@@ -26,7 +26,8 @@ backend/
 frontend/
   src/
     api.ts            # 后端类型定义 + fetch 封装
-    pages/            # 5 个页面（任务 1 为占位）
+    components/       # 抽签动画、比赛大比分/小组小比分、淘汰签表
+    pages/            # 现场控制、排名、大屏、冠军之路、秩序册等页面
   package.json
 ```
 
@@ -65,18 +66,20 @@ cd backend
 python -m pytest -v
 ```
 
-## 开发进度
+## V0.2 演示范围
 
 | 任务 | 状态 |
 |---|---|
-| 1. 项目骨架 + 数据模型 | ✅ |
-| 2. 选手管理 + 自动分组 | ✅ |
-| 3. 小组循环赛生成 | ✅ |
-| 4. 比赛状态 + 球台调度 | ✅ |
-| 5. 比分录入 + 小组排名 | ✅ |
-| 6. 晋级 + 淘汰赛 | ✅ |
-| 7. 比赛控制台 UI | ✅ |
-| 8. 全流程验收与修复 | ✅ |
+| 单打 / 双打统一 Entry，按相近积分随机配对 | ✅ |
+| 名单确认、分组抽签过场动画 | ✅ |
+| Excel / CSV 预览、校验、确认导入 | ✅ |
+| 三局两胜、11 分；先录大比分，小组逐局小比分可随时补录 | ✅ |
+| 正常胜 2 / 正常负 1 / 弃权 0 | ✅ |
+| 各小组独立设置出线人数 | ✅ |
+| 单淘汰、季军赛或并列季军 | ✅ |
+| 8 人首轮负者独立争夺第 5–8 名 | ✅ |
+| WTT 直播感冠军之路、打印秩序册 | ✅ |
+| 双败 / 总决赛重置 | 不在本版范围 |
 
 ## 快速开始
 
@@ -99,6 +102,18 @@ cd backend
 .\.venv\Scripts\python.exe seed_demo.py        # 24 人 / 6 台 / 4 组×6 / 晋级 2
 ```
 
-测试：`cd backend && python -m pytest -v`（122 个测试）。
+测试：`cd backend && python -m pytest -q`。前端检查：`cd frontend && pnpm run build`。
+
+## 给队友引用 API 字段
+
+FastAPI/Pydantic 是字段定义唯一来源。仓库内已生成 [docs/openapi-v0.2.json](docs/openapi-v0.2.json)，队友可直接用 OpenAPI 工具导入；如需生成 TypeScript 声明：
+
+```bash
+npx openapi-typescript ../docs/openapi-v0.2.json -o src/api/generated/schema.d.ts
+```
+
+字段改动后在 `backend` 目录运行 `python export_openapi.py` 即可刷新契约文件。
+
+手写的前端消费类型集中在 `frontend/src/api.ts`，不要在页面里重复声明接口字段。后端 Schema 变化后应重新导出 OpenAPI，并先通过 TypeScript 编译再合并。
 
 详细操作步骤、已知限制与不支持功能见 [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md)。

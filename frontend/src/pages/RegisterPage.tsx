@@ -11,6 +11,7 @@ export default function RegisterPage() {
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [name, setName] = useState('')
   const [college, setCollege] = useState('')
+  const [ratingPoints, setRatingPoints] = useState(1000)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -32,10 +33,11 @@ export default function RegisterPage() {
     setMessage(null)
     setBusy(true)
     try {
-      await api.addPlayer(tid, { name, college: college || null })
+      await api.addPlayer(tid, { name, college: college || null, rating_points: ratingPoints })
       setMessage({ ok: true, text: `报名成功！${name} 已加入「${tournament?.name ?? '本场赛事'}」。` })
       setName('')
       setCollege('')
+      setRatingPoints(1000)
     } catch (err) {
       setMessage({ ok: false, text: err instanceof ApiError ? err.message : '报名失败' })
     } finally {
@@ -65,6 +67,17 @@ export default function RegisterPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="请输入姓名"
+            />
+          </label>
+          <label>
+            运动员积分
+            <input
+              type="number"
+              min={0}
+              max={99999}
+              value={ratingPoints}
+              onChange={(e) => setRatingPoints(Number(e.target.value))}
+              placeholder="如：1200"
             />
           </label>
           <label>

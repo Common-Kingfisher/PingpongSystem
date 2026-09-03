@@ -88,12 +88,16 @@ def generate_demo_players(
         raise PlayerError("生成数量需在 1~24 之间", 422)
 
     existing = repo.list_players(conn, tournament_id)
+    if len(existing) + count > 120:
+        raise PlayerError(f"生成后将超过 120 人上限，当前已有 {len(existing)} 人", 409)
     start = len(existing) + 1
     added: list[dict] = []
     for i in range(start, start + count):
         name = f"选手{i:02d}"
         college = DEMO_COLLEGES[(i - 1) % len(DEMO_COLLEGES)]
-        added.append(repo.add_player(conn, tournament_id, name, college))
+        # 让双打“相近积分随机配对”在演示数据中能直接看出效果。
+        rating_points = 1500 - ((i - 1) % 12) * 35
+        added.append(repo.add_player(conn, tournament_id, name, college, rating_points))
 
     if with_seeds and count > 0:
         seed_count = min(4, tournament["group_count"], count)

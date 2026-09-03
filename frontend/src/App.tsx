@@ -1,4 +1,4 @@
-import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import HomePage from './pages/HomePage'
 import PlayersPage from './pages/PlayersPage'
 import ConsolePage from './pages/ConsolePage'
@@ -7,6 +7,8 @@ import KnockoutPage from './pages/KnockoutPage'
 import SchedulePage from './pages/SchedulePage'
 import BigScreenPage from './pages/BigScreenPage'
 import RegisterPage from './pages/RegisterPage'
+import ChampionJourneyPage from './pages/ChampionJourneyPage'
+import OrderBookPage from './pages/OrderBookPage'
 import { getActiveTournamentId } from './activeTournament'
 
 function AppNav() {
@@ -20,9 +22,11 @@ function AppNav() {
     { to: `/console${qs}`, label: '比赛控制台' },
     { to: `/rankings${qs}`, label: '小组排名' },
     { to: `/knockout${qs}`, label: '淘汰赛' },
+    { to: `/journey${qs}`, label: '冠军之路' },
     { to: `/schedule${qs}`, label: '选手赛程' },
     { to: `/bigscreen${qs}`, label: '赛事大屏' },
     { to: `/register${qs}`, label: '在线报名' },
+    { to: `/orderbook${qs}`, label: '秩序册' },
   ]
   return (
     <nav>
@@ -42,11 +46,11 @@ function AppNav() {
 
 export default function App() {
   const { pathname } = useLocation()
-  const fullwidth = pathname === '/bigscreen'
+  const fullwidth = ['/bigscreen', '/journey', '/orderbook'].includes(pathname)
   return (
     <div className="app">
       <header className="app-header">
-        <span className="app-title">🏓 乒乓球赛事编排 Demo</span>
+        <Link className="app-title" to="/"><span className="brand-mark">TT</span><span>乒乓赛事控制台<small>TOURNAMENT OPS</small></span></Link>
         <AppNav />
       </header>
       <main className={fullwidth ? 'app-main fullwidth' : 'app-main'}>
@@ -59,6 +63,8 @@ export default function App() {
           <Route path="/schedule" element={<SchedulePage />} />
           <Route path="/bigscreen" element={<BigScreenPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/journey" element={<ChampionJourneyPage />} />
+          <Route path="/orderbook" element={<OrderBookPage />} />
         </Routes>
       </main>
     </div>

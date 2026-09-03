@@ -3,9 +3,10 @@
 排名规则（明确且诚实）：
 1. 主排序：胜场数（wins）降序；
 2. 次级：净胜局（games_won - games_lost）降序；
-3. 若（1）（2）仍并列且恰好两人：按两人直接交锋胜负关系决定先后；
-4. 仍无法区分（三人及以上连环、或二人无交锋记录）：并列处理——
-   同 rank、tied=True，绝不编造先后次序。
+3. 赛事积分（胜 2、正常负 1、弃权负 0）；
+4. 两人仍同分时看直接交锋；三人及以上循环同分时，只有在相关场次
+   已补录逐局小分后，才按乒联思路比较得失分比率；
+5. 小分未录齐或比率仍相同则保持并列，绝不编造名次。
 
 排名在读取时由"全部已结束比赛"重新计算，因此修改比分天然整体重算，
 不会在旧统计上做增减，不存在累计污染。
@@ -37,19 +38,25 @@ def compute_group_rankings(
             "losses": 0,
             "games_won": 0,
             "games_lost": 0,
+            "match_points": 0,
+            "points_won": 0,
+            "points_lost": 0,
         }
 
     finished: list[dict[str, Any]] = []
     for m in matches:
-        if m.get("status") == "FINISHED" and m.get("winner_id") is not None:
+        if m.get("status") == "FINISHED" and (
+            m.get("winner_entry_id") is not None or m.get("winner_id") is not None
+        ):
             finished.append(m)
 
     for m in finished:
-        a, b = m["player_a_id"], m["player_b_id"]
+        a = m.get("entry_a_id") or m.get("player_a_id")
+        b = m.get("entry_b_id") or m.get("player_b_id")
         if a is None or b is None or a == b:
             continue
         sa, sb = m["player_a_score"], m["player_b_score"]
-        winner = m["winner_id"]
+        winner = m.get("winner_entry_id") or m.get("winner_id")
         stats[a]["games_won"] += sa
         stats[a]["games_lost"] += sb
         stats[b]["games_won"] += sb
@@ -57,19 +64,35 @@ def compute_group_rankings(
         if winner == a:
             stats[a]["wins"] += 1
             stats[b]["losses"] += 1
+            stats[a]["match_points"] += 2
+            stats[b]["match_points"] += 1 if m.get("result_type") in (None, "NORMAL") else 0
         else:
             stats[b]["wins"] += 1
             stats[a]["losses"] += 1
+            stats[b]["match_points"] += 2
+            stats[a]["match_points"] += 1 if m.get("result_type") in (None, "NORMAL") else 0
+        for game in m.get("games", []):
+            stats[a]["points_won"] += game["side_a_score"]
+            stats[a]["points_lost"] += game["side_b_score"]
+            stats[b]["points_won"] += game["side_b_score"]
+            stats[b]["points_lost"] += game["side_a_score"]
 
-    # 按 (wins, 净胜局) 分桶
-    buckets: dict[tuple[int, int], list[int]] = {}
+    # 常规录分只保存大比分。小分不能在缺失时用 0 冒充，因此先按
+    # 胜场 → 净胜局 → 2/1/0 赛事积分分桶，真正需要时再比较得失分比率。
+    buckets: dict[tuple[int, int, int], list[int]] = {}
     for pid, s in stats.items():
-        key = (s["wins"], s["games_won"] - s["games_lost"])
+        s["point_difference"] = s["points_won"] - s["points_lost"]
+        s["point_ratio"] = _ratio(s["points_won"], s["points_lost"])
+        key = (
+            s["wins"],
+            s["games_won"] - s["games_lost"],
+            s["match_points"],
+        )
         buckets.setdefault(key, []).append(pid)
 
     result: list[dict[str, Any]] = []
     rank = 1
-    for key in sorted(buckets, key=lambda k: (-k[0], -k[1])):
+    for key in sorted(buckets, key=lambda k: (-k[0], -k[1], -k[2])):
         bucket = buckets[key]
         if len(bucket) == 1:
             pid = bucket[0]
@@ -77,6 +100,8 @@ def compute_group_rankings(
             rank += 1
             continue
         order, resolved = _resolve_head_to_head(finished, bucket)
+        if not resolved and len(bucket) > 2:
+            order, resolved = _resolve_by_point_ratio(finished, bucket)
         if resolved:
             for pid in order:
                 result.append({**stats[pid], "rank": rank, "tied": False})
@@ -88,6 +113,67 @@ def compute_group_rankings(
     return result
 
 
+def _ratio(won: int, lost: int) -> float:
+    """乒联排名使用比率；0 失分时视为正无穷。"""
+    if lost == 0:
+        return 999999.0 if won > 0 else 0.0
+    return won / lost
+
+
+def _resolve_by_point_ratio(
+    finished: list[dict[str, Any]], bucket: list[int]
+) -> tuple[list[int], bool]:
+    """三人及以上循环同分时，按相互比赛的小分得失比率排序。
+
+    相关正常完赛场次必须全部有逐局小分；否则返回未解决，让 UI 精确提示补录。
+    """
+    ids = set(bucket)
+    relevant = []
+    for match in finished:
+        a = match.get("entry_a_id") or match.get("player_a_id")
+        b = match.get("entry_b_id") or match.get("player_b_id")
+        if a in ids and b in ids and match.get("result_type") in (None, "NORMAL"):
+            relevant.append(match)
+    if not relevant or any(not match.get("games") for match in relevant):
+        return sorted(bucket), False
+
+    points = {pid: [0, 0] for pid in bucket}
+    for match in relevant:
+        a = match.get("entry_a_id") or match.get("player_a_id")
+        b = match.get("entry_b_id") or match.get("player_b_id")
+        for game in match.get("games", []):
+            points[a][0] += game["side_a_score"]
+            points[a][1] += game["side_b_score"]
+            points[b][0] += game["side_b_score"]
+            points[b][1] += game["side_a_score"]
+    ratios = {pid: _ratio(*points[pid]) for pid in bucket}
+    order = sorted(bucket, key=lambda pid: (-ratios[pid], pid))
+    resolved = len({round(ratios[pid], 12) for pid in bucket}) == len(bucket)
+    return order, resolved
+
+
+def missing_point_score_match_ids(
+    matches: list[dict[str, Any]], entries: list[dict[str, Any]], qualify_count: int
+) -> list[int]:
+    """返回影响出线线且尚未补录小分的场次。"""
+    tied_ids = {
+        entry["player_id"] for entry in entries
+        if entry.get("tied") and entry.get("rank", 9999) <= qualify_count
+    }
+    if not tied_ids:
+        return []
+    missing = []
+    for match in matches:
+        a = match.get("entry_a_id") or match.get("player_a_id")
+        b = match.get("entry_b_id") or match.get("player_b_id")
+        if (a in tied_ids and b in tied_ids
+                and match.get("status") == "FINISHED"
+                and match.get("result_type") in (None, "NORMAL")
+                and not match.get("games")):
+            missing.append(match["id"])
+    return missing
+
+
 def _resolve_head_to_head(
     finished: list[dict[str, Any]], bucket: list[int]
 ) -> tuple[list[int], bool]:
@@ -95,8 +181,11 @@ def _resolve_head_to_head(
     if len(bucket) == 2:
         a, b = bucket
         for m in finished:
-            if {m["player_a_id"], m["player_b_id"]} == {a, b}:
-                if m["winner_id"] == a:
+            ma = m.get("entry_a_id") or m.get("player_a_id")
+            mb = m.get("entry_b_id") or m.get("player_b_id")
+            winner = m.get("winner_entry_id") or m.get("winner_id")
+            if {ma, mb} == {a, b}:
+                if winner == a:
                     return ([a, b], True)
                 return ([b, a], True)
     return (sorted(bucket), False)

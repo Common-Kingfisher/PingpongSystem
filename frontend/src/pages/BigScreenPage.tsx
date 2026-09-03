@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, Dashboard, KnockoutTree, Player, RankingsResult, Tournament } from '../api'
+import { api, ApiError, Dashboard, Entry, KnockoutTree, Player, RankingsResult, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import KnockoutBracket from '../components/KnockoutBracket'
 
@@ -12,6 +12,7 @@ export default function BigScreenPage() {
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [dash, setDash] = useState<Dashboard | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
+  const [entries, setEntries] = useState<Entry[]>([])
   const [rankings, setRankings] = useState<RankingsResult | null>(null)
   const [tree, setTree] = useState<KnockoutTree | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -19,16 +20,18 @@ export default function BigScreenPage() {
 
   const load = useCallback(async () => {
     if (tid === null) return
-    const [t, d, ps, r, k] = await Promise.all([
+    const [t, d, ps, es, r, k] = await Promise.all([
       api.getTournament(tid),
       api.getDashboard(tid),
       api.listPlayers(tid),
+      api.listEntries(tid),
       api.getRankings(tid),
       api.getKnockout(tid),
     ])
     setTournament(t)
     setDash(d)
     setPlayers(ps)
+    setEntries(es)
     setRankings(r)
     setTree(k)
     setLoaded(true)
@@ -60,8 +63,10 @@ export default function BigScreenPage() {
   }, [tid, load])
 
   const nameOf = useCallback(
-    (id: number | null) => players.find((p) => p.id === id)?.name ?? '待定',
-    [players],
+    (entryId: number | null, playerId: number | null = null) =>
+      entries.find((entry) => entry.id === entryId)?.display_name ??
+      players.find((player) => player.id === playerId)?.name ?? '待定',
+    [entries, players],
   )
 
   if (tid === null) {
@@ -134,9 +139,9 @@ export default function BigScreenPage() {
               <div className="bigscreen-table" key={tb.id}>
                 <div className="bigscreen-table-name">{tb.name}</div>
                 <div className="bigscreen-pair">
-                  <div>{nameOf(tb.match!.player_a_id)}</div>
+                  <div>{nameOf(tb.match!.entry_a_id, tb.match!.player_a_id)}</div>
                   <div className="bigscreen-vs">VS</div>
-                  <div>{nameOf(tb.match!.player_b_id)}</div>
+                  <div>{nameOf(tb.match!.entry_b_id, tb.match!.player_b_id)}</div>
                 </div>
                 <div className="muted">
                   {tb.match!.stage === 'GROUP' ? '小组赛' : '淘汰赛'}
@@ -168,17 +173,17 @@ export default function BigScreenPage() {
             <ul className="bigscreen-upcoming">
               {upcoming.map((m) => (
                 <li key={m.id}>
-                  {nameOf(m.player_a_id)} VS {nameOf(m.player_b_id)}
+                  {nameOf(m.entry_a_id, m.player_a_id)} VS {nameOf(m.entry_b_id, m.player_b_id)}
                 </li>
               ))}
             </ul>
           </div>
           <div className="bigscreen-col">
-            <h2>小组排名（前两名）</h2>
+            <h2>小组排名（出线区）</h2>
             {(rankings?.rankings ?? []).map((g) => (
               <div key={g.group_id} className="bigscreen-group">
                 <div className="bigscreen-group-name">{g.group_name}</div>
-                {g.entries.slice(0, 2).map((e) => (
+                {g.entries.slice(0, g.qualify_count).map((e) => (
                   <div key={e.player_id}>
                     {e.rank}. {e.name}
                     {e.qualified && <span className="status-ok"> ✓</span>}

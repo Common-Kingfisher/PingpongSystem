@@ -1,0 +1,3460 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "乒乓球赛事编排与赛务管理系统 Demo",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/tournaments": {
+      "get": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "List Tournaments",
+        "operationId": "list_tournaments_api_tournaments_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TournamentOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Tournaments Api Tournaments Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Create Tournament",
+        "operationId": "create_tournament_api_tournaments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TournamentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TournamentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}": {
+      "get": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Get Tournament",
+        "operationId": "get_tournament_api_tournaments__tournament_id__get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TournamentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Delete Tournament",
+        "description": "删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。",
+        "operationId": "delete_tournament_api_tournaments__tournament_id__delete",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/players/import": {
+      "post": {
+        "tags": [
+          "players"
+        ],
+        "summary": "Import Players",
+        "operationId": "import_players_api_tournaments__tournament_id__players_import_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_players_api_tournaments__tournament_id__players_import_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPlayersResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/players/import/preview": {
+      "post": {
+        "tags": [
+          "players"
+        ],
+        "summary": "Preview Import Players",
+        "operationId": "preview_import_players_api_tournaments__tournament_id__players_import_preview_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_preview_import_players_api_tournaments__tournament_id__players_import_preview_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPreviewResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/players": {
+      "get": {
+        "tags": [
+          "players"
+        ],
+        "summary": "List Players",
+        "operationId": "list_players_api_tournaments__tournament_id__players_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlayerOut"
+                  },
+                  "title": "Response List Players Api Tournaments  Tournament Id  Players Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "players"
+        ],
+        "summary": "Add Player",
+        "operationId": "add_player_api_tournaments__tournament_id__players_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlayerCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/players/{player_id}": {
+      "patch": {
+        "tags": [
+          "players"
+        ],
+        "summary": "Update Player",
+        "operationId": "update_player_api_tournaments__tournament_id__players__player_id__patch",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "player_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Player Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlayerUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "players"
+        ],
+        "summary": "Delete Player",
+        "operationId": "delete_player_api_tournaments__tournament_id__players__player_id__delete",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "player_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Player Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/entries": {
+      "get": {
+        "tags": [
+          "entries"
+        ],
+        "summary": "List Entries",
+        "operationId": "list_entries_api_tournaments__tournament_id__entries_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EntryOut"
+                  },
+                  "title": "Response List Entries Api Tournaments  Tournament Id  Entries Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/pair-doubles": {
+      "post": {
+        "tags": [
+          "entries"
+        ],
+        "summary": "Pair Doubles",
+        "operationId": "pair_doubles_api_tournaments__tournament_id__pair_doubles_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/confirm-roster": {
+      "post": {
+        "tags": [
+          "entries"
+        ],
+        "summary": "Confirm Roster",
+        "operationId": "confirm_roster_api_tournaments__tournament_id__confirm_roster_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmRosterResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/groups": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Get Groups",
+        "operationId": "get_groups_api_tournaments__tournament_id__groups_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupingResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/auto-group": {
+      "post": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Auto Group",
+        "operationId": "auto_group_api_tournaments__tournament_id__auto_group_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupingResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/ungroup": {
+      "post": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Ungroup",
+        "operationId": "ungroup_api_tournaments__tournament_id__ungroup_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/groups/{group_id}/qualification": {
+      "patch": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Set Group Qualification",
+        "operationId": "set_group_qualification_api_tournaments__tournament_id__groups__group_id__qualification_patch",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupQualifyUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/seeds": {
+      "put": {
+        "tags": [
+          "seeds"
+        ],
+        "summary": "Set Seeds",
+        "operationId": "set_seeds_api_tournaments__tournament_id__seeds_put",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSeedsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlayerOut"
+                  },
+                  "title": "Response Set Seeds Api Tournaments  Tournament Id  Seeds Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/demo/generate-players": {
+      "post": {
+        "tags": [
+          "demo"
+        ],
+        "summary": "Generate Players",
+        "operationId": "generate_players_api_tournaments__tournament_id__demo_generate_players_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateDemoPlayersRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlayerOut"
+                  },
+                  "title": "Response Generate Players Api Tournaments  Tournament Id  Demo Generate Players Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/demo/finish-group-stage": {
+      "post": {
+        "tags": [
+          "demo"
+        ],
+        "summary": "Finish Group Stage",
+        "operationId": "finish_group_stage_api_tournaments__tournament_id__demo_finish_group_stage_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoFinishGroupStageResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/generate-group-matches": {
+      "post": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "Generate Group Matches",
+        "operationId": "generate_group_matches_api_tournaments__tournament_id__generate_group_matches_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateMatchesResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/matches": {
+      "get": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "List Matches",
+        "operationId": "list_matches_api_tournaments__tournament_id__matches_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "stage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "GROUP",
+                    "KNOCKOUT"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "WAITING",
+                    "PLAYING",
+                    "FINISHED"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MatchOut"
+                  },
+                  "title": "Response List Matches Api Tournaments  Tournament Id  Matches Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/matches/{match_id}/assign-table": {
+      "post": {
+        "tags": [
+          "scheduling"
+        ],
+        "summary": "Assign Table",
+        "operationId": "assign_table_api_matches__match_id__assign_table_post",
+        "parameters": [
+          {
+            "name": "match_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Match Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignTableRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/matches/{match_id}/release": {
+      "post": {
+        "tags": [
+          "scheduling"
+        ],
+        "summary": "Release Match",
+        "operationId": "release_match_api_matches__match_id__release_post",
+        "parameters": [
+          {
+            "name": "match_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Match Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/schedule-next": {
+      "post": {
+        "tags": [
+          "scheduling"
+        ],
+        "summary": "Schedule Next",
+        "operationId": "schedule_next_api_tournaments__tournament_id__schedule_next_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleNextResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/dashboard": {
+      "get": {
+        "tags": [
+          "scheduling"
+        ],
+        "summary": "Dashboard",
+        "operationId": "dashboard_api_tournaments__tournament_id__dashboard_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dashboard"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/matches/{match_id}/score": {
+      "post": {
+        "tags": [
+          "scores"
+        ],
+        "summary": "Record Score",
+        "operationId": "record_score_api_matches__match_id__score_post",
+        "parameters": [
+          {
+            "name": "match_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Match Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/matches/{match_id}/revise-score": {
+      "post": {
+        "tags": [
+          "scores"
+        ],
+        "summary": "Revise Score",
+        "operationId": "revise_score_api_matches__match_id__revise_score_post",
+        "parameters": [
+          {
+            "name": "match_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Match Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/rankings": {
+      "get": {
+        "tags": [
+          "scores"
+        ],
+        "summary": "Get Rankings",
+        "operationId": "get_rankings_api_tournaments__tournament_id__rankings_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankingsResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/generate-knockout": {
+      "post": {
+        "tags": [
+          "knockout"
+        ],
+        "summary": "Generate Knockout",
+        "operationId": "generate_knockout_api_tournaments__tournament_id__generate_knockout_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnockoutTree"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/knockout": {
+      "get": {
+        "tags": [
+          "knockout"
+        ],
+        "summary": "Get Knockout",
+        "operationId": "get_knockout_api_tournaments__tournament_id__knockout_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnockoutTree"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AssignTableRequest": {
+        "properties": {
+          "table_id": {
+            "type": "integer",
+            "title": "Table Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "table_id"
+        ],
+        "title": "AssignTableRequest"
+      },
+      "Body_import_players_api_tournaments__tournament_id__players_import_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_players_api_tournaments__tournament_id__players_import_post"
+      },
+      "Body_preview_import_players_api_tournaments__tournament_id__players_import_preview_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_preview_import_players_api_tournaments__tournament_id__players_import_preview_post"
+      },
+      "BronzeMode": {
+        "type": "string",
+        "enum": [
+          "BRONZE_MATCH",
+          "JOINT_BRONZE"
+        ],
+        "title": "BronzeMode"
+      },
+      "ConfirmRosterResult": {
+        "properties": {
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament",
+          "entries"
+        ],
+        "title": "ConfirmRosterResult"
+      },
+      "Dashboard": {
+        "properties": {
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/DashboardStats"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/TableWithMatch"
+            },
+            "type": "array",
+            "title": "Tables"
+          },
+          "next_playable": {
+            "items": {
+              "$ref": "#/components/schemas/MatchOut"
+            },
+            "type": "array",
+            "title": "Next Playable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament",
+          "stats",
+          "tables",
+          "next_playable"
+        ],
+        "title": "Dashboard"
+      },
+      "DashboardStats": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "finished": {
+            "type": "integer",
+            "title": "Finished"
+          },
+          "playing": {
+            "type": "integer",
+            "title": "Playing"
+          },
+          "waiting": {
+            "type": "integer",
+            "title": "Waiting"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "finished",
+          "playing",
+          "waiting"
+        ],
+        "title": "DashboardStats"
+      },
+      "DemoFinishGroupStageResult": {
+        "properties": {
+          "finished": {
+            "type": "integer",
+            "title": "Finished"
+          }
+        },
+        "type": "object",
+        "required": [
+          "finished"
+        ],
+        "title": "DemoFinishGroupStageResult"
+      },
+      "EntryMemberOut": {
+        "properties": {
+          "player_id": {
+            "type": "integer",
+            "title": "Player Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "rating_points": {
+            "type": "integer",
+            "title": "Rating Points"
+          },
+          "member_order": {
+            "type": "integer",
+            "title": "Member Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player_id",
+          "name",
+          "college",
+          "rating_points",
+          "member_order"
+        ],
+        "title": "EntryMemberOut"
+      },
+      "EntryOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "entry_type": {
+            "$ref": "#/components/schemas/EventType"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "rating_points": {
+            "type": "integer",
+            "title": "Rating Points"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "seed_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed No"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/EntryMemberOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "entry_type",
+          "display_name",
+          "rating_points",
+          "group_id",
+          "seed_no",
+          "status",
+          "members"
+        ],
+        "title": "EntryOut"
+      },
+      "EventType": {
+        "type": "string",
+        "enum": [
+          "SINGLES",
+          "DOUBLES"
+        ],
+        "title": "EventType",
+        "description": "参赛项目。第一版完整支持单打与固定搭档双打。"
+      },
+      "GenerateDemoPlayersRequest": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "maximum": 24.0,
+            "minimum": 1.0,
+            "title": "Count"
+          },
+          "with_seeds": {
+            "type": "boolean",
+            "title": "With Seeds",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "title": "GenerateDemoPlayersRequest"
+      },
+      "GenerateMatchesResult": {
+        "properties": {
+          "matches_generated": {
+            "type": "integer",
+            "title": "Matches Generated"
+          },
+          "per_group": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Per Group"
+          },
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "matches_generated",
+          "per_group",
+          "tournament"
+        ],
+        "title": "GenerateMatchesResult"
+      },
+      "GroupOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order"
+          },
+          "qualify_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualify Count"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/GroupPlayerOut"
+            },
+            "type": "array",
+            "title": "Players"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Entries",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "sort_order",
+          "players"
+        ],
+        "title": "GroupOut"
+      },
+      "GroupPlayerOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "college"
+        ],
+        "title": "GroupPlayerOut"
+      },
+      "GroupQualifyUpdate": {
+        "properties": {
+          "qualify_count": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Qualify Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "qualify_count"
+        ],
+        "title": "GroupQualifyUpdate"
+      },
+      "GroupRankingOut": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "qualify_count": {
+            "type": "integer",
+            "title": "Qualify Count"
+          },
+          "total_matches": {
+            "type": "integer",
+            "title": "Total Matches"
+          },
+          "finished_matches": {
+            "type": "integer",
+            "title": "Finished Matches"
+          },
+          "ambiguous_qualification": {
+            "type": "boolean",
+            "title": "Ambiguous Qualification"
+          },
+          "needs_point_scores": {
+            "type": "boolean",
+            "title": "Needs Point Scores",
+            "default": false
+          },
+          "point_score_match_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Point Score Match Ids",
+            "default": []
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/RankingEntryOut"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "qualify_count",
+          "total_matches",
+          "finished_matches",
+          "ambiguous_qualification",
+          "entries"
+        ],
+        "title": "GroupRankingOut"
+      },
+      "GroupingResult": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GroupOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups"
+        ],
+        "title": "GroupingResult"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ImportPlayersResult": {
+        "properties": {
+          "total_rows": {
+            "type": "integer",
+            "title": "Total Rows"
+          },
+          "imported": {
+            "type": "integer",
+            "title": "Imported"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ImportRowError"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_rows",
+          "imported",
+          "skipped",
+          "errors"
+        ],
+        "title": "ImportPlayersResult"
+      },
+      "ImportPreviewResult": {
+        "properties": {
+          "total_rows": {
+            "type": "integer",
+            "title": "Total Rows"
+          },
+          "valid_rows": {
+            "type": "integer",
+            "title": "Valid Rows"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ImportRowError"
+            },
+            "type": "array",
+            "title": "Errors"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ImportPreviewRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_rows",
+          "valid_rows",
+          "skipped",
+          "errors",
+          "rows"
+        ],
+        "title": "ImportPreviewResult"
+      },
+      "ImportPreviewRow": {
+        "properties": {
+          "row": {
+            "type": "integer",
+            "title": "Row"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "rating_points": {
+            "type": "integer",
+            "title": "Rating Points"
+          },
+          "seed_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed No"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "row",
+          "name",
+          "college",
+          "rating_points",
+          "seed_no",
+          "status",
+          "message"
+        ],
+        "title": "ImportPreviewRow"
+      },
+      "ImportRowError": {
+        "properties": {
+          "row": {
+            "type": "integer",
+            "title": "Row"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "row",
+          "message"
+        ],
+        "title": "ImportRowError"
+      },
+      "KnockoutMatchOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "match_index": {
+            "type": "integer",
+            "title": "Match Index"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MatchStatus"
+          },
+          "player_a": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "player_b": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "player_a_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player A Score"
+          },
+          "player_b_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player B Score"
+          },
+          "winner_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Id"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Id"
+          },
+          "prev_match_a_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prev Match A Id"
+          },
+          "prev_match_b_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prev Match B Id"
+          },
+          "bracket": {
+            "$ref": "#/components/schemas/MatchBracket",
+            "default": "MAIN"
+          },
+          "placement_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placement Min"
+          },
+          "placement_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placement Max"
+          },
+          "result_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResultType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "round",
+          "match_index",
+          "status",
+          "player_a",
+          "player_b",
+          "player_a_score",
+          "player_b_score",
+          "winner_id",
+          "table_id",
+          "prev_match_a_id",
+          "prev_match_b_id"
+        ],
+        "title": "KnockoutMatchOut"
+      },
+      "KnockoutRoundOut": {
+        "properties": {
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/KnockoutMatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "round",
+          "label",
+          "matches"
+        ],
+        "title": "KnockoutRoundOut"
+      },
+      "KnockoutTree": {
+        "properties": {
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "rounds": {
+            "items": {
+              "$ref": "#/components/schemas/KnockoutRoundOut"
+            },
+            "type": "array",
+            "title": "Rounds"
+          },
+          "champion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runner_up": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "placements": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Placements",
+            "default": []
+          },
+          "placement_matches": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Placement Matches",
+            "default": []
+          },
+          "champion_path_match_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Champion Path Match Ids",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament",
+          "rounds",
+          "champion",
+          "runner_up"
+        ],
+        "title": "KnockoutTree"
+      },
+      "MatchBracket": {
+        "type": "string",
+        "enum": [
+          "GROUP",
+          "MAIN",
+          "PLACEMENT"
+        ],
+        "title": "MatchBracket"
+      },
+      "MatchGameInput": {
+        "properties": {
+          "side_a_score": {
+            "type": "integer",
+            "maximum": 99.0,
+            "minimum": 0.0,
+            "title": "Side A Score"
+          },
+          "side_b_score": {
+            "type": "integer",
+            "maximum": 99.0,
+            "minimum": 0.0,
+            "title": "Side B Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "side_a_score",
+          "side_b_score"
+        ],
+        "title": "MatchGameInput"
+      },
+      "MatchGameOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "match_id": {
+            "type": "integer",
+            "title": "Match Id"
+          },
+          "game_no": {
+            "type": "integer",
+            "title": "Game No"
+          },
+          "side_a_score": {
+            "type": "integer",
+            "title": "Side A Score"
+          },
+          "side_b_score": {
+            "type": "integer",
+            "title": "Side B Score"
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "match_id",
+          "game_no",
+          "side_a_score",
+          "side_b_score"
+        ],
+        "title": "MatchGameOut"
+      },
+      "MatchOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/MatchStage"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "match_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Index"
+          },
+          "player_a_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player A Id"
+          },
+          "player_b_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player B Id"
+          },
+          "player_a_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player A Score"
+          },
+          "player_b_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player B Score"
+          },
+          "winner_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Id"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MatchStatus"
+          },
+          "prev_match_a_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prev Match A Id"
+          },
+          "prev_match_b_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prev Match B Id"
+          },
+          "entry_a_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry A Id"
+          },
+          "entry_b_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry B Id"
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          },
+          "entry_a_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry A Name"
+          },
+          "entry_b_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry B Name"
+          },
+          "result_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResultType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "forfeit_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forfeit Entry Id"
+          },
+          "bracket": {
+            "$ref": "#/components/schemas/MatchBracket",
+            "default": "GROUP"
+          },
+          "placement_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placement Min"
+          },
+          "placement_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placement Max"
+          },
+          "games": {
+            "items": {
+              "$ref": "#/components/schemas/MatchGameOut"
+            },
+            "type": "array",
+            "title": "Games",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "stage",
+          "group_id",
+          "round",
+          "match_index",
+          "player_a_id",
+          "player_b_id",
+          "player_a_score",
+          "player_b_score",
+          "winner_id",
+          "table_id",
+          "status",
+          "prev_match_a_id",
+          "prev_match_b_id"
+        ],
+        "title": "MatchOut"
+      },
+      "MatchStage": {
+        "type": "string",
+        "enum": [
+          "GROUP",
+          "KNOCKOUT"
+        ],
+        "title": "MatchStage",
+        "description": "比赛所属赛段。"
+      },
+      "MatchStatus": {
+        "type": "string",
+        "enum": [
+          "WAITING",
+          "PLAYING",
+          "FINISHED"
+        ],
+        "title": "MatchStatus",
+        "description": "比赛状态。"
+      },
+      "PairingRequest": {
+        "properties": {
+          "pairing_seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pairing Seed"
+          }
+        },
+        "type": "object",
+        "title": "PairingRequest"
+      },
+      "PairingResult": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Entries"
+          },
+          "unpaired_players": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerOut"
+            },
+            "type": "array",
+            "title": "Unpaired Players"
+          },
+          "pairing_seed": {
+            "type": "integer",
+            "title": "Pairing Seed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entries",
+          "unpaired_players",
+          "pairing_seed"
+        ],
+        "title": "PairingResult"
+      },
+      "PlacementMode": {
+        "type": "string",
+        "enum": [
+          "OFF",
+          "COMPLETE",
+          "TIERED"
+        ],
+        "title": "PlacementMode"
+      },
+      "PlayerBrief": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "seed_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed No"
+          },
+          "member_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Member Names",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "PlayerBrief"
+      },
+      "PlayerCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "rating_points": {
+            "type": "integer",
+            "maximum": 99999.0,
+            "minimum": 0.0,
+            "title": "Rating Points",
+            "default": 1000
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "PlayerCreate"
+      },
+      "PlayerOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "seed_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed No"
+          },
+          "rating_points": {
+            "type": "integer",
+            "title": "Rating Points",
+            "default": 1000
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "name",
+          "college",
+          "group_id",
+          "seed_no"
+        ],
+        "title": "PlayerOut"
+      },
+      "PlayerUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "rating_points": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 99999.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating Points"
+          }
+        },
+        "type": "object",
+        "title": "PlayerUpdate"
+      },
+      "RankingEntryOut": {
+        "properties": {
+          "player_id": {
+            "type": "integer",
+            "title": "Player Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "wins": {
+            "type": "integer",
+            "title": "Wins"
+          },
+          "losses": {
+            "type": "integer",
+            "title": "Losses"
+          },
+          "games_won": {
+            "type": "integer",
+            "title": "Games Won"
+          },
+          "games_lost": {
+            "type": "integer",
+            "title": "Games Lost"
+          },
+          "rank": {
+            "type": "integer",
+            "title": "Rank"
+          },
+          "tied": {
+            "type": "boolean",
+            "title": "Tied"
+          },
+          "qualified": {
+            "type": "boolean",
+            "title": "Qualified"
+          },
+          "entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Id"
+          },
+          "match_points": {
+            "type": "integer",
+            "title": "Match Points",
+            "default": 0
+          },
+          "points_won": {
+            "type": "integer",
+            "title": "Points Won",
+            "default": 0
+          },
+          "points_lost": {
+            "type": "integer",
+            "title": "Points Lost",
+            "default": 0
+          },
+          "point_difference": {
+            "type": "integer",
+            "title": "Point Difference",
+            "default": 0
+          },
+          "point_ratio": {
+            "type": "number",
+            "title": "Point Ratio",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "player_id",
+          "name",
+          "wins",
+          "losses",
+          "games_won",
+          "games_lost",
+          "rank",
+          "tied",
+          "qualified"
+        ],
+        "title": "RankingEntryOut"
+      },
+      "RankingsResult": {
+        "properties": {
+          "rankings": {
+            "items": {
+              "$ref": "#/components/schemas/GroupRankingOut"
+            },
+            "type": "array",
+            "title": "Rankings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rankings"
+        ],
+        "title": "RankingsResult"
+      },
+      "ResultType": {
+        "type": "string",
+        "enum": [
+          "NORMAL",
+          "FORFEIT",
+          "WALKOVER",
+          "NO_SHOW",
+          "DISQUALIFIED"
+        ],
+        "title": "ResultType"
+      },
+      "ScheduleNextResult": {
+        "properties": {
+          "assigned": {
+            "type": "integer",
+            "title": "Assigned"
+          },
+          "assignments": {
+            "items": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Assignments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assigned",
+          "assignments"
+        ],
+        "title": "ScheduleNextResult"
+      },
+      "ScoreRequest": {
+        "properties": {
+          "player_a_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player A Score"
+          },
+          "player_b_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player B Score"
+          },
+          "games": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MatchGameInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Games"
+          },
+          "result_type": {
+            "$ref": "#/components/schemas/ResultType",
+            "default": "NORMAL"
+          },
+          "forfeit_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forfeit Entry Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "title": "ScoreRequest"
+      },
+      "SetSeedsRequest": {
+        "properties": {
+          "player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Player Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player_ids"
+        ],
+        "title": "SetSeedsRequest"
+      },
+      "TableStatus": {
+        "type": "string",
+        "enum": [
+          "FREE",
+          "OCCUPIED"
+        ],
+        "title": "TableStatus",
+        "description": "球台状态。"
+      },
+      "TableWithMatch": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TableStatus"
+          },
+          "match": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MatchOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "status",
+          "match"
+        ],
+        "title": "TableWithMatch"
+      },
+      "TournamentCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "table_count": {
+            "type": "integer",
+            "maximum": 15.0,
+            "minimum": 1.0,
+            "title": "Table Count"
+          },
+          "group_count": {
+            "type": "integer",
+            "maximum": 26.0,
+            "minimum": 1.0,
+            "title": "Group Count"
+          },
+          "qualify_per_group": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Qualify Per Group"
+          },
+          "event_type": {
+            "$ref": "#/components/schemas/EventType",
+            "default": "SINGLES"
+          },
+          "bronze_mode": {
+            "$ref": "#/components/schemas/BronzeMode",
+            "default": "JOINT_BRONZE"
+          },
+          "placement_mode": {
+            "$ref": "#/components/schemas/PlacementMode",
+            "default": "OFF"
+          },
+          "games_to_win": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Games To Win",
+            "default": 2
+          },
+          "points_to_win": {
+            "type": "integer",
+            "maximum": 99.0,
+            "minimum": 1.0,
+            "title": "Points To Win",
+            "default": 11
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "date",
+          "table_count",
+          "group_count",
+          "qualify_per_group"
+        ],
+        "title": "TournamentCreate"
+      },
+      "TournamentOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "table_count": {
+            "type": "integer",
+            "title": "Table Count"
+          },
+          "group_count": {
+            "type": "integer",
+            "title": "Group Count"
+          },
+          "qualify_per_group": {
+            "type": "integer",
+            "title": "Qualify Per Group"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/TournamentStage"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "event_type": {
+            "$ref": "#/components/schemas/EventType",
+            "default": "SINGLES"
+          },
+          "bronze_mode": {
+            "$ref": "#/components/schemas/BronzeMode",
+            "default": "JOINT_BRONZE"
+          },
+          "placement_mode": {
+            "$ref": "#/components/schemas/PlacementMode",
+            "default": "OFF"
+          },
+          "games_to_win": {
+            "type": "integer",
+            "title": "Games To Win",
+            "default": 2
+          },
+          "points_to_win": {
+            "type": "integer",
+            "title": "Points To Win",
+            "default": 11
+          },
+          "roster_confirmed": {
+            "type": "boolean",
+            "title": "Roster Confirmed",
+            "default": false
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "date",
+          "table_count",
+          "group_count",
+          "qualify_per_group",
+          "stage",
+          "created_at"
+        ],
+        "title": "TournamentOut"
+      },
+      "TournamentStage": {
+        "type": "string",
+        "enum": [
+          "REGISTRATION",
+          "GROUP_STAGE",
+          "KNOCKOUT",
+          "FINISHED"
+        ],
+        "title": "TournamentStage",
+        "description": "赛事阶段。"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

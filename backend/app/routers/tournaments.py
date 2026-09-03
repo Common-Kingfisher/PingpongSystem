@@ -21,6 +21,11 @@ def create_tournament(
         payload.table_count,
         payload.group_count,
         payload.qualify_per_group,
+        payload.event_type.value,
+        payload.bronze_mode.value,
+        payload.placement_mode.value,
+        payload.games_to_win,
+        payload.points_to_win,
     )
 
 

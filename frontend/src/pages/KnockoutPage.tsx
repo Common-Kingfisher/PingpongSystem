@@ -3,12 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, KnockoutMatch, KnockoutTree, RankingsResult, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import KnockoutBracket from '../components/KnockoutBracket'
-
-interface ScoreModalState {
-  match: KnockoutMatch
-  a: string
-  b: string
-}
+import ScoreSheet from '../components/ScoreSheet'
 
 export default function KnockoutPage() {
   const [params] = useSearchParams()
@@ -21,7 +16,7 @@ export default function KnockoutPage() {
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [modal, setModal] = useState<ScoreModalState | null>(null)
+  const [modal, setModal] = useState<KnockoutMatch | null>(null)
 
   const load = useCallback(async () => {
     if (tid === null) return
@@ -59,30 +54,15 @@ export default function KnockoutPage() {
   }
 
   const openScore = (m: KnockoutMatch) => {
-    setModal({ match: m, a: '', b: '' })
+    setModal(m)
   }
 
-  const submitScore = async () => {
+  const submitScore = async (payload: import('../api').ScorePayload) => {
     if (!modal) return
-    const a = Number(modal.a)
-    const b = Number(modal.b)
-    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0) {
-      setError('比分必须是非负整数')
-      return
-    }
-    if (a === b) {
-      setError('比分不允许平局')
-      return
-    }
-    // Demo 仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3
-    if (!((a === 3 && b <= 2) || (b === 3 && a <= 2))) {
-      setError('Demo 比分仅支持 3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3')
-      return
-    }
     setError(null)
     setBusy(true)
     try {
-      await api.recordScore(modal.match.id, a, b)
+      await api.recordScore(modal.id, payload)
       setModal(null)
       await load() // 录分后立即刷新 → 胜者晋级下一轮
     } catch (e) {
@@ -125,9 +105,6 @@ export default function KnockoutPage() {
   const remainingGroupMatches =
     rankings?.rankings.reduce((acc, g) => acc + (g.total_matches - g.finished_matches), 0) ?? 0
 
-  // 淘汰赛仅支持每组晋级 2 人：根据真实赛事配置判断，不 hardcode
-  const koConfigInvalid = tournament !== null && tournament.qualify_per_group !== 2
-
   return (
     <div className="page">
       <div className="card">
@@ -138,9 +115,10 @@ export default function KnockoutPage() {
           </Link>
         </h2>
         {tournament && (
-          <p className="muted">
-            阶段 <span className="badge">{tournament.stage}</span>
-          </p>
+          <div className="section-heading">
+            <p className="muted">阶段 <span className="badge">{tournament.stage}</span> · {tournament.bronze_mode === 'BRONZE_MATCH' ? '设季军赛' : '并列季军'} · {tournament.placement_mode === 'COMPLETE' ? '开启完整名次排位' : '常规名次'}</p>
+            <div className="button-row"><Link className="btn small" to={`/journey?tid=${tid}`}>冠军之路</Link><Link className="btn small" to={`/orderbook?tid=${tid}`}>打印秩序册</Link></div>
+          </div>
         )}
         {error && <p className="status-error">{error}</p>}
       </div>
@@ -148,20 +126,11 @@ export default function KnockoutPage() {
       {!knockoutReady && groupsAllDone && (
         <div className="card">
           <p className="status-ok">✅ 小组赛已全部完成，晋级名单已经确定，可以生成 8 强淘汰赛。</p>
-          {koConfigInvalid ? (
-            <>
-              <p className="status-error">淘汰赛仅支持每组晋级 2 人的交叉对阵</p>
-              <p className="muted">
-                当前赛制为每组晋级 {tournament?.qualify_per_group} 人，无法生成淘汰赛。
-              </p>
-            </>
-          ) : (
-            <div className="button-row">
-              <button className="btn primary" onClick={doGenerate} disabled={busy}>
-                {busy ? '处理中…' : '生成淘汰赛（自动晋级）'}
-              </button>
-            </div>
-          )}
+          <div className="button-row">
+            <button className="btn primary" onClick={doGenerate} disabled={busy}>
+              {busy ? '处理中…' : '生成淘汰赛签表'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -177,51 +146,35 @@ export default function KnockoutPage() {
       )}
 
       {knockoutReady && (
-        <KnockoutBracket
-          rounds={tree!.rounds}
-          champion={tree!.champion}
-          runnerUp={tree!.runner_up}
-          onScore={openScore}
-        />
+        <>
+          <KnockoutBracket
+            rounds={tree!.rounds}
+            champion={tree!.champion}
+            runnerUp={tree!.runner_up}
+            onScore={openScore}
+          />
+          {tree!.placement_matches.length > 0 && <section className="card placement-board">
+            <div className="section-heading"><div><span className="eyebrow">PLACEMENT BRACKET</span><h3>季军与名次排位赛</h3></div><span className="muted">季军由半决赛负者直接对决，不按积分决定</span></div>
+            <div className="placement-match-grid">{tree!.placement_matches.map(({ range, match }) => <article key={match.id} className="placement-match-card">
+              <span>{range[0] === 3 && range[1] === 4 ? '季军赛 · 三四名决胜' : range[0] === range[1] ? `第 ${range[0]} 名` : `${range[0]}–${range[1]} 名排位`}</span>
+              <strong>{match.player_a?.name ?? '待定'} <i>VS</i> {match.player_b?.name ?? '待定'}</strong>
+              {match.status === 'FINISHED' ? <small>{match.result_type !== 'NORMAL' ? 'W/O' : `${match.player_a_score}:${match.player_b_score}`} · 已结束</small> : match.player_a && match.player_b ? <button className="btn small primary" onClick={() => openScore(match)}>录入大比分</button> : <small>等待上一轮结果</small>}
+            </article>)}</div>
+          </section>}
+          {tree!.placements.length > 0 && <section className="card final-placements"><h3>最终名次</h3><div>{tree!.placements.map((row, index) => <span key={index}><b>#{String(row.rank)}</b>{String((row.entry as { name?: string } | undefined)?.name ?? '待定')}<small>{String(row.label ?? '')}</small></span>)}</div></section>}
+        </>
       )}
 
-      {modal && (
-        <div className="modal-overlay" onClick={() => setModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>录入比分</h3>
-            <p className="muted">合法比分：3:0 / 3:1 / 3:2 / 0:3 / 1:3 / 2:3</p>
-            <div className="modal-pair">
-              <div className="modal-line">
-                <span className="modal-name">{modal.match.player_a?.name ?? '待定'}</span>
-                <input
-                  type="number"
-                  min={0}
-                  autoFocus
-                  value={modal.a}
-                  onChange={(e) => setModal({ ...modal, a: e.target.value })}
-                />
-              </div>
-              <div className="modal-line">
-                <span className="modal-name">{modal.match.player_b?.name ?? '待定'}</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={modal.b}
-                  onChange={(e) => setModal({ ...modal, b: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setModal(null)}>
-                取消
-              </button>
-              <button className="btn primary" onClick={submitScore} disabled={busy}>
-                {busy ? '处理中…' : '确认比分'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {modal && tournament && <ScoreSheet
+        match={modal}
+        sideA={modal.player_a?.name ?? '待定'}
+        sideB={modal.player_b?.name ?? '待定'}
+        gamesToWin={tournament.games_to_win}
+        pointsToWin={tournament.points_to_win}
+        busy={busy}
+        onClose={() => setModal(null)}
+        onSave={submitScore}
+      />}
     </div>
   )
 }

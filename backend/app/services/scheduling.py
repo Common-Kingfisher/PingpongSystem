@@ -39,13 +39,30 @@ def _ensure_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
     return tournament
 
 
+def _match_member_ids(conn: sqlite3.Connection, match: dict) -> set[int]:
+    ids: set[int] = set()
+    if match.get("entry_a_id") is not None and match.get("entry_b_id") is not None:
+        for entry_id in (match["entry_a_id"], match["entry_b_id"]):
+            ids.update(m["player_id"] for m in repo.list_entry_members(conn, entry_id))
+    else:
+        for player_id in (match.get("player_a_id"), match.get("player_b_id")):
+            if player_id is not None:
+                ids.add(player_id)
+    return ids
+
+
+def _match_ready(match: dict) -> bool:
+    return (
+        match.get("entry_a_id") is not None and match.get("entry_b_id") is not None
+    ) or (
+        match.get("player_a_id") is not None and match.get("player_b_id") is not None
+    )
+
+
 def _busy_player_ids(conn: sqlite3.Connection, tournament_id: int) -> set[int]:
     busy: set[int] = set()
     for m in repo.list_playing_matches(conn, tournament_id):
-        if m["player_a_id"] is not None:
-            busy.add(m["player_a_id"])
-        if m["player_b_id"] is not None:
-            busy.add(m["player_b_id"])
+        busy.update(_match_member_ids(conn, m))
     return busy
 
 
@@ -59,16 +76,13 @@ def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict
         raise SchedulingError("球台不属于该赛事")
     if match["status"] != MatchStatus.WAITING.value:
         raise SchedulingError("只有待安排的比赛可以上球台")
-    if match["player_a_id"] is None or match["player_b_id"] is None:
+    if not _match_ready(match):
         raise SchedulingError("比赛双方选手尚未就绪，不能上球台")
     if table["status"] != TableStatus.FREE.value:
         raise SchedulingError("球台已被占用")
 
     busy = _busy_player_ids(conn, match["tournament_id"])
-    if (
-        match["player_a_id"] in busy
-        or match["player_b_id"] in busy
-    ):
+    if _match_member_ids(conn, match) & busy:
         raise SchedulingError("选手正在参加其他比赛，不能同时上场")
 
     repo.update_match(conn, match_id, status=MatchStatus.PLAYING.value, table_id=table_id)
@@ -91,14 +105,21 @@ def schedule_next(conn: sqlite3.Connection, tournament_id: int) -> list[tuple[in
     candidates = [
         m for m in repo.list_matches(conn, tournament_id)
         if m["status"] == MatchStatus.WAITING.value
-        and m["player_a_id"] is not None
-        and m["player_b_id"] is not None
-        and m["player_a_id"] not in busy
-        and m["player_b_id"] not in busy
+        and _match_ready(m)
+        and not (_match_member_ids(conn, m) & busy)
     ]
-    assignments = scheduler.schedule_batch(
-        candidates, [t["id"] for t in free_tables]
-    )
+    assignments: list[tuple[int, int]] = []
+    batch_busy = set(busy)
+    table_index = 0
+    for match in candidates:
+        if table_index >= len(free_tables):
+            break
+        members = _match_member_ids(conn, match)
+        if members & batch_busy:
+            continue
+        assignments.append((match["id"], free_tables[table_index]["id"]))
+        table_index += 1
+        batch_busy.update(members)
     for match_id, table_id in assignments:
         repo.update_match(conn, match_id, status=MatchStatus.PLAYING.value, table_id=table_id)
         repo.update_table_status(conn, table_id, TableStatus.OCCUPIED.value)
@@ -138,24 +159,26 @@ def get_dashboard(conn: sqlite3.Connection, tournament_id: int) -> dict:
                 "id": t["id"],
                 "name": t["name"],
                 "status": t["status"],
-                "match": playing_by_table.get(t["id"]),
+                "match": (
+                    repo.decorate_match(conn, playing_by_table[t["id"]])
+                    if t["id"] in playing_by_table else None
+                ),
             }
         )
 
     busy = set()
     for m in playing:
-        busy.add(m["player_a_id"])
-        busy.add(m["player_b_id"])
+        busy.update(_match_member_ids(conn, m))
     next_playable = [
         m for m in matches
         if m["status"] == MatchStatus.WAITING.value
-        and m["player_a_id"] not in busy
-        and m["player_b_id"] not in busy
+        and _match_ready(m)
+        and not (_match_member_ids(conn, m) & busy)
     ]
 
     return {
         "tournament": repo.get_tournament(conn, tournament_id),
         "stats": stats,
         "tables": tables,
-        "next_playable": next_playable,
+        "next_playable": [repo.decorate_match(conn, m) for m in next_playable],
     }

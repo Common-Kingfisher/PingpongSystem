@@ -17,6 +17,7 @@ from ..models import TournamentStage
 NAME_ALIASES = {"姓名", "选手姓名", "名字", "name", "player_name"}
 COLLEGE_ALIASES = {"学院", "学院/单位", "单位", "学校", "部门", "organization", "college"}
 SEED_ALIASES = {"种子", "种子序号", "种子编号", "seed", "seed_no"}
+RATING_ALIASES = {"积分", "运动员积分", "rating", "rating_points"}
 
 
 class ImportFileError(Exception):
@@ -74,7 +75,8 @@ def _parse_xlsx(content: bytes) -> list[list[str]]:
 
 
 def import_players_file(
-    conn: sqlite3.Connection, tournament_id: int, content: bytes, filename: str
+    conn: sqlite3.Connection, tournament_id: int, content: bytes, filename: str,
+    commit: bool = True,
 ) -> dict:
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
@@ -101,6 +103,7 @@ def import_players_file(
         )
     college_col = _find_column(headers, COLLEGE_ALIASES)
     seed_col = _find_column(headers, SEED_ALIASES)
+    rating_col = _find_column(headers, RATING_ALIASES)
 
     existing = repo.list_players(conn, tournament_id)
     used_seeds = {p["seed_no"] for p in existing if p["seed_no"] is not None}
@@ -110,15 +113,30 @@ def import_players_file(
     imported = 0
     skipped = 0
     total_rows = 0
+    preview_rows: list[dict] = []
 
     for row_no, row in enumerate(rows[1:], start=2):
         total_rows += 1
+        if len(existing) + imported >= 120:
+            skipped += 1
+            errors.append({"row": row_no, "message": "超过单场赛事 120 人上限"})
+            preview_rows.append({"row": row_no, "name": _cell(row, name_col), "college": _cell(row, college_col) or None, "rating_points": 1000, "seed_no": None, "status": "error", "message": "超过单场赛事 120 人上限"})
+            continue
         name = _cell(row, name_col)
         if not name:
             skipped += 1
             errors.append({"row": row_no, "message": "姓名为空"})
+            preview_rows.append({"row": row_no, "name": "", "college": None, "rating_points": 1000, "seed_no": None, "status": "error", "message": "姓名为空"})
             continue
+        errors_before = len(errors)
         college = _cell(row, college_col) or None
+        rating_points = 1000
+        rating_raw = _cell(row, rating_col)
+        if rating_raw:
+            try:
+                rating_points = max(0, int(float(rating_raw)))
+            except ValueError:
+                errors.append({"row": row_no, "message": "积分格式错误，已按 1000 分导入"})
 
         seed_no: int | None = None
         seed_raw = _cell(row, seed_col)
@@ -143,16 +161,30 @@ def import_players_file(
                     )
                     seed_no = None
 
-        player = repo.add_player(conn, tournament_id, name, college)
+        if commit:
+            player = repo.add_player(conn, tournament_id, name, college, rating_points)
+            if seed_no is not None:
+                repo.set_player_seed(conn, player["id"], seed_no)
         if seed_no is not None:
-            repo.set_player_seed(conn, player["id"], seed_no)
             used_seeds.add(seed_no)
         imported += 1
+        row_messages = [e["message"] for e in errors[errors_before:] if e["row"] == row_no]
+        preview_rows.append({
+            "row": row_no,
+            "name": name,
+            "college": college,
+            "rating_points": rating_points,
+            "seed_no": seed_no,
+            "status": "warning" if row_messages else "valid",
+            "message": "；".join(row_messages) if row_messages else None,
+        })
 
-    conn.commit()
+    if commit:
+        conn.commit()
     return {
         "total_rows": total_rows,
         "imported": imported,
         "skipped": skipped,
         "errors": errors,
+        "rows": preview_rows,
     }

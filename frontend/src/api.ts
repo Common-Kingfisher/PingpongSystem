@@ -7,6 +7,11 @@ export type MatchStatus = 'WAITING' | 'PLAYING' | 'FINISHED'
 export type TableStatus = 'FREE' | 'OCCUPIED'
 export type TournamentStage = 'REGISTRATION' | 'GROUP_STAGE' | 'KNOCKOUT' | 'FINISHED'
 export type MatchStage = 'GROUP' | 'KNOCKOUT'
+export type EventType = 'SINGLES' | 'DOUBLES'
+export type BronzeMode = 'BRONZE_MATCH' | 'JOINT_BRONZE'
+export type PlacementMode = 'OFF' | 'COMPLETE' | 'TIERED'
+export type MatchBracket = 'GROUP' | 'MAIN' | 'PLACEMENT'
+export type ResultType = 'NORMAL' | 'FORFEIT' | 'WALKOVER' | 'NO_SHOW' | 'DISQUALIFIED'
 
 export interface Tournament {
   id: number
@@ -17,6 +22,13 @@ export interface Tournament {
   qualify_per_group: number
   stage: TournamentStage
   created_at: string
+  event_type: EventType
+  bronze_mode: BronzeMode
+  placement_mode: PlacementMode
+  games_to_win: number
+  points_to_win: number
+  roster_confirmed: boolean
+  confirmed_at: string | null
 }
 
 export interface Player {
@@ -26,6 +38,38 @@ export interface Player {
   college: string | null
   group_id: number | null
   seed_no: number | null
+  rating_points: number
+}
+
+export interface EntryMember {
+  player_id: number
+  name: string
+  college: string | null
+  rating_points: number
+  member_order: number
+}
+
+export interface Entry {
+  id: number
+  tournament_id: number
+  entry_type: EventType
+  display_name: string
+  rating_points: number
+  group_id: number | null
+  seed_no: number | null
+  status: 'ACTIVE' | 'WITHDRAWN'
+  members: EntryMember[]
+}
+
+export interface PairingResult {
+  entries: Entry[]
+  unpaired_players: Player[]
+  pairing_seed: number
+}
+
+export interface ConfirmRosterResult {
+  tournament: Tournament
+  entries: Entry[]
 }
 
 export interface TableInfo {
@@ -45,7 +89,9 @@ export interface GroupInfo {
   id: number
   name: string
   sort_order: number
+  qualify_count: number | null
   players: GroupPlayer[]
+  entries: Entry[]
 }
 
 export interface GroupingResult {
@@ -68,6 +114,35 @@ export interface Match {
   status: MatchStatus
   prev_match_a_id: number | null
   prev_match_b_id: number | null
+  entry_a_id: number | null
+  entry_b_id: number | null
+  winner_entry_id: number | null
+  entry_a_name: string | null
+  entry_b_name: string | null
+  result_type: ResultType | null
+  forfeit_entry_id: number | null
+  bracket: MatchBracket
+  placement_min: number | null
+  placement_max: number | null
+  games: MatchGame[]
+}
+
+export interface MatchGame {
+  id: number
+  match_id: number
+  game_no: number
+  side_a_score: number
+  side_b_score: number
+  winner_entry_id: number | null
+}
+
+export interface ScorePayload {
+  player_a_score?: number
+  player_b_score?: number
+  games?: { side_a_score: number; side_b_score: number }[]
+  result_type?: ResultType
+  forfeit_entry_id?: number | null
+  note?: string
 }
 
 export interface GenerateMatchesResult {
@@ -114,6 +189,22 @@ export interface ImportPlayersResult {
   errors: ImportRowError[]
 }
 
+export interface ImportPreviewResult {
+  total_rows: number
+  valid_rows: number
+  skipped: number
+  errors: ImportRowError[]
+  rows: Array<{
+    row: number
+    name: string
+    college: string | null
+    rating_points: number
+    seed_no: number | null
+    status: 'valid' | 'warning' | 'error'
+    message: string | null
+  }>
+}
+
 export interface RankingEntry {
   player_id: number
   name: string
@@ -124,14 +215,23 @@ export interface RankingEntry {
   rank: number
   tied: boolean
   qualified: boolean
+  entry_id: number | null
+  match_points: number
+  points_won: number
+  points_lost: number
+  point_difference: number
+  point_ratio: number
 }
 
 export interface GroupRanking {
   group_id: number
   group_name: string
+  qualify_count: number
   total_matches: number
   finished_matches: number
   ambiguous_qualification: boolean
+  needs_point_scores: boolean
+  point_score_match_ids: number[]
   entries: RankingEntry[]
 }
 
@@ -143,6 +243,7 @@ export interface PlayerBrief {
   id: number
   name: string | null
   seed_no: number | null
+  member_names: string[]
 }
 
 export interface KnockoutMatch {
@@ -158,6 +259,10 @@ export interface KnockoutMatch {
   table_id: number | null
   prev_match_a_id: number | null
   prev_match_b_id: number | null
+  bracket: MatchBracket
+  placement_min: number | null
+  placement_max: number | null
+  result_type: ResultType | null
 }
 
 export interface KnockoutRound {
@@ -171,6 +276,9 @@ export interface KnockoutTree {
   rounds: KnockoutRound[]
   champion: PlayerBrief | null
   runner_up: PlayerBrief | null
+  placements: Array<Record<string, unknown>>
+  placement_matches: Array<{ range: [number | null, number | null]; match: KnockoutMatch }>
+  champion_path_match_ids: number[]
 }
 
 export class ApiError extends Error {
@@ -214,6 +322,11 @@ export const api = {
     table_count: number
     group_count: number
     qualify_per_group: number
+    event_type?: EventType
+    bronze_mode?: BronzeMode
+    placement_mode?: PlacementMode
+    games_to_win?: number
+    points_to_win?: number
   }) => request<Tournament>('/api/tournaments', { method: 'POST', body: JSON.stringify(body) }),
   getTournament: (id: number) => request<Tournament>(`/api/tournaments/${id}`),
   deleteTournament: (id: number) =>
@@ -221,7 +334,10 @@ export const api = {
 
   listPlayers: (tournamentId: number) =>
     request<Player[]>(`/api/tournaments/${tournamentId}/players`),
-  addPlayer: (tournamentId: number, body: { name: string; college?: string | null }) =>
+  addPlayer: (
+    tournamentId: number,
+    body: { name: string; college?: string | null; rating_points?: number },
+  ) =>
     request<Player>(`/api/tournaments/${tournamentId}/players`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -229,7 +345,7 @@ export const api = {
   updatePlayer: (
     tournamentId: number,
     playerId: number,
-    body: { name?: string; college?: string | null },
+    body: { name?: string; college?: string | null; rating_points?: number },
   ) =>
     request<Player>(`/api/tournaments/${tournamentId}/players/${playerId}`, {
       method: 'PATCH',
@@ -261,6 +377,26 @@ export const api = {
       body: form,
     })
   },
+  previewPlayersImport: (tournamentId: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<ImportPreviewResult>(`/api/tournaments/${tournamentId}/players/import/preview`, {
+      method: 'POST',
+      body: form,
+    })
+  },
+
+  listEntries: (tournamentId: number) =>
+    request<Entry[]>(`/api/tournaments/${tournamentId}/entries`),
+  pairDoubles: (tournamentId: number, pairingSeed?: number) =>
+    request<PairingResult>(`/api/tournaments/${tournamentId}/pair-doubles`, {
+      method: 'POST',
+      body: JSON.stringify({ pairing_seed: pairingSeed ?? null }),
+    }),
+  confirmRoster: (tournamentId: number) =>
+    request<ConfirmRosterResult>(`/api/tournaments/${tournamentId}/confirm-roster`, {
+      method: 'POST',
+    }),
 
   getGroups: (tournamentId: number) =>
     request<GroupingResult>(`/api/tournaments/${tournamentId}/groups`),
@@ -268,6 +404,11 @@ export const api = {
     request<GroupingResult>(`/api/tournaments/${tournamentId}/auto-group`, { method: 'POST' }),
   ungroup: (tournamentId: number) =>
     request<void>(`/api/tournaments/${tournamentId}/ungroup`, { method: 'POST' }),
+  setGroupQualification: (tournamentId: number, groupId: number, qualifyCount: number) =>
+    request<GroupInfo>(`/api/tournaments/${tournamentId}/groups/${groupId}/qualification`, {
+      method: 'PATCH',
+      body: JSON.stringify({ qualify_count: qualifyCount }),
+    }),
 
   generateGroupMatches: (tournamentId: number) =>
     request<GenerateMatchesResult>(`/api/tournaments/${tournamentId}/generate-group-matches`, {
@@ -299,15 +440,31 @@ export const api = {
   getDashboard: (tournamentId: number) =>
     request<Dashboard>(`/api/tournaments/${tournamentId}/dashboard`),
 
-  recordScore: (matchId: number, player_a_score: number, player_b_score: number) =>
+  recordScore: (
+    matchId: number,
+    player_a_score: number | ScorePayload,
+    player_b_score?: number,
+  ) =>
     request<Match>(`/api/matches/${matchId}/score`, {
       method: 'POST',
-      body: JSON.stringify({ player_a_score, player_b_score }),
+      body: JSON.stringify(
+        typeof player_a_score === 'number'
+          ? { player_a_score, player_b_score }
+          : player_a_score,
+      ),
     }),
-  reviseScore: (matchId: number, player_a_score: number, player_b_score: number) =>
+  reviseScore: (
+    matchId: number,
+    player_a_score: number | ScorePayload,
+    player_b_score?: number,
+  ) =>
     request<Match>(`/api/matches/${matchId}/revise-score`, {
       method: 'POST',
-      body: JSON.stringify({ player_a_score, player_b_score }),
+      body: JSON.stringify(
+        typeof player_a_score === 'number'
+          ? { player_a_score, player_b_score }
+          : player_a_score,
+      ),
     }),
   getRankings: (tournamentId: number) =>
     request<RankingsResult>(`/api/tournaments/${tournamentId}/rankings`),
