@@ -196,6 +196,9 @@ def revise_score(
             conn, match_id, games,
             match.get("entry_a_id"), match.get("entry_b_id"),
         )
+        # 校验全部通过后才更新备注：note is None 保留原备注，note == "" 显式清空。
+        if note is not None:
+            repo.update_match(conn, match_id, result_note=note)
         conn.commit()
         return repo.decorate_match(conn, repo.get_match(conn, match_id))
 

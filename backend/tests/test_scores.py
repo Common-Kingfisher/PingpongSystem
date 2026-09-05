@@ -456,6 +456,42 @@ def test_knockout_supplement_games_rejected(conn):
     assert exc_info.value.code == 422
 
 
+# 补录备注语义（games supplement 时 note 的处理）
+def test_supplement_note_persisted(conn):
+    tid = _rules_tournament(conn)
+    m = _only_match(conn, tid)
+    scores_service.record_score(conn, m["id"], 2, 0)
+    updated = scores_service.revise_score(
+        conn, m["id"], None, None, games=[(11, 8), (12, 10)], note="补录确认"
+    )
+    assert updated["result_note"] == "补录确认"
+    assert (updated["player_a_score"], updated["player_b_score"]) == (2, 0)
+    assert len(updated["games"]) == 2
+
+
+def test_supplement_omitted_note_preserves_existing(conn):
+    tid = _rules_tournament(conn)
+    m = _only_match(conn, tid)
+    scores_service.record_score(conn, m["id"], 2, 0, note="原裁判备注")
+    updated = scores_service.revise_score(conn, m["id"], None, None, games=[(11, 8), (12, 10)])
+    assert updated["result_note"] == "原裁判备注"
+
+
+def test_supplement_invalid_games_preserve_note(conn):
+    tid = _rules_tournament(conn)
+    m = _only_match(conn, tid)
+    scores_service.record_score(conn, m["id"], 2, 0, note="原备注")
+    with pytest.raises(scores_service.ScoreError) as exc_info:
+        scores_service.revise_score(
+            conn, m["id"], None, None, games=[(11, 8), (9, 11), (11, 6)], note="错误的新备注"
+        )
+    assert exc_info.value.code == 422
+    after = repo.get_match(conn, m["id"])
+    assert after["result_note"] == "原备注"
+    assert (after["player_a_score"], after["player_b_score"]) == (2, 0)
+    assert repo.list_match_games(conn, m["id"]) == []
+
+
 def test_revise_uses_same_validation(conn):
     """revise_score 与 record_score 使用同样的大比分校验。"""
     tid = _rules_tournament(conn)
@@ -533,3 +569,26 @@ def test_api_supplement_mismatch_rejected(client):
         },
     )
     assert resp.status_code == 422
+
+
+def test_api_supplement_note_persisted(client):
+    """API：补录合法 games + note → 200 且返回备注正确。"""
+    _, mid = _api_two_player_match(client)
+    client.post(f"/api/matches/{mid}/score", json={"player_a_score": 2, "player_b_score": 0})
+    resp = client.post(
+        f"/api/matches/{mid}/revise-score",
+        json={
+            "player_a_score": 2,
+            "player_b_score": 0,
+            "games": [
+                {"side_a_score": 11, "side_b_score": 8},
+                {"side_a_score": 12, "side_b_score": 10},
+            ],
+            "result_type": "NORMAL",
+            "note": "补录确认",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["result_note"] == "补录确认"
+    assert resp.json()["player_a_score"] == 2
+    assert resp.json()["player_b_score"] == 0
