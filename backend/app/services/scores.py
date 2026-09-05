@@ -21,11 +21,13 @@ class ScoreError(Exception):
         self.code = code
 
 
-def _validate_scores(score_a: int, score_b: int) -> None:
+def _validate_scores(score_a: int, score_b: int, games_to_win: int) -> None:
     if score_a < 0 or score_b < 0:
         raise ScoreError("比分不能为负数", 422)
     if score_a == score_b:
         raise ScoreError("比赛不允许平局")
+    if max(score_a, score_b) != games_to_win:
+        raise ScoreError(f"大比分胜局数必须为 {games_to_win}", 422)
 
 
 def _winner_id(
@@ -35,13 +37,33 @@ def _winner_id(
     return player_a_id if score_a > score_b else player_b_id
 
 
+def _validate_game(a: int, b: int, points_to_win: int, index: int) -> None:
+    """校验单局比分是否符合 points_to_win 分制。
+
+    - 未进入平分延长（loser < points_to_win - 1）：胜方必须恰好得到 points_to_win 分；
+    - 进入平分延长（loser >= points_to_win - 1）：胜方必须恰好领先 2 分。
+    """
+    if a < 0 or b < 0:
+        raise ScoreError(f"第 {index} 局比分不能为负数", 422)
+    if a == b:
+        raise ScoreError(f"第 {index} 局不允许平局", 422)
+    winner = max(a, b)
+    loser = min(a, b)
+    if loser < points_to_win - 1:
+        if winner != points_to_win:
+            raise ScoreError(
+                f"第 {index} 局未进入平分延长，胜方必须恰好得到 {points_to_win} 分", 422
+            )
+    elif winner != loser + 2:
+        raise ScoreError(f"第 {index} 局进入平分延长后，胜方必须恰好领先 2 分", 422)
+
+
 def _validate_games(games: list[tuple[int, int]], games_to_win: int, points_to_win: int) -> tuple[int, int]:
     if not games:
         raise ScoreError("请至少录入一局比分", 422)
     wins_a = wins_b = 0
     for index, (a, b) in enumerate(games, start=1):
-        if a == b or max(a, b) < points_to_win or abs(a - b) < 2:
-            raise ScoreError(f"第 {index} 局比分不符合 {points_to_win} 分且领先 2 分的规则", 422)
+        _validate_game(a, b, points_to_win, index)
         if a > b:
             wins_a += 1
         else:
@@ -100,7 +122,7 @@ def record_score(
             repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
         if score_a is None or score_b is None:
             raise ScoreError("请录入完整比分", 422)
-        _validate_scores(score_a, score_b)
+        _validate_scores(score_a, score_b, tournament["games_to_win"])
         winner_side = side_a if score_a > score_b else side_b
     else:
         if forfeit_entry_id not in (side_a, side_b):
@@ -179,7 +201,7 @@ def revise_score(
             repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
         if score_a is None or score_b is None:
             raise ScoreError("请录入完整比分", 422)
-        _validate_scores(score_a, score_b)
+        _validate_scores(score_a, score_b, tournament["games_to_win"])
         winner_side = side_a if score_a > score_b else side_b
     else:
         if forfeit_entry_id not in (side_a, side_b):
