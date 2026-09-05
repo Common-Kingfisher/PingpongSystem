@@ -201,6 +201,7 @@ class MatchOut(BaseModel):
     entry_b_name: str | None = None
     result_type: ResultType | None = None
     forfeit_entry_id: int | None = None
+    result_note: str | None = None
     bracket: MatchBracket = MatchBracket.GROUP
     placement_min: int | None = None
     placement_max: int | None = None
