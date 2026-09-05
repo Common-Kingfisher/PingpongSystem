@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { KnockoutMatch, Match, ResultType, ScorePayload } from '../api'
 
 type GameDraft = { a: string; b: string }
@@ -10,63 +10,45 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
   gamesToWin: number
   pointsToWin: number
   busy: boolean
-  /** 兼容层：小组赛补录/修改小分进入同一逐局编辑器，且不显示异常结果切换。 */
+  /** FINISHED GROUP 比赛的逐局小分补录/修改模式；默认 false = 大比分录入/修改。 */
   detailMode?: boolean
   onClose: () => void
   onSave: (payload: ScorePayload) => Promise<void>
 }) {
   const existingGames = 'games' in match ? match.games : []
-  // 历史仅大比分（无 MatchGame）的已结束比赛：不能伪造小分，提示重新录入。
-  const aggregateOnlyHistory = 'games' in match && match.status === 'FINISHED' && existingGames.length === 0
-  const maxGames = gamesToWin * 2 - 1
+  const existingNote = 'result_note' in match ? match.result_note : null
 
-  const initialGames: GameDraft[] = existingGames.length
-    ? existingGames.map((game) => ({ a: String(game.side_a_score), b: String(game.side_b_score) }))
-    : [{ a: '', b: '' }]
+  const originalA = match.player_a_score
+  const originalB = match.player_b_score
+  // 历史仅大比分（无 MatchGame）的已结束 GROUP 比赛：可补录逐局小分用于排名。
+  const aggregateOnlyHistory = detailMode && 'games' in match && existingGames.length === 0
 
-  const [games, setGames] = useState<GameDraft[]>(initialGames)
+  // 备注：回填已有备注；仅当用户修改时才提交，避免空串静默清空原备注。
+  const [note, setNote] = useState(existingNote ?? '')
+  const [noteDirty, setNoteDirty] = useState(false)
+  const updateNote = (value: string) => { setNote(value); setNoteDirty(true) }
+  const notePayload = noteDirty ? note : undefined
+
+  // 默认模式：大比分录入/修改
+  const [scoreA, setScoreA] = useState(originalA === null ? '' : String(originalA))
+  const [scoreB, setScoreB] = useState(originalB === null ? '' : String(originalB))
   const [resultType, setResultType] = useState<ResultType>('NORMAL')
-  const [note, setNote] = useState('')
 
-  const wins = useMemo(() => {
-    const w = [0, 0]
-    for (const game of games) {
-      const a = Number(game.a)
-      const b = Number(game.b)
-      if (game.a !== '' && game.b !== '' && a !== b) w[a > b ? 0 : 1] += 1
-    }
-    return w
-  }, [games])
+  // detailMode：逐局小分补录（局数由已确认大比分决定，不回填 games_to_win*2-1）
+  const initialGames: GameDraft[] = existingGames.length
+    ? existingGames.map((g) => ({ a: String(g.side_a_score), b: String(g.side_b_score) }))
+    : Array.from({ length: (originalA ?? 0) + (originalB ?? 0) }, () => ({ a: '', b: '' }))
+  const [games, setGames] = useState<GameDraft[]>(initialGames)
+  const updateGame = (index: number, side: 'a' | 'b', value: string) => {
+    setGames((cur) => cur.map((g, i) => (i === index ? { ...g, [side]: value } : g)))
+  }
 
-  const bigA = wins[0]
-  const bigB = wins[1]
-  const decided = Math.max(bigA, bigB) >= gamesToWin
-
-  // 每完成一局（双方已填且非平局）且尚未决出胜负时，自动追加下一局。
-  useEffect(() => {
-    setGames((prev) => {
-      if (prev.length >= maxGames) return prev
-      const last = prev[prev.length - 1]
-      const complete = !!last && last.a !== '' && last.b !== '' && Number(last.a) !== Number(last.b)
-      if (!complete) return prev
-      let wa = 0
-      let wb = 0
-      for (const g of prev) {
-        if (g.a !== '' && g.b !== '' && Number(g.a) !== Number(g.b)) {
-          if (Number(g.a) > Number(g.b)) wa += 1
-          else wb += 1
-        }
-      }
-      if (Math.max(wa, wb) >= gamesToWin) return prev
-      return [...prev, { a: '', b: '' }]
-    })
-  }, [games, gamesToWin, maxGames])
-
-  // 客户端即时提示（服务端仍是最终裁决，规则错误直接展示 API detail）。
+  // 单局即时校验（服务端仍是最终裁决）。
   const gameHint = (game: GameDraft): string | null => {
     if (game.a === '' || game.b === '') return null
     const a = Number(game.a)
     const b = Number(game.b)
+    if (a < 0 || b < 0) return '比分不能为负数'
     if (a === b) return '平分无效'
     const winner = Math.max(a, b)
     const loser = Math.min(a, b)
@@ -75,99 +57,145 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
     return winner === loser + 2 ? null : '平分延长后需领先 2 分'
   }
 
-  const filledGames = games.filter((game) => game.a !== '' && game.b !== '')
-  const hasInvalidGame = filledGames.some((game) => gameHint(game) !== null)
-  const canSubmitNormal = decided && !hasInvalidGame
+  const wins = useMemo(() => {
+    const w = [0, 0]
+    for (const g of games) {
+      const a = Number(g.a)
+      const b = Number(g.b)
+      if (g.a !== '' && g.b !== '' && a !== b) w[a > b ? 0 : 1] += 1
+    }
+    return w
+  }, [games])
 
-  const update = (index: number, side: 'a' | 'b', value: string) => {
-    setGames((current) => current.map((game, i) => (i === index ? { ...game, [side]: value } : game)))
-  }
+  const derivedA = wins[0]
+  const derivedB = wins[1]
+  const allGamesFilled = games.every((g) => g.a !== '' && g.b !== '')
+  const hasInvalidGame = games.some((g) => g.a !== '' && g.b !== '' && gameHint(g) !== null)
+  const gamesConsistent = derivedA === originalA && derivedB === originalB
+  const canSubmitSupplement = gamesConsistent && !hasInvalidGame && allGamesFilled
 
-  const saveNormal = () => onSave({
-    player_a_score: bigA,
-    player_b_score: bigB,
-    games: filledGames.map((game) => ({ side_a_score: Number(game.a), side_b_score: Number(game.b) })),
-    result_type: 'NORMAL',
-    note: note || undefined,
-  })
-
-  const saveException = (forfeitId: number | null) => onSave({
-    result_type: resultType,
-    forfeit_entry_id: forfeitId,
-    note: note || undefined,
-  })
+  // 默认模式大比分校验
+  const bigA = Number(scoreA)
+  const bigB = Number(scoreB)
+  const validBigScore = scoreA !== '' && scoreB !== '' && bigA !== bigB
+    && Math.max(bigA, bigB) === gamesToWin && Math.min(bigA, bigB) >= 0 && Math.min(bigA, bigB) < gamesToWin
 
   const sideAId = 'entry_a_id' in match ? (match.entry_a_id ?? match.player_a_id) : match.player_a?.id ?? null
   const sideBId = 'entry_b_id' in match ? (match.entry_b_id ?? match.player_b_id) : match.player_b?.id ?? null
 
+  const saveNormal = () => {
+    if (detailMode) {
+      onSave({
+        player_a_score: originalA ?? 0,
+        player_b_score: originalB ?? 0,
+        games: games.map((g) => ({ side_a_score: Number(g.a), side_b_score: Number(g.b) })),
+        result_type: 'NORMAL',
+        note: notePayload,
+      })
+    } else {
+      onSave({
+        player_a_score: bigA,
+        player_b_score: bigB,
+        result_type: 'NORMAL',
+        note: notePayload,
+      })
+    }
+  }
+
+  const saveException = (forfeitId: number | null) => onSave({
+    result_type: resultType,
+    forfeit_entry_id: forfeitId,
+    note: notePayload,
+  })
+
   return (
-    <div className="modal-backdrop score-sheet-backdrop" role="dialog" aria-modal="true" aria-label="逐局录入比赛比分">
+    <div className="modal-backdrop score-sheet-backdrop" role="dialog" aria-modal="true" aria-label={detailMode ? '补录小组赛逐局小分' : '录入比赛大比分'}>
       <div className="score-sheet">
         <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
         <span className="eyebrow">MATCH #{match.id}</span>
-        <h2>{detailMode ? '修改 / 补录逐局小分' : '逐局录入比赛'}</h2>
-        <div className="score-sheet-versus">
-          <strong>{sideA}</strong><span>{bigA} : {bigB}</span><strong>{sideB}</strong>
-        </div>
+        <h2>{detailMode ? '补录逐局小分' : '确认比赛结果'}</h2>
 
-        {aggregateOnlyHistory && (
-          <p className="status-warn">该比赛历史记录仅保存大比分。修改结果时需要重新录入逐局比分。</p>
-        )}
-
-        {!detailMode && <div className="result-tabs">
-          <button className={resultType === 'NORMAL' ? 'active' : ''} onClick={() => setResultType('NORMAL')}>正常完赛</button>
-          <button className={resultType !== 'NORMAL' ? 'active' : ''} onClick={() => setResultType('FORFEIT')}>弃权 / 未到</button>
-        </div>}
-
-        {resultType === 'NORMAL' ? (
+        {detailMode ? (
           <>
+            <div className="score-sheet-versus">
+              <strong>{sideA}</strong><span>{originalA ?? 0} : {originalB ?? 0}</span><strong>{sideB}</strong>
+            </div>
+            <p className="muted">已确认大比分（只读）：{sideA} {originalA ?? 0} : {originalB ?? 0} {sideB}</p>
+            {aggregateOnlyHistory && (
+              <p className="status-warn">当前仅保存了大比分，可补录逐局小比分用于排名统计。</p>
+            )}
             <div className="game-input-list">
               {games.map((game, index) => {
                 const hint = gameHint(game)
                 return (
                   <div className="game-input" key={index}>
                     <span>第 {index + 1} 局</span>
-                    <input aria-label={`第${index + 1}局${sideA}得分`} type="number" min={0} max={99} value={game.a} onChange={(event) => update(index, 'a', event.target.value)} />
+                    <input aria-label={`第${index + 1}局${sideA}得分`} type="number" min={0} max={99} value={game.a} onChange={(e) => updateGame(index, 'a', e.target.value)} />
                     <i>:</i>
-                    <input aria-label={`第${index + 1}局${sideB}得分`} type="number" min={0} max={99} value={game.b} onChange={(event) => update(index, 'b', event.target.value)} />
+                    <input aria-label={`第${index + 1}局${sideB}得分`} type="number" min={0} max={99} value={game.b} onChange={(e) => updateGame(index, 'b', e.target.value)} />
                     {hint && <small className="status-error" style={{ gridColumn: '1 / -1' }}>{hint}</small>}
                   </div>
                 )
               })}
             </div>
             <p className="score-rule">每局 {pointsToWin} 分 · {pointsToWin - 1}:{pointsToWin - 1} 后领先 2 分 · 先胜 {gamesToWin} 局者胜</p>
-            {decided ? (
-              <p className="status-ok" style={{ margin: '8px 0', fontWeight: 700 }}>最终结果：{sideA} {bigA} : {bigB} {sideB}</p>
+            {gamesConsistent && allGamesFilled && !hasInvalidGame ? (
+              <p className="status-ok" style={{ margin: '8px 0' }}>逐局胜局与已确认大比分一致。</p>
+            ) : hasInvalidGame ? (
+              <p className="status-error">存在非法局分，请检查。</p>
+            ) : !allGamesFilled ? (
+              <p className="status-warn">请填完所有局比分。</p>
             ) : (
-              <p className="status-warn">比赛尚未结束（当前 {bigA} : {bigB}）</p>
+              <p className="status-error">逐局胜局汇总为 {derivedA}:{derivedB}，与已确认大比分 {originalA ?? 0}:{originalB ?? 0} 不一致，请检查逐局比分。</p>
             )}
           </>
         ) : (
-          <div className="forfeit-panel">
-            <label>结果类型
-              <select value={resultType} onChange={(event) => setResultType(event.target.value as ResultType)}>
-                <option value="FORFEIT">主动弃权</option>
-                <option value="NO_SHOW">未到场</option>
-                <option value="DISQUALIFIED">取消资格</option>
-                <option value="WALKOVER">直接晋级</option>
-              </select>
-            </label>
-            <p>选择弃权一方。淘汰赛中对方直接晋级；小组赛按弃权规则计入排名。</p>
-            <div className="forfeit-actions">
-              <button className="btn danger" onClick={() => saveException(sideAId)} disabled={busy}>{sideA} 弃权</button>
-              <button className="btn danger" onClick={() => saveException(sideBId)} disabled={busy}>{sideB} 弃权</button>
+          <>
+            <div className="result-tabs">
+              <button className={resultType === 'NORMAL' ? 'active' : ''} onClick={() => setResultType('NORMAL')}>正常完赛</button>
+              <button className={resultType !== 'NORMAL' ? 'active' : ''} onClick={() => setResultType('FORFEIT')}>弃权 / 未到</button>
             </div>
-          </div>
+            {resultType === 'NORMAL' ? (
+              <>
+                <div className="big-score-entry">
+                  <label><span>{sideA}</span><input aria-label={`${sideA}大比分`} type="number" min={0} max={gamesToWin} value={scoreA} onChange={(e) => setScoreA(e.target.value)} /></label>
+                  <b>:</b>
+                  <label><span>{sideB}</span><input aria-label={`${sideB}大比分`} type="number" min={0} max={gamesToWin} value={scoreB} onChange={(e) => setScoreB(e.target.value)} /></label>
+                </div>
+                {scoreA !== '' && scoreB !== '' && !validBigScore && (
+                  <p className="score-rule status-error">大比分应为 {gamesToWin}:0、{gamesToWin}:1 或反之（不能平局、不能超出局数）。</p>
+                )}
+              </>
+            ) : (
+              <div className="forfeit-panel">
+                <label>结果类型
+                  <select value={resultType} onChange={(e) => setResultType(e.target.value as ResultType)}>
+                    <option value="FORFEIT">主动弃权</option>
+                    <option value="NO_SHOW">未到场</option>
+                    <option value="DISQUALIFIED">取消资格</option>
+                    <option value="WALKOVER">直接晋级</option>
+                  </select>
+                </label>
+                <p>选择弃权一方。淘汰赛中对方直接晋级；小组赛按弃权规则计入排名。</p>
+                <div className="forfeit-actions">
+                  <button className="btn danger" onClick={() => saveException(sideAId)} disabled={busy}>{sideA} 弃权</button>
+                  <button className="btn danger" onClick={() => saveException(sideBId)} disabled={busy}>{sideB} 弃权</button>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         <label className="score-note">裁判备注
-          <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="选填：迟到、判罚或现场说明" />
+          <input value={note} onChange={(e) => updateNote(e.target.value)} placeholder="选填：迟到、判罚或现场说明" />
         </label>
         <div className="modal-actions">
           <button className="btn" onClick={onClose}>取消</button>
-          {resultType === 'NORMAL' && <button className="btn primary" onClick={saveNormal} disabled={!canSubmitNormal || busy}>
-            {decided ? '确认比赛结果' : '比赛尚未结束'}
-          </button>}
+          {resultType === 'NORMAL' && (
+            <button className="btn primary" onClick={saveNormal} disabled={(detailMode ? !canSubmitSupplement : !validBigScore) || busy}>
+              {detailMode ? '保存小分' : '确认大比分'}
+            </button>
+          )}
         </div>
       </div>
     </div>
