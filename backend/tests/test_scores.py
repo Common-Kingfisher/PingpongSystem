@@ -367,14 +367,68 @@ def test_games_not_reaching_win_rejected(conn):
         scores_service.record_score(conn, m["id"], None, None, games=[(11, 5)])
 
 
-def test_games_override_client_aggregate(conn):
-    """传 games 时后端以逐局推导的大比分为准，覆盖客户端传入的 99:0。"""
+# NORMAL + games 契约：aggregate 要么双方都省略、要么双方都与 games 推导完全一致
+def test_games_with_omitted_aggregate_derives(conn):
+    """Case A：aggregate 双方都省略 → 由 games 推导大比分。"""
     tid = _rules_tournament(conn)
     m = _only_match(conn, tid)
-    updated = scores_service.record_score(conn, m["id"], 99, 0, games=[(11, 5), (11, 5)])
-    assert updated["player_a_score"] == 2
-    assert updated["player_b_score"] == 0
-    assert updated["winner_id"] == m["player_a_id"]
+    updated = scores_service.record_score(conn, m["id"], None, None, games=[(11, 5), (11, 5)])
+    assert (updated["player_a_score"], updated["player_b_score"]) == (2, 0)
+
+
+def test_games_with_matching_aggregate_accepted(conn):
+    """Case B：aggregate 与 games 推导一致 → 接受。"""
+    tid = _rules_tournament(conn)
+    m = _only_match(conn, tid)
+    updated = scores_service.record_score(conn, m["id"], 2, 1, games=[(11, 8), (9, 11), (11, 6)])
+    assert (updated["player_a_score"], updated["player_b_score"]) == (2, 1)
+
+
+def test_games_with_opposite_winner_aggregate_rejected(conn):
+    """Case C1：aggregate 胜者与 games 推导相反 → 422。"""
+    tid = _rules_tournament(conn)
+    m = _only_match(conn, tid)
+    with pytest.raises(scores_service.ScoreError) as exc_info:
+        scores_service.record_score(conn, m["id"], 2, 0, games=[(8, 11), (9, 11)])
+    assert exc_info.value.code == 422
+
+
+def test_games_with_same_winner_score_mismatch_rejected(conn):
+    """Case C2：胜者相同但局数不一致（2:0 vs 推导 2:1）→ 422。"""
+    tid = _rules_tournament(conn)
+    m = _only_match(conn, tid)
+    with pytest.raises(scores_service.ScoreError) as exc_info:
+        scores_service.record_score(conn, m["id"], 2, 0, games=[(11, 8), (9, 11), (11, 6)])
+    assert exc_info.value.code == 422
+
+
+@pytest.mark.parametrize("sa,sb", [(2, None), (None, 0)])
+def test_games_with_partial_aggregate_rejected(conn, sa, sb):
+    """Case D：只提供一边 aggregate → 422。"""
+    tid = _rules_tournament(conn)
+    m = _only_match(conn, tid)
+    with pytest.raises(scores_service.ScoreError) as exc_info:
+        scores_service.record_score(conn, m["id"], sa, sb, games=[(11, 5), (11, 5)])
+    assert exc_info.value.code == 422
+
+
+def test_revise_games_aggregate_mismatch_preserves_state(conn):
+    """revise_score 与 record_score 同契约：不一致 → 422，且原状态不变。"""
+    tid = _rules_tournament(conn)
+    m = _only_match(conn, tid)
+    scores_service.record_score(conn, m["id"], None, None, games=[(11, 5), (11, 5)])
+    before = repo.get_match(conn, m["id"])
+    before_games = repo.list_match_games(conn, m["id"])
+
+    with pytest.raises(scores_service.ScoreError) as exc_info:
+        scores_service.revise_score(conn, m["id"], 0, 2, games=[(11, 5), (11, 5)])
+    assert exc_info.value.code == 422
+
+    after = repo.get_match(conn, m["id"])
+    assert after["player_a_score"] == before["player_a_score"]
+    assert after["player_b_score"] == before["player_b_score"]
+    assert after["winner_id"] == before["winner_id"]
+    assert repo.list_match_games(conn, m["id"]) == before_games
 
 
 def test_revise_uses_same_validation(conn):
@@ -434,3 +488,21 @@ def test_api_score_without_games_field_allowed(client):
     assert resp.status_code == 200
     assert resp.json()["player_a_score"] == 2
     assert resp.json()["player_b_score"] == 0
+
+
+def test_api_games_aggregate_mismatch_rejected(client):
+    """API：games 推导（0:2）与 aggregate（2:0）不一致 → 422。"""
+    _, mid = _api_two_player_match(client)
+    resp = client.post(
+        f"/api/matches/{mid}/score",
+        json={
+            "player_a_score": 2,
+            "player_b_score": 0,
+            "games": [
+                {"side_a_score": 8, "side_b_score": 11},
+                {"side_a_score": 9, "side_b_score": 11},
+            ],
+            "result_type": "NORMAL",
+        },
+    )
+    assert resp.status_code == 422
