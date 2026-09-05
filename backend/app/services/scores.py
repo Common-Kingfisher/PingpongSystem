@@ -75,29 +75,6 @@ def _validate_games(games: list[tuple[int, int]], games_to_win: int, points_to_w
     return wins_a, wins_b
 
 
-def _resolve_normal_score(
-    score_a: int | None,
-    score_b: int | None,
-    games: list[tuple[int, int]],
-    games_to_win: int,
-    points_to_win: int,
-) -> tuple[int, int]:
-    """NORMAL + games：校验逐局并解析最终大比分。
-
-    - aggregate 双方都缺失（None/None）：由 games 推导；
-    - aggregate 双方都提供且与推导完全一致：接受；
-    - 其余（单边提供 / 不一致）：422，绝不覆盖客户端 aggregate。
-    """
-    derived_a, derived_b = _validate_games(games, games_to_win, points_to_win)
-    if score_a is None and score_b is None:
-        return derived_a, derived_b
-    if score_a is not None and score_b is not None:
-        if (score_a, score_b) == (derived_a, derived_b):
-            return derived_a, derived_b
-        raise ScoreError("大比分与逐局比分不一致", 422)
-    raise ScoreError("大比分必须同时提供或同时省略", 422)
-
-
 def _side_ids(match: dict) -> tuple[int | None, int | None]:
     return (
         match.get("entry_a_id") or match.get("player_a_id"),
@@ -135,21 +112,14 @@ def record_score(
         raise ScoreError("比赛双方尚未就绪")
     tournament = repo.get_tournament(conn, match["tournament_id"])
     if result_type == ResultType.NORMAL.value:
+        # 首次录分只接受大比分；逐局小分仅作为已结束小组赛的补录，走 revise_score。
         if games is not None:
-            score_a, score_b = _resolve_normal_score(
-                score_a, score_b, games,
-                tournament["games_to_win"], tournament["points_to_win"],
-            )
+            raise ScoreError("首次录分只支持大比分，不支持逐局比分", 422)
         if score_a is None or score_b is None:
             raise ScoreError("请录入完整比分", 422)
         _validate_scores(score_a, score_b, tournament["games_to_win"])
         winner_side = side_a if score_a > score_b else side_b
-        # 先完成全部校验，再写逐局数据，避免冲突/非法时留下部分写入。
-        repo.replace_match_games(
-            conn, match_id,
-            games if games is not None else [],
-            match.get("entry_a_id"), match.get("entry_b_id"),
-        )
+        repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
     else:
         if forfeit_entry_id not in (side_a, side_b):
             raise ScoreError("请选择弃权或未到场的一方", 422)
@@ -207,6 +177,29 @@ def revise_score(
     match = _ensure_match(conn, match_id)
     if match["status"] != MatchStatus.FINISHED.value:
         raise ScoreError("只有已结束的比赛可以修改比分")
+    side_a, side_b = _side_ids(match)
+    tournament = repo.get_tournament(conn, match["tournament_id"])
+
+    # 补录/更新逐局小分：仅 FINISHED GROUP；大比分、winner、status 一律不变。
+    if result_type == ResultType.NORMAL.value and games is not None:
+        if match["stage"] != MatchStage.GROUP.value:
+            raise ScoreError("只有小组赛支持补录逐局小分", 422)
+        stored_a, stored_b = match["player_a_score"], match["player_b_score"]
+        if stored_a is None or stored_b is None:
+            raise ScoreError("该比赛尚未确认大比分", 409)
+        derived_a, derived_b = _validate_games(
+            games, tournament["games_to_win"], tournament["points_to_win"]
+        )
+        if (derived_a, derived_b) != (stored_a, stored_b):
+            raise ScoreError("逐局小比分与大比分不一致", 422)
+        repo.replace_match_games(
+            conn, match_id, games,
+            match.get("entry_a_id"), match.get("entry_b_id"),
+        )
+        conn.commit()
+        return repo.decorate_match(conn, repo.get_match(conn, match_id))
+
+    # 修改大比分（或异常结果）：KNOCKOUT 需先检查下游是否已开始。
     if match["stage"] == MatchStage.KNOCKOUT.value:
         for descendant in repo.list_matches_by_prev(conn, match_id):
             if descendant["status"] in (
@@ -214,24 +207,14 @@ def revise_score(
                 MatchStatus.FINISHED.value,
             ):
                 raise ScoreError("该结果已经影响后续比赛。请先处理后续比赛后再修改本场结果。")
-    side_a, side_b = _side_ids(match)
-    tournament = repo.get_tournament(conn, match["tournament_id"])
+
     if result_type == ResultType.NORMAL.value:
-        if games is not None:
-            score_a, score_b = _resolve_normal_score(
-                score_a, score_b, games,
-                tournament["games_to_win"], tournament["points_to_win"],
-            )
         if score_a is None or score_b is None:
             raise ScoreError("请录入完整比分", 422)
         _validate_scores(score_a, score_b, tournament["games_to_win"])
         winner_side = side_a if score_a > score_b else side_b
-        # 先完成全部校验，再写逐局数据，避免冲突/非法时留下部分写入。
-        repo.replace_match_games(
-            conn, match_id,
-            games if games is not None else [],
-            match.get("entry_a_id"), match.get("entry_b_id"),
-        )
+        # 修改大比分后，旧逐局数据不再可信，予以清除。
+        repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
     else:
         if forfeit_entry_id not in (side_a, side_b):
             raise ScoreError("请选择弃权或未到场的一方", 422)
@@ -242,6 +225,7 @@ def revise_score(
         else:
             score_a = score_b = 0
         repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
+
     winner_entry = winner_side if match.get("entry_a_id") is not None else None
     winner_player = winner_side if match.get("entry_a_id") is None else (
         match.get("player_a_id") if winner_side == side_a else match.get("player_b_id")
