@@ -343,6 +343,17 @@ class KnockoutTree(BaseModel):
     champion_path_match_ids: list[int] = []
 
 
+class OrderBookSnapshot(BaseModel):
+    snapshot_at: str
+    tournament: TournamentOut
+    entries: list[EntryOut]
+    groups: GroupingResult
+    rankings: RankingsResult
+    tree: KnockoutTree
+    matches: list[MatchOut]
+    dashboard: Dashboard
+
+
 class TournamentResults(BaseModel):
     tournament: TournamentOut
     champion: PlayerBrief | None

@@ -69,6 +69,48 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/order-book-snapshot": {
+      "get": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Get Order Book Snapshot",
+        "operationId": "get_order_book_snapshot_api_tournaments__tournament_id__order_book_snapshot_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderBookSnapshot"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}": {
       "get": {
         "tags": [
@@ -2666,6 +2708,17 @@
             ],
             "title": "Forfeit Entry Id"
           },
+          "result_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Note"
+          },
           "bracket": {
             "$ref": "#/components/schemas/MatchBracket",
             "default": "GROUP"
@@ -2739,6 +2792,55 @@
         ],
         "title": "MatchStatus",
         "description": "比赛状态。"
+      },
+      "OrderBookSnapshot": {
+        "properties": {
+          "snapshot_at": {
+            "type": "string",
+            "title": "Snapshot At"
+          },
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Entries"
+          },
+          "groups": {
+            "$ref": "#/components/schemas/GroupingResult"
+          },
+          "rankings": {
+            "$ref": "#/components/schemas/RankingsResult"
+          },
+          "tree": {
+            "$ref": "#/components/schemas/KnockoutTree"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/MatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          },
+          "dashboard": {
+            "$ref": "#/components/schemas/Dashboard"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_at",
+          "tournament",
+          "entries",
+          "groups",
+          "rankings",
+          "tree",
+          "matches",
+          "dashboard"
+        ],
+        "title": "OrderBookSnapshot"
       },
       "PairingRequest": {
         "properties": {

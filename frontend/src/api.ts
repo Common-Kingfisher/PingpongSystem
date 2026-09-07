@@ -282,6 +282,17 @@ export interface KnockoutTree {
   champion_path_match_ids: number[]
 }
 
+export interface OrderBookSnapshot {
+  snapshot_at: string
+  tournament: Tournament
+  entries: Entry[]
+  groups: GroupingResult
+  rankings: RankingsResult
+  tree: KnockoutTree
+  matches: Match[]
+  dashboard: Dashboard
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -476,4 +487,6 @@ export const api = {
     }),
   getKnockout: (tournamentId: number) =>
     request<KnockoutTree>(`/api/tournaments/${tournamentId}/knockout`),
+  getOrderBookSnapshot: (tournamentId: number) =>
+    request<OrderBookSnapshot>(`/api/tournaments/${tournamentId}/order-book-snapshot`),
 }
