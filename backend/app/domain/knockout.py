@@ -13,6 +13,65 @@ allow_extended=True 时支持各组不同的晋级人数，并自动补轮空签
 from typing import Any
 
 
+def _extended_first_pairs(
+    seeded: list[tuple[int, int]], bracket_size: int
+) -> list[tuple[int | None, int | None]]:
+    """为扩展签位分配轮空并贪心生成跨组首轮对阵。"""
+    bye_count = bracket_size - len(seeded)
+    remaining_count = len(seeded) - bye_count
+    group_counts: dict[int, int] = {}
+    for _, group_index in seeded:
+        group_counts[group_index] = group_counts.get(group_index, 0) + 1
+
+    # 若某组人数超过非轮空位的一半，优先把该组高排位选手设为轮空，
+    # 使余下选手存在全跨组配对解；其余轮空再按原种子顺序分配。
+    required_byes = {
+        group_index: max(0, count - remaining_count // 2)
+        for group_index, count in group_counts.items()
+    }
+    bye_indexes: set[int] = set()
+    for group_index, required in required_byes.items():
+        candidates = [
+            index for index, (_, group) in enumerate(seeded)
+            if group == group_index
+        ]
+        bye_indexes.update(candidates[:required])
+    for index in range(len(seeded)):
+        if len(bye_indexes) >= bye_count:
+            break
+        bye_indexes.add(index)
+
+    remaining = [item for index, item in enumerate(seeded) if index not in bye_indexes]
+    remaining_group_counts: dict[int, int] = {}
+    for _, group_index in remaining:
+        remaining_group_counts[group_index] = remaining_group_counts.get(group_index, 0) + 1
+    if len(bye_indexes) != bye_count or (
+        remaining_group_counts
+        and max(remaining_group_counts.values()) > len(remaining) // 2
+    ):
+        slots: list[int | None] = [participant for participant, _ in seeded] + [None] * bye_count
+        return [(slots[index], slots[-1 - index]) for index in range(bracket_size // 2)]
+
+    by_group: dict[int, list[int]] = {}
+    for participant, group_index in remaining:
+        by_group.setdefault(group_index, []).append(participant)
+    pairs: list[tuple[int | None, int | None]] = [
+        (seeded[index][0], None) for index in sorted(bye_indexes)
+    ]
+    while True:
+        available = sorted(
+            ((len(participants), group_index) for group_index, participants in by_group.items() if participants),
+            key=lambda item: (-item[0], item[1]),
+        )
+        if not available:
+            return pairs
+        if len(available) < 2:
+            slots = [participant for participant, _ in seeded] + [None] * bye_count
+            return [(slots[index], slots[-1 - index]) for index in range(bracket_size // 2)]
+        first_group, second_group = available[0][1], available[1][1]
+        pairs.append((by_group[first_group].pop(0), by_group[second_group].pop(0)))
+
+
 def build_bracket(
     qualifiers_by_group: list[list[int]], allow_extended: bool = False
 ) -> list[list[dict[str, Any]]]:
@@ -58,18 +117,20 @@ def build_bracket(
         for g1, g2 in pairs_of_groups:
             first_pairs.append((g2[0], g1[1]))
     else:
-        seeded: list[int] = []
+        seeded: list[tuple[int, int]] = []
         for rank_index in range(max(len(group) for group in qualifiers_by_group)):
-            layer = [group[rank_index] for group in qualifiers_by_group if rank_index < len(group)]
+            layer = [
+                (group[rank_index], group_index)
+                for group_index, group in enumerate(qualifiers_by_group)
+                if rank_index < len(group)
+            ]
             if rank_index % 2:
                 layer.reverse()
             seeded.extend(layer)
         bracket_size = 1
         while bracket_size < len(seeded):
             bracket_size *= 2
-        slots: list[int | None] = seeded + [None] * (bracket_size - len(seeded))
-        half = bracket_size // 2
-        first_pairs = [(slots[i], slots[-1 - i]) for i in range(half)]
+        first_pairs = _extended_first_pairs(seeded, bracket_size)
 
     seen: set[int] = set()
     for a, b in first_pairs:

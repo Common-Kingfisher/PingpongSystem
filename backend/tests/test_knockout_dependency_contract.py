@@ -65,6 +65,17 @@ def test_different_qualifier_counts_generate_power_of_two_bracket_with_byes(conn
     }
     assert len(participants) == 6
     assert sum(match["result_type"] == "WALKOVER" for match in first_round) == 2
+    entry_groups = {
+        entry["id"]: entry["group_id"] for entry in repo.list_entries(conn, tid)
+    }
+    real_matches = [
+        match for match in first_round
+        if match["entry_a_id"] is not None and match["entry_b_id"] is not None
+    ]
+    assert all(
+        entry_groups[match["entry_a_id"]] != entry_groups[match["entry_b_id"]]
+        for match in real_matches
+    )
 
 
 def test_qf_revision_updates_main_and_five_to_eight_sources(conn):
