@@ -94,3 +94,27 @@ def test_single_group_rejected():
 def test_duplicate_qualifier_rejected():
     with pytest.raises(ValueError):
         build_bracket(_groups([[11, 12], [11, 22]]))
+
+
+@pytest.mark.parametrize(
+    "qualifiers",
+    [
+        [[11], [21, 22], [31], [41, 42]],
+        [[11, 12, 13, 14], [21], [31]],
+    ],
+)
+def test_extended_bracket_avoids_same_group_when_feasible(qualifiers):
+    group_by_player = {
+        player_id: group_index
+        for group_index, group in enumerate(qualifiers)
+        for player_id in group
+    }
+
+    first_round = build_bracket(qualifiers, allow_extended=True)[0]
+
+    real_pairs = [
+        (match["player_a_id"], match["player_b_id"])
+        for match in first_round
+        if match["player_a_id"] is not None and match["player_b_id"] is not None
+    ]
+    assert all(group_by_player[a] != group_by_player[b] for a, b in real_pairs)
