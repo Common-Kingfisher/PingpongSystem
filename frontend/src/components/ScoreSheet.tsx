@@ -84,8 +84,8 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
     && Math.max(bigA, bigB) === gamesToWin && Math.min(bigA, bigB) >= 0 && Math.min(bigA, bigB) < gamesToWin
   const untouchedZeroScore = scoreA === '0' && scoreB === '0'
 
-  const sideAId = 'entry_a_id' in match ? (match.entry_a_id ?? match.player_a_id) : match.player_a?.id ?? null
-  const sideBId = 'entry_b_id' in match ? (match.entry_b_id ?? match.player_b_id) : match.player_b?.id ?? null
+  const sideAId = 'games' in match ? (match.entry_a_id ?? match.player_a_id) : match.player_a?.id ?? null
+  const sideBId = 'games' in match ? (match.entry_b_id ?? match.player_b_id) : match.player_b?.id ?? null
 
   const saveNormal = () => {
     if (detailMode) {
