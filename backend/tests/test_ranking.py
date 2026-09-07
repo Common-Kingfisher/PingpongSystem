@@ -19,6 +19,27 @@ def _m(a, b, sa, sb, status="FINISHED"):
     }
 
 
+def _gm(a, b, sa, sb, games):
+    """构造一场带逐局小分的比赛。games 为 [(side_a_score, side_b_score), ...]。"""
+    m = _m(a, b, sa, sb)
+    m["games"] = [{"side_a_score": x, "side_b_score": y} for x, y in games]
+    return m
+
+
+def _gm3(a, b, loser_scores):
+    """a 3:0 胜 b，逐局为 11:x（x 为 loser_scores 中对应局负方得分，均合法 11 分制）。"""
+    return _gm(a, b, 3, 0, [(11, x) for x in loser_scores])
+
+
+def _cycle3(l12, l23, l31):
+    """3 人循环互赛：1>2、2>3、3>1，均为 3:0 且每场 3 局。l* 为各场负方 3 局得分。"""
+    return [
+        _gm3(1, 2, l12),   # 1 胜 2
+        _gm3(2, 3, l23),   # 2 胜 3
+        _gm3(3, 1, l31),   # 3 胜 1
+    ]
+
+
 def _round_robin_results(order_of_wins=None):
     """默认：选手 1 > 2 > 3 > 4 全部单循环 6 场。"""
     return [
@@ -125,3 +146,90 @@ def test_qualification_tie_at_cutoff_ambiguous():
     qualified, ambiguous = compute_qualification(entries, 2)
     assert ambiguous is True
     assert qualified == []  # 不编造晋级者
+
+
+# ------------------------------------------------------------------ R04-A：多人同分 partial resolution
+
+def test_partial_ties_all_resolved():
+    """CASE A：三人 ratio 全不同（1.167 / 0.929 / 0.923）→ 全部独立排名。"""
+    matches = _cycle3([1, 1, 1], [2, 2, 2], [3, 3, 3])
+    entries = compute_group_rankings(matches, [1, 2, 3])
+    assert [e["player_id"] for e in entries] == [1, 3, 2]
+    assert [e["rank"] for e in entries] == [1, 2, 3]
+    assert all(not e["tied"] for e in entries)
+
+
+def test_partial_ties_last_two_tied():
+    """CASE B：1 > 2 = 3（ratio 1.361 / 0.857 / 0.857）→ 1 独立，2/3 并列。"""
+    matches = _cycle3([1, 1, 1], [3, 3, 3], [5, 5, 6])
+    entries = compute_group_rankings(matches, [1, 2, 3])
+    by_id = {e["player_id"]: e for e in entries}
+    assert by_id[1]["rank"] == 1 and by_id[1]["tied"] is False
+    assert by_id[2]["rank"] == 2 and by_id[2]["tied"] is True
+    assert by_id[3]["rank"] == 2 and by_id[3]["tied"] is True
+
+
+def test_partial_ties_first_two_tied():
+    """CASE C：1 = 2 > 3（ratio 1.167 / 1.167 / 0.735）→ 1/2 并列 rank1，3 独立 rank3。"""
+    matches = _cycle3([3, 3, 3], [1, 1, 1], [5, 5, 6])
+    entries = compute_group_rankings(matches, [1, 2, 3])
+    by_id = {e["player_id"]: e for e in entries}
+    assert by_id[1]["rank"] == 1 and by_id[1]["tied"] is True
+    assert by_id[2]["rank"] == 1 and by_id[2]["tied"] is True
+    assert by_id[3]["rank"] == 3 and by_id[3]["tied"] is False
+
+
+def test_partial_ties_all_equal_keep_tied():
+    """CASE D：三人 ratio 全相同 → 保持整桶并列。"""
+    matches = _cycle3([1, 1, 1], [1, 1, 1], [1, 1, 1])
+    entries = compute_group_rankings(matches, [1, 2, 3])
+    assert all(e["tied"] for e in entries)
+    assert len({e["rank"] for e in entries}) == 1
+
+
+def test_partial_ties_missing_games_keeps_unresolved():
+    """CASE E：缺相关逐局小分 → 不得按 0 分，保持 unresolved。"""
+    matches = [
+        _gm3(1, 2, [1, 1, 1]),
+        _m(2, 3, 3, 0),   # 无 games
+        _gm3(3, 1, [3, 3, 3]),
+    ]
+    entries = compute_group_rankings(matches, [1, 2, 3])
+    assert all(e["tied"] for e in entries)
+    assert len({e["rank"] for e in entries}) == 1
+
+
+def test_partial_ties_qualification_not_blocked_by_irrelevant_tie():
+    """CASE F：1 > 2 = 3；qualify=1 时 1 明确晋级，不被无关的 2/3 并列阻止。"""
+    matches = _cycle3([1, 1, 1], [3, 3, 3], [5, 5, 6])
+    entries = compute_group_rankings(matches, [1, 2, 3])
+    qualified, ambiguous = compute_qualification(entries, 1)
+    assert ambiguous is False
+    assert qualified == [1]
+
+
+def test_partial_ties_qualification_ambiguous_at_cutoff():
+    """CASE F 反向：1 > 2 = 3；qualify=2 时 2/3 并列跨越晋级线 → ambiguous。"""
+    matches = _cycle3([1, 1, 1], [3, 3, 3], [5, 5, 6])
+    entries = compute_group_rankings(matches, [1, 2, 3])
+    qualified, ambiguous = compute_qualification(entries, 2)
+    assert ambiguous is True
+    assert qualified == [1]  # 1 明确晋级；不任意选择 2 或 3
+
+
+def test_qualification_whole_tied_group_within_cutoff():
+    """CASE G：rank 1,2,2 / qualify=3 → 三人全部晋级，不 ambiguous。"""
+    matches = _cycle3([1, 1, 1], [3, 3, 3], [5, 5, 6])
+    entries = compute_group_rankings(matches, [1, 2, 3])
+    qualified, ambiguous = compute_qualification(entries, 3)
+    assert ambiguous is False
+    assert sorted(qualified) == [1, 2, 3]
+
+
+def test_qualification_tied_group_fully_inside_cutoff():
+    """CASE H：rank 1,1,3 / qualify=2 → 两名 rank1 全部晋级，不 ambiguous。"""
+    matches = _cycle3([3, 3, 3], [1, 1, 1], [5, 5, 6])
+    entries = compute_group_rankings(matches, [1, 2, 3])
+    qualified, ambiguous = compute_qualification(entries, 2)
+    assert ambiguous is False
+    assert sorted(qualified) == [1, 2]
