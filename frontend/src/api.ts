@@ -121,6 +121,7 @@ export interface Match {
   entry_b_name: string | null
   result_type: ResultType | null
   forfeit_entry_id: number | null
+  result_note: string | null
   bracket: MatchBracket
   placement_min: number | null
   placement_max: number | null

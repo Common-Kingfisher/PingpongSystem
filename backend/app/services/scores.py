@@ -234,17 +234,19 @@ def revise_score(
         match.get("player_a_id") if winner_side == side_a else match.get("player_b_id")
     )
 
-    repo.update_match(
-        conn,
-        match_id,
-        player_a_score=score_a,
-        player_b_score=score_b,
-        winner_id=winner_player,
-        winner_entry_id=winner_entry,
-        result_type=result_type,
-        forfeit_entry_id=forfeit_entry_id,
-        result_note=note,
-    )
+    update_fields = {
+        "player_a_score": score_a,
+        "player_b_score": score_b,
+        "winner_id": winner_player,
+        "winner_entry_id": winner_entry,
+        "result_type": result_type,
+        "forfeit_entry_id": forfeit_entry_id,
+    }
+    # 与小分补录路径统一：省略 note 时保留原备注；显式空串才清空。
+    if note is not None:
+        update_fields["result_note"] = note
+    repo.update_match(conn, match_id, **update_fields)
+
     if match["stage"] == MatchStage.KNOCKOUT.value:
         # 改分：下游链重置（撤销旧晋级槽位），再按新结果重新晋级
         knockout_service.reset_branch(conn, match_id)
