@@ -21,10 +21,10 @@ def _build_tournament(conn, n_players=8, group_count=4, qualify=2, table_count=6
 
 
 def _score_playing_matches(conn, tid):
-    """把所有 PLAYING 比赛按"id 小者 3:0 胜"录分。"""
+    """把所有 PLAYING 比赛按"id 小者 2:0 胜"录分。"""
     for m in repo.list_playing_matches(conn, tid):
         w = min(m["player_a_id"], m["player_b_id"])
-        sa, sb = (3, 0) if w == m["player_a_id"] else (0, 3)
+        sa, sb = (2, 0) if w == m["player_a_id"] else (0, 2)
         scores_service.record_score(conn, m["id"], sa, sb)
 
 
@@ -110,7 +110,7 @@ def test_winner_advances_to_next_round(conn):
     table = next(t for t in repo.list_tables(conn, tid) if t["status"] == "FREE")
     scheduling_service.assign_table(conn, qf1["id"], table["id"])
     w = min(qf1["player_a_id"], qf1["player_b_id"])
-    sa, sb = (3, 0) if w == qf1["player_a_id"] else (0, 3)
+    sa, sb = (2, 0) if w == qf1["player_a_id"] else (0, 2)
     scores_service.record_score(conn, qf1["id"], sa, sb)
 
     # 下一轮对应比赛（引用 qf1 的槽位）应填入胜者
@@ -148,7 +148,7 @@ def test_generate_with_ambiguous_qualification(conn):
         for m in repo.list_matches(conn, tid, group_id=group["id"]):
             a, b = m["player_a_id"], m["player_b_id"]
             if x in (a, b):
-                sa, sb = (3, 0) if a == x else (0, 3)
+                sa, sb = (2, 0) if a == x else (0, 2)
             else:
                 pair = {a, b}
                 if pair == {o0, o1}:
@@ -157,7 +157,7 @@ def test_generate_with_ambiguous_qualification(conn):
                     winner = o1
                 else:
                     winner = o2  # {o0, o2}
-                sa, sb = (3, 1) if winner == a else (1, 3)
+                sa, sb = (2, 1) if winner == a else (1, 2)
             repo.update_match(conn, m["id"], status="PLAYING")
             scores_service.record_score(conn, m["id"], sa, sb)
     try:
@@ -195,7 +195,7 @@ def test_revise_semi_final_blocked_when_final_finished(conn):
     sfs = [m for m in repo.list_matches(conn, tid, stage="KNOCKOUT") if m["round"] == 2]
     champion = knockout_service.get_knockout(conn, tid)["champion"]["id"]
     sf = next(m for m in sfs if champion in (m["player_a_id"], m["player_b_id"]))
-    new_sa, new_sb = (1, 3) if champion == sf["player_a_id"] else (3, 1)
+    new_sa, new_sb = (1, 2) if champion == sf["player_a_id"] else (2, 1)
     try:
         scores_service.revise_score(conn, sf["id"], new_sa, new_sb)
         assert False, "决赛已结束，应阻止修改半决赛"
@@ -218,7 +218,7 @@ def test_revise_quarter_final_blocked_when_sf_played(conn):
         if m["round"] == 1 and m["match_index"] == 0
     )
     w = min(qf1["player_a_id"], qf1["player_b_id"])
-    new_sa, new_sb = (1, 3) if w == qf1["player_a_id"] else (3, 1)
+    new_sa, new_sb = (1, 2) if w == qf1["player_a_id"] else (2, 1)
     try:
         scores_service.revise_score(conn, qf1["id"], new_sa, new_sb)
         assert False, "半决赛已结束，应阻止修改八强"
@@ -241,13 +241,13 @@ def test_revise_quarter_final_allowed_before_sf_played(conn):
         table = next(t for t in repo.list_tables(conn, tid) if t["status"] == "FREE")
         scheduling_service.assign_table(conn, qf["id"], table["id"])
         w = min(qf["player_a_id"], qf["player_b_id"])
-        sa, sb = (3, 0) if w == qf["player_a_id"] else (0, 3)
+        sa, sb = (2, 0) if w == qf["player_a_id"] else (0, 2)
         scores_service.record_score(conn, qf["id"], sa, sb)
 
     qf1 = qfs[0]
     old_winner = repo.get_match(conn, qf1["id"])["winner_id"]
     new_winner = qf1["player_b_id"] if old_winner == qf1["player_a_id"] else qf1["player_a_id"]
-    new_sa, new_sb = (1, 3) if old_winner == qf1["player_a_id"] else (3, 1)
+    new_sa, new_sb = (1, 2) if old_winner == qf1["player_a_id"] else (2, 1)
     scores_service.revise_score(conn, qf1["id"], new_sa, new_sb)
 
     sf1 = repo.list_matches_by_prev(conn, qf1["id"])[0]
@@ -266,9 +266,9 @@ def test_revise_final_flips_champion(conn):
     champion = min(final["player_a_id"], final["player_b_id"])
     other = max(final["player_a_id"], final["player_b_id"])
     if champion == final["player_a_id"]:
-        new_sa, new_sb = 1, 3
+        new_sa, new_sb = 1, 2
     else:
-        new_sa, new_sb = 3, 1
+        new_sa, new_sb = 2, 1
     scores_service.revise_score(conn, final["id"], new_sa, new_sb)
 
     tree = knockout_service.get_knockout(conn, tid)

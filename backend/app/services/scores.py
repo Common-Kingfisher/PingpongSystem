@@ -21,11 +21,13 @@ class ScoreError(Exception):
         self.code = code
 
 
-def _validate_scores(score_a: int, score_b: int) -> None:
+def _validate_scores(score_a: int, score_b: int, games_to_win: int) -> None:
     if score_a < 0 or score_b < 0:
         raise ScoreError("比分不能为负数", 422)
     if score_a == score_b:
         raise ScoreError("比赛不允许平局")
+    if max(score_a, score_b) != games_to_win:
+        raise ScoreError(f"大比分胜局数必须为 {games_to_win}", 422)
 
 
 def _winner_id(
@@ -35,13 +37,33 @@ def _winner_id(
     return player_a_id if score_a > score_b else player_b_id
 
 
+def _validate_game(a: int, b: int, points_to_win: int, index: int) -> None:
+    """校验单局比分是否符合 points_to_win 分制。
+
+    - 未进入平分延长（loser < points_to_win - 1）：胜方必须恰好得到 points_to_win 分；
+    - 进入平分延长（loser >= points_to_win - 1）：胜方必须恰好领先 2 分。
+    """
+    if a < 0 or b < 0:
+        raise ScoreError(f"第 {index} 局比分不能为负数", 422)
+    if a == b:
+        raise ScoreError(f"第 {index} 局不允许平局", 422)
+    winner = max(a, b)
+    loser = min(a, b)
+    if loser < points_to_win - 1:
+        if winner != points_to_win:
+            raise ScoreError(
+                f"第 {index} 局未进入平分延长，胜方必须恰好得到 {points_to_win} 分", 422
+            )
+    elif winner != loser + 2:
+        raise ScoreError(f"第 {index} 局进入平分延长后，胜方必须恰好领先 2 分", 422)
+
+
 def _validate_games(games: list[tuple[int, int]], games_to_win: int, points_to_win: int) -> tuple[int, int]:
     if not games:
         raise ScoreError("请至少录入一局比分", 422)
     wins_a = wins_b = 0
     for index, (a, b) in enumerate(games, start=1):
-        if a == b or max(a, b) < points_to_win or abs(a - b) < 2:
-            raise ScoreError(f"第 {index} 局比分不符合 {points_to_win} 分且领先 2 分的规则", 422)
+        _validate_game(a, b, points_to_win, index)
         if a > b:
             wins_a += 1
         else:
@@ -90,18 +112,14 @@ def record_score(
         raise ScoreError("比赛双方尚未就绪")
     tournament = repo.get_tournament(conn, match["tournament_id"])
     if result_type == ResultType.NORMAL.value:
+        # 首次录分只接受大比分；逐局小分仅作为已结束小组赛的补录，走 revise_score。
         if games is not None:
-            score_a, score_b = _validate_games(
-                games, tournament["games_to_win"], tournament["points_to_win"]
-            )
-            repo.replace_match_games(conn, match_id, games, match.get("entry_a_id"), match.get("entry_b_id"))
-        else:
-            # 常规现场录入只有大比分；避免旧的逐局数据被误用于本次排名。
-            repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
+            raise ScoreError("首次录分只支持大比分，不支持逐局比分", 422)
         if score_a is None or score_b is None:
             raise ScoreError("请录入完整比分", 422)
-        _validate_scores(score_a, score_b)
+        _validate_scores(score_a, score_b, tournament["games_to_win"])
         winner_side = side_a if score_a > score_b else side_b
+        repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
     else:
         if forfeit_entry_id not in (side_a, side_b):
             raise ScoreError("请选择弃权或未到场的一方", 422)
@@ -159,6 +177,32 @@ def revise_score(
     match = _ensure_match(conn, match_id)
     if match["status"] != MatchStatus.FINISHED.value:
         raise ScoreError("只有已结束的比赛可以修改比分")
+    side_a, side_b = _side_ids(match)
+    tournament = repo.get_tournament(conn, match["tournament_id"])
+
+    # 补录/更新逐局小分：仅 FINISHED GROUP；大比分、winner、status 一律不变。
+    if result_type == ResultType.NORMAL.value and games is not None:
+        if match["stage"] != MatchStage.GROUP.value:
+            raise ScoreError("只有小组赛支持补录逐局小分", 422)
+        stored_a, stored_b = match["player_a_score"], match["player_b_score"]
+        if stored_a is None or stored_b is None:
+            raise ScoreError("该比赛尚未确认大比分", 409)
+        derived_a, derived_b = _validate_games(
+            games, tournament["games_to_win"], tournament["points_to_win"]
+        )
+        if (derived_a, derived_b) != (stored_a, stored_b):
+            raise ScoreError("逐局小比分与大比分不一致", 422)
+        repo.replace_match_games(
+            conn, match_id, games,
+            match.get("entry_a_id"), match.get("entry_b_id"),
+        )
+        # 校验全部通过后才更新备注：note is None 保留原备注，note == "" 显式清空。
+        if note is not None:
+            repo.update_match(conn, match_id, result_note=note)
+        conn.commit()
+        return repo.decorate_match(conn, repo.get_match(conn, match_id))
+
+    # 修改大比分（或异常结果）：KNOCKOUT 需先检查下游是否已开始。
     if match["stage"] == MatchStage.KNOCKOUT.value:
         for descendant in repo.list_matches_by_prev(conn, match_id):
             if descendant["status"] in (
@@ -166,21 +210,14 @@ def revise_score(
                 MatchStatus.FINISHED.value,
             ):
                 raise ScoreError("该结果已经影响后续比赛。请先处理后续比赛后再修改本场结果。")
-    side_a, side_b = _side_ids(match)
-    tournament = repo.get_tournament(conn, match["tournament_id"])
+
     if result_type == ResultType.NORMAL.value:
-        if games is not None:
-            score_a, score_b = _validate_games(
-                games, tournament["games_to_win"], tournament["points_to_win"]
-            )
-            repo.replace_match_games(conn, match_id, games, match.get("entry_a_id"), match.get("entry_b_id"))
-        else:
-            # 改大比分即撤销旧小分；若出线仍并列，排名页会再次精确提示补录。
-            repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
         if score_a is None or score_b is None:
             raise ScoreError("请录入完整比分", 422)
-        _validate_scores(score_a, score_b)
+        _validate_scores(score_a, score_b, tournament["games_to_win"])
         winner_side = side_a if score_a > score_b else side_b
+        # 修改大比分后，旧逐局数据不再可信，予以清除。
+        repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
     else:
         if forfeit_entry_id not in (side_a, side_b):
             raise ScoreError("请选择弃权或未到场的一方", 422)
@@ -191,22 +228,25 @@ def revise_score(
         else:
             score_a = score_b = 0
         repo.replace_match_games(conn, match_id, [], match.get("entry_a_id"), match.get("entry_b_id"))
+
     winner_entry = winner_side if match.get("entry_a_id") is not None else None
     winner_player = winner_side if match.get("entry_a_id") is None else (
         match.get("player_a_id") if winner_side == side_a else match.get("player_b_id")
     )
 
-    repo.update_match(
-        conn,
-        match_id,
-        player_a_score=score_a,
-        player_b_score=score_b,
-        winner_id=winner_player,
-        winner_entry_id=winner_entry,
-        result_type=result_type,
-        forfeit_entry_id=forfeit_entry_id,
-        result_note=note,
-    )
+    update_fields = {
+        "player_a_score": score_a,
+        "player_b_score": score_b,
+        "winner_id": winner_player,
+        "winner_entry_id": winner_entry,
+        "result_type": result_type,
+        "forfeit_entry_id": forfeit_entry_id,
+    }
+    # 与小分补录路径统一：省略 note 时保留原备注；显式空串才清空。
+    if note is not None:
+        update_fields["result_note"] = note
+    repo.update_match(conn, match_id, **update_fields)
+
     if match["stage"] == MatchStage.KNOCKOUT.value:
         # 改分：下游链重置（撤销旧晋级槽位），再按新结果重新晋级
         knockout_service.reset_branch(conn, match_id)

@@ -11,7 +11,7 @@ def _full_group_stage(client, n_players=8, group_count=4, bronze_mode="JOINT_BRO
         client.post(f"/api/tournaments/{tid}/players", json={"name": f"选手{i:02d}"})
     client.post(f"/api/tournaments/{tid}/auto-group")
     client.post(f"/api/tournaments/{tid}/generate-group-matches")
-    # 打完全部小组赛（id 小者 3:0 胜）
+    # 打完全部小组赛（id 小者 2:0 胜）
     for _ in range(50):
         client.post(f"/api/tournaments/{tid}/schedule-next")
         dash = client.get(f"/api/tournaments/{tid}/dashboard").json()
@@ -20,7 +20,7 @@ def _full_group_stage(client, n_players=8, group_count=4, bronze_mode="JOINT_BRO
             break
         for m in playing:
             w = min(m["player_a_id"], m["player_b_id"])
-            sa, sb = (3, 0) if w == m["player_a_id"] else (0, 3)
+            sa, sb = (2, 0) if w == m["player_a_id"] else (0, 2)
             client.post(f"/api/matches/{m['id']}/score", json={"player_a_score": sa, "player_b_score": sb})
     return tid
 
@@ -88,7 +88,7 @@ def test_knockout_full_flow_to_champion(client):
             break
         for m in playing:
             w = min(m["player_a_id"], m["player_b_id"])
-            sa, sb = (3, 0) if w == m["player_a_id"] else (0, 3)
+            sa, sb = (2, 0) if w == m["player_a_id"] else (0, 2)
             client.post(f"/api/matches/{m['id']}/score", json={"player_a_score": sa, "player_b_score": sb})
 
     data = client.get(f"/api/tournaments/{tid}/knockout").json()

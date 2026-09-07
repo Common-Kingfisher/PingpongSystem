@@ -29,15 +29,16 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
   const updateNote = (value: string) => { setNote(value); setNoteDirty(true) }
   const notePayload = noteDirty ? note : undefined
 
-  // 默认模式：大比分录入/修改
-  const [scoreA, setScoreA] = useState(originalA === null ? '' : String(originalA))
-  const [scoreB, setScoreB] = useState(originalB === null ? '' : String(originalB))
+  // 默认模式：大比分录入/修改。新比赛默认 0:0，便于现场直接改成 2:0 / 2:1。
+  const [scoreA, setScoreA] = useState(originalA === null ? '0' : String(originalA))
+  const [scoreB, setScoreB] = useState(originalB === null ? '0' : String(originalB))
   const [resultType, setResultType] = useState<ResultType>('NORMAL')
 
-  // detailMode：逐局小分补录（局数由已确认大比分决定，不回填 games_to_win*2-1）
+  // detailMode：逐局小分补录（局数由已确认大比分决定，不回填 games_to_win*2-1）。
+  // 新建补录行默认 0:0；0:0 视为“尚未录入”，不会在弹窗刚打开时显示错误。
   const initialGames: GameDraft[] = existingGames.length
     ? existingGames.map((g) => ({ a: String(g.side_a_score), b: String(g.side_b_score) }))
-    : Array.from({ length: (originalA ?? 0) + (originalB ?? 0) }, () => ({ a: '', b: '' }))
+    : Array.from({ length: (originalA ?? 0) + (originalB ?? 0) }, () => ({ a: '0', b: '0' }))
   const [games, setGames] = useState<GameDraft[]>(initialGames)
   const updateGame = (index: number, side: 'a' | 'b', value: string) => {
     setGames((cur) => cur.map((g, i) => (i === index ? { ...g, [side]: value } : g)))
@@ -48,6 +49,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
     if (game.a === '' || game.b === '') return null
     const a = Number(game.a)
     const b = Number(game.b)
+    if (a === 0 && b === 0) return null
     if (a < 0 || b < 0) return '比分不能为负数'
     if (a === b) return '平分无效'
     const winner = Math.max(a, b)
@@ -69,7 +71,8 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
 
   const derivedA = wins[0]
   const derivedB = wins[1]
-  const allGamesFilled = games.every((g) => g.a !== '' && g.b !== '')
+  const allGamesFilled = games.every((g) =>
+    g.a !== '' && g.b !== '' && !(g.a === '0' && g.b === '0'))
   const hasInvalidGame = games.some((g) => g.a !== '' && g.b !== '' && gameHint(g) !== null)
   const gamesConsistent = derivedA === originalA && derivedB === originalB
   const canSubmitSupplement = gamesConsistent && !hasInvalidGame && allGamesFilled
@@ -79,6 +82,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
   const bigB = Number(scoreB)
   const validBigScore = scoreA !== '' && scoreB !== '' && bigA !== bigB
     && Math.max(bigA, bigB) === gamesToWin && Math.min(bigA, bigB) >= 0 && Math.min(bigA, bigB) < gamesToWin
+  const untouchedZeroScore = scoreA === '0' && scoreB === '0'
 
   const sideAId = 'entry_a_id' in match ? (match.entry_a_id ?? match.player_a_id) : match.player_a?.id ?? null
   const sideBId = 'entry_b_id' in match ? (match.entry_b_id ?? match.player_b_id) : match.player_b?.id ?? null
@@ -162,7 +166,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
                   <b>:</b>
                   <label><span>{sideB}</span><input aria-label={`${sideB}大比分`} type="number" min={0} max={gamesToWin} value={scoreB} onChange={(e) => setScoreB(e.target.value)} /></label>
                 </div>
-                {scoreA !== '' && scoreB !== '' && !validBigScore && (
+                {!untouchedZeroScore && scoreA !== '' && scoreB !== '' && !validBigScore && (
                   <p className="score-rule status-error">大比分应为 {gamesToWin}:0、{gamesToWin}:1 或反之（不能平局、不能超出局数）。</p>
                 )}
               </>
