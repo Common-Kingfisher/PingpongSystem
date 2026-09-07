@@ -96,6 +96,8 @@ CREATE TABLE IF NOT EXISTS matches (
         CHECK (status IN ('WAITING','PLAYING','FINISHED')),
     prev_match_a_id INTEGER REFERENCES matches(id),
     prev_match_b_id INTEGER REFERENCES matches(id),
+    prev_match_a_outcome TEXT NOT NULL DEFAULT 'WINNER' CHECK (prev_match_a_outcome IN ('WINNER','LOSER')),
+    prev_match_b_outcome TEXT NOT NULL DEFAULT 'WINNER' CHECK (prev_match_b_outcome IN ('WINNER','LOSER')),
     entry_a_id INTEGER REFERENCES entries(id),
     entry_b_id INTEGER REFERENCES entries(id),
     winner_entry_id INTEGER REFERENCES entries(id),
@@ -216,6 +218,8 @@ def init_db() -> None:
             ("bracket", "TEXT NOT NULL DEFAULT 'GROUP'"),
             ("placement_min", "INTEGER"),
             ("placement_max", "INTEGER"),
+            ("prev_match_a_outcome", "TEXT NOT NULL DEFAULT 'WINNER'"),
+            ("prev_match_b_outcome", "TEXT NOT NULL DEFAULT 'WINNER'"),
         ):
             _add_column_if_missing(conn, "matches", column, ddl)
         # New tables are created after legacy tables have been upgraded so their FKs target the final table.

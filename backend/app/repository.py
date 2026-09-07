@@ -331,6 +331,8 @@ def create_match(
     player_b_id: int | None,
     prev_match_a_id: int | None = None,
     prev_match_b_id: int | None = None,
+    prev_match_a_outcome: str = "WINNER",
+    prev_match_b_outcome: str = "WINNER",
     entry_a_id: int | None = None,
     entry_b_id: int | None = None,
     bracket: str | None = None,
@@ -339,9 +341,9 @@ def create_match(
 ) -> dict:
     cur = conn.execute(
         "INSERT INTO matches (tournament_id, stage, group_id, round, match_index, "
-        "player_a_id, player_b_id, prev_match_a_id, prev_match_b_id, entry_a_id, entry_b_id, "
+        "player_a_id, player_b_id, prev_match_a_id, prev_match_b_id, prev_match_a_outcome, prev_match_b_outcome, entry_a_id, entry_b_id, "
         "bracket, placement_min, placement_max) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             tournament_id,
             stage,
@@ -352,6 +354,8 @@ def create_match(
             player_b_id,
             prev_match_a_id,
             prev_match_b_id,
+            prev_match_a_outcome,
+            prev_match_b_outcome,
             entry_a_id,
             entry_b_id,
             bracket or ("GROUP" if stage == "GROUP" else "MAIN"),
@@ -445,7 +449,7 @@ def list_playing_matches(conn: sqlite3.Connection, tournament_id: int) -> list[d
 
 
 def list_matches_by_prev(conn: sqlite3.Connection, match_id: int) -> list[dict]:
-    """引用本场比赛作为晋级来源的后续比赛（淘汰赛胜者晋级用）。"""
+    """引用本场比赛胜者或负者作为来源的后续比赛。"""
     rows = conn.execute(
         "SELECT * FROM matches WHERE prev_match_a_id = ? OR prev_match_b_id = ?",
         (match_id, match_id),

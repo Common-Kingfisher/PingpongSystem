@@ -62,6 +62,7 @@ def _create_bracket(
     bracket: str,
     placement_min: int | None = None,
     placement_max: int | None = None,
+    loser_source_by_entry: dict[int, int] | None = None,
 ) -> None:
     rounds_spec = knockout.build_bracket([participant_ids], allow_extended=True)
     id_by_position: dict[tuple[int, int], int] = {}
@@ -69,8 +70,14 @@ def _create_bracket(
         for spec in round_spec:
             round_no, index = spec["round"], spec["match_index"]
             a, b = spec["player_a_id"], spec["player_b_id"]
-            prev_a = id_by_position.get((round_no - 1, index * 2))
-            prev_b = id_by_position.get((round_no - 1, index * 2 + 1))
+            if round_no == 1 and loser_source_by_entry:
+                prev_a = loser_source_by_entry.get(a) if a is not None else None
+                prev_b = loser_source_by_entry.get(b) if b is not None else None
+                outcome_a = outcome_b = "LOSER"
+            else:
+                prev_a = id_by_position.get((round_no - 1, index * 2))
+                prev_b = id_by_position.get((round_no - 1, index * 2 + 1))
+                outcome_a = outcome_b = "WINNER"
             match = repo.create_match(
                 conn,
                 tournament_id,
@@ -82,6 +89,8 @@ def _create_bracket(
                 _entry_player_id(conn, b),
                 prev_match_a_id=prev_a,
                 prev_match_b_id=prev_b,
+                prev_match_a_outcome=outcome_a,
+                prev_match_b_outcome=outcome_b,
                 entry_a_id=a,
                 entry_b_id=b,
                 bracket=bracket,
@@ -164,17 +173,19 @@ def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
 
 
 def advance_winner(conn: sqlite3.Connection, match: dict) -> None:
+    """把本场胜者/负者同步到所有声明依赖的后续签位。"""
     if match["stage"] != MatchStage.KNOCKOUT.value:
         return
-    winner = _winner(match)
+    winner, loser = _winner(match), _loser(match)
     if winner is None:
         return
     for next_match in repo.list_matches_by_prev(conn, match["id"]):
-        player_id = _entry_player_id(conn, winner)
         if next_match["prev_match_a_id"] == match["id"]:
-            repo.update_match(conn, next_match["id"], entry_a_id=winner, player_a_id=player_id)
+            participant = loser if next_match.get("prev_match_a_outcome", "WINNER") == "LOSER" else winner
+            repo.update_match(conn, next_match["id"], entry_a_id=participant, player_a_id=_entry_player_id(conn, participant))
         elif next_match["prev_match_b_id"] == match["id"]:
-            repo.update_match(conn, next_match["id"], entry_b_id=winner, player_b_id=player_id)
+            participant = loser if next_match.get("prev_match_b_outcome", "WINNER") == "LOSER" else winner
+            repo.update_match(conn, next_match["id"], entry_b_id=participant, player_b_id=_entry_player_id(conn, participant))
 
 
 def _create_direct_match(
@@ -184,6 +195,8 @@ def _create_direct_match(
     b: int,
     placement_min: int,
     placement_max: int,
+    source_a_id: int,
+    source_b_id: int,
 ) -> None:
     repo.create_match(
         conn,
@@ -196,6 +209,10 @@ def _create_direct_match(
         _entry_player_id(conn, b),
         entry_a_id=a,
         entry_b_id=b,
+        prev_match_a_id=source_a_id,
+        prev_match_b_id=source_b_id,
+        prev_match_a_outcome="LOSER",
+        prev_match_b_outcome="LOSER",
         bracket=MatchBracket.PLACEMENT.value,
         placement_min=placement_min,
         placement_max=placement_max,
@@ -220,7 +237,7 @@ def ensure_placement_matches(conn: sqlite3.Connection, tournament_id: int) -> No
     ):
         losers = [_loser(m) for m in semis]
         if all(x is not None for x in losers):
-            _create_direct_match(conn, tournament_id, losers[0], losers[1], 3, 4)
+            _create_direct_match(conn, tournament_id, losers[0], losers[1], 3, 4, semis[0]["id"], semis[1]["id"])
 
     first = [m for m in main if m["round"] == 1]
     real_first = [m for m in first if _side(m, "a") is not None and _side(m, "b") is not None]
@@ -233,7 +250,8 @@ def ensure_placement_matches(conn: sqlite3.Connection, tournament_id: int) -> No
     ):
         losers = [_loser(m) for m in real_first]
         if len(losers) == 4 and all(x is not None for x in losers):
-            _create_bracket(conn, tournament_id, losers, MatchBracket.PLACEMENT.value, 5, 8)
+            loser_sources = {loser: match["id"] for loser, match in zip(losers, real_first)}
+            _create_bracket(conn, tournament_id, losers, MatchBracket.PLACEMENT.value, 5, 8, loser_sources)
 
     all_matches = repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value)
     lower_semis = [
@@ -244,7 +262,22 @@ def ensure_placement_matches(conn: sqlite3.Connection, tournament_id: int) -> No
     if len(lower_semis) == 2 and all(m["status"] == MatchStatus.FINISHED.value for m in lower_semis) and not existing_78:
         losers = [_loser(m) for m in lower_semis]
         if all(x is not None for x in losers):
-            _create_direct_match(conn, tournament_id, losers[0], losers[1], 7, 8)
+            _create_direct_match(conn, tournament_id, losers[0], losers[1], 7, 8, lower_semis[0]["id"], lower_semis[1]["id"])
+
+
+def descendants(conn: sqlite3.Connection, match_id: int) -> list[dict]:
+    """返回所有直接和间接下游比赛，包含胜者线与负者排位线。"""
+    result: list[dict] = []
+    seen: set[int] = set()
+    stack = repo.list_matches_by_prev(conn, match_id)
+    while stack:
+        match = stack.pop()
+        if match["id"] in seen:
+            continue
+        seen.add(match["id"])
+        result.append(match)
+        stack.extend(repo.list_matches_by_prev(conn, match["id"]))
+    return result
 
 
 def reset_branch(conn: sqlite3.Connection, match_id: int) -> None:

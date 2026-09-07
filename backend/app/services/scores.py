@@ -111,6 +111,7 @@ def record_score(
     if side_a is None or side_b is None:
         raise ScoreError("比赛双方尚未就绪")
     tournament = repo.get_tournament(conn, match["tournament_id"])
+
     if result_type == ResultType.NORMAL.value:
         # 首次录分只接受大比分；逐局小分仅作为已结束小组赛的补录，走 revise_score。
         if games is not None:
@@ -171,14 +172,19 @@ def revise_score(
 ) -> dict:
     """修改已结束比赛的比分（纠错）。
 
-    淘汰赛限制：如果本场结果的后续比赛已经 PLAYING/FINISHED，则阻止修改
-    （Demo 不做复杂级联回滚）；后续比赛尚未开始时允许修改并重新晋级。
+    淘汰赛限制：如果任一胜者线或负者排位线的下游比赛已经 PLAYING/FINISHED，
+    则阻止修改；全部下游尚未开始时允许修改并重新同步双方签位。
     """
     match = _ensure_match(conn, match_id)
     if match["status"] != MatchStatus.FINISHED.value:
         raise ScoreError("只有已结束的比赛可以修改比分")
     side_a, side_b = _side_ids(match)
     tournament = repo.get_tournament(conn, match["tournament_id"])
+
+    if match["stage"] == MatchStage.GROUP.value and repo.list_matches(
+        conn, match["tournament_id"], MatchStage.KNOCKOUT.value
+    ):
+        raise ScoreError("淘汰赛已生成，小组赛结果已用于排签，不能直接修改。请撤销淘汰签表后再处理。")
 
     # 补录/更新逐局小分：仅 FINISHED GROUP；大比分、winner、status 一律不变。
     if result_type == ResultType.NORMAL.value and games is not None:
@@ -204,7 +210,7 @@ def revise_score(
 
     # 修改大比分（或异常结果）：KNOCKOUT 需先检查下游是否已开始。
     if match["stage"] == MatchStage.KNOCKOUT.value:
-        for descendant in repo.list_matches_by_prev(conn, match_id):
+        for descendant in knockout_service.descendants(conn, match_id):
             if descendant["status"] in (
                 MatchStatus.PLAYING.value,
                 MatchStatus.FINISHED.value,
