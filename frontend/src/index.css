@@ -331,7 +331,10 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
   background: radial-gradient(circle at 50% 4%, rgba(213,31,93,.24), transparent 30%), #0d1018;
   border: 1px solid #2a2f3b;
 }
-.journey-tree > :not(.arena-grid) { position: relative; z-index: 1; }
+.journey-summit, .journey-tree-round, .journey-origin { position: relative; z-index: 2; }
+.journey-connectors { position: absolute; inset: 0; z-index: 1; overflow: visible; pointer-events: none; }
+.journey-connectors path { fill: none; stroke: #596275; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.journey-connectors path.is-champion-path { stroke: var(--gold); stroke-width: 2.5; filter: drop-shadow(0 0 4px rgba(245,196,81,.72)); }
 .journey-summit {
   width: min(310px, 44vw);
   min-height: 150px;
@@ -345,16 +348,12 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
   border: 1px solid #8f3e75;
   clip-path: polygon(8% 0,92% 0,100% 16%,100% 84%,92% 100%,8% 100%,0 84%,0 16%);
 }
-.journey-summit::after { content: ""; position: absolute; left: 50%; top: 100%; height: 58px; border-left: 2px solid #596275; }
 .journey-summit.is-decided { border-color: var(--gold); box-shadow: 0 0 34px rgba(245,196,81,.14); }
-.journey-summit.is-decided::after { border-color: var(--gold); box-shadow: 0 0 10px rgba(245,196,81,.4); }
 .journey-summit > span { color: var(--gold); font: 800 10px Bahnschrift, sans-serif; letter-spacing: .28em; }
 .journey-summit > i { margin: 7px 0 2px; font-size: 34px; font-style: normal; }
 .journey-summit h2 { margin: 0; font-size: 29px; }
 .journey-summit p { margin: 5px 0 0; color: #c9cfda; font-size: 11px; }
 .journey-tree-round { position: relative; margin-bottom: 52px; }
-.journey-tree-round::before { content: ""; position: absolute; left: 7%; right: 7%; top: 36px; border-top: 1px solid #50596b; }
-.journey-tree-round.has-champion-path::before { border-color: rgba(245,196,81,.58); }
 .journey-tree-round-title { position: relative; z-index: 2; width: fit-content; display: flex; align-items: baseline; gap: 8px; margin: 0 auto 20px; padding: 0 13px; background: #0d1018; }
 .journey-tree-round-title > span { color: var(--magenta); font: 800 9px Bahnschrift, sans-serif; }
 .journey-tree-round-title h2 { margin: 0; font-size: 17px; }
@@ -368,12 +367,7 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
   border: 1px solid #353d4c;
   border-top: 3px solid #4d586b;
 }
-.journey-tree-match::before { content: ""; position: absolute; left: 50%; bottom: 100%; height: 20px; border-left: 1px solid #50596b; }
-.journey-tree-match::after { content: ""; position: absolute; left: 50%; top: 100%; height: 52px; border-left: 1px solid #50596b; }
-.journey-tree-round:last-of-type .journey-tree-match::after { height: 30px; }
 .journey-tree-match.is-champion-path { border-color: rgba(245,196,81,.66); border-top-color: var(--gold); box-shadow: 0 0 22px rgba(245,196,81,.1); }
-.journey-tree-match.is-champion-path::before,
-.journey-tree-match.is-champion-path::after { border-color: var(--gold); box-shadow: 0 0 7px rgba(245,196,81,.45); }
 .journey-tree-match-id { position: absolute; top: 5px; right: 8px; color: #69758a; font: 700 8px Bahnschrift, sans-serif; }
 .journey-tree-match > div { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; padding: 6px 5px; color: #9ea8b9; border-bottom: 1px solid #292f3c; }
 .journey-tree-match > div strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -385,6 +379,7 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
 .journey-tree-match footer strong { color: var(--gold); }
 .journey-origin { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: -20px; color: #7e899d; font-size: 10px; letter-spacing: .04em; }
 .journey-origin span { width: 6px; height: 6px; background: var(--magenta); border-radius: 50%; box-shadow: 0 0 0 5px rgba(213,31,93,.12); }
+.journey-actions a:focus-visible, .journey-actions button:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
 
 .order-book { max-width: 980px; margin: 0 auto; padding: 60px; background: #fff; color: #111827; box-shadow: 0 20px 60px rgba(16,24,40,.12); }
 .order-toolbar { display: flex; justify-content: space-between; margin-bottom: 25px; }
