@@ -72,13 +72,28 @@ def test_champion_journey_connectors_and_responsive_layout():
         expect(page.locator(".journey-connectors path")).to_have_count(7)
         expect(page.locator(".journey-connectors path.is-champion-path")).to_have_count(3)
         expect(page.locator(".journey-summit h2")).to_have_text("张弛")
+        expected_topology = [
+            (101, 105), (102, 105), (103, 106), (104, 106),
+            (105, 107), (106, 107), (107, "champion"),
+        ]
+        for source, target in expected_topology:
+            expect(page.locator(
+                f'.journey-connectors path[data-from-match="{source}"][data-to-match="{target}"]'
+            )).to_have_count(1)
         screenshot_path = os.getenv("PINGPONG_E2E_SCREENSHOT")
         if screenshot_path:
             page.screenshot(path=screenshot_path, full_page=True)
 
         page.set_viewport_size({"width": 390, "height": 844})
         expect(page.locator(".journey-tree")).to_be_visible()
-        assert page.locator(".journey-page").evaluate("element => element.scrollWidth >= element.clientWidth")
+        overflow = page.locator(".journey-page").evaluate(
+            "element => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth })"
+        )
+        assert overflow["scrollWidth"] > overflow["clientWidth"]
+        scroll_position = page.locator(".journey-page").evaluate(
+            "element => { element.scrollLeft = 160; return element.scrollLeft }"
+        )
+        assert scroll_position > 0
         browser.close()
 
 

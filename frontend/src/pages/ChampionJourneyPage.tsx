@@ -4,7 +4,7 @@ import { api, ApiError, KnockoutMatch, KnockoutTree } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 
 type Placement = { rank: number; label: string; entry: { id: number; name: string | null } | null }
-type Connector = { key: string; d: string; active: boolean }
+type Connector = { key: string; from: string; to: string; d: string; active: boolean }
 
 function MatchTile({ match, active, capture }: { match: KnockoutMatch; active: boolean; capture: (node: HTMLElement | null) => void }) {
   const exceptional = Boolean(match.result_type && match.result_type !== 'NORMAL')
@@ -80,6 +80,8 @@ export default function ChampionJourneyPage() {
           const middleY = (from.y + to.y) / 2
           next.push({
             key: `${previousId}-${match.id}`,
+            from: String(previousId),
+            to: String(match.id),
             d: `M ${from.x} ${from.y} V ${middleY} H ${to.x} V ${to.y}`,
             active: path.has(previousId) && path.has(match.id),
           })
@@ -94,6 +96,8 @@ export default function ChampionJourneyPage() {
       const middleY = (from.y + to.y) / 2
       next.push({
         key: `${final.id}-champion`,
+        from: String(final.id),
+        to: 'champion',
         d: `M ${from.x} ${from.y} V ${middleY} H ${to.x} V ${to.y}`,
         active: Boolean(tree.champion && path.has(final.id)),
       })
@@ -136,7 +140,7 @@ export default function ChampionJourneyPage() {
       <div ref={treeRef} className="journey-tree" aria-label="自下而上的冠军晋级路线">
         <div className="arena-grid" aria-hidden="true" />
         <svg className="journey-connectors" data-testid="journey-connectors" width="100%" height="100%" aria-hidden="true">
-          {connectors.map((connector) => <path key={connector.key} data-champion-path={connector.active || undefined} className={connector.active ? 'is-champion-path' : ''} d={connector.d} />)}
+          {connectors.map((connector) => <path key={connector.key} data-from-match={connector.from} data-to-match={connector.to} data-champion-path={connector.active || undefined} className={connector.active ? 'is-champion-path' : ''} d={connector.d} />)}
         </svg>
         <section ref={summitRef} className={`journey-summit ${tree?.champion ? 'is-decided' : ''}`}>
           <span>CHAMPION</span><i>🏆</i><h2>{tree?.champion?.name ?? '冠军待定'}</h2>
