@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, KnockoutMatch, KnockoutTree, RankingsResult, Tournament } from '../api'
+import { api, ApiError, KnockoutMatch, KnockoutTree, normalizePlacementMatches, RankingsResult, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import KnockoutBracket from '../components/KnockoutBracket'
 import ScoreSheet from '../components/ScoreSheet'
@@ -153,15 +153,15 @@ export default function KnockoutPage() {
             runnerUp={tree!.runner_up}
             onScore={openScore}
           />
-          {tree!.placement_matches.length > 0 && <section className="card placement-board">
+          {(tree!.placement_matches ?? []).length > 0 && <section className="card placement-board">
             <div className="section-heading"><div><span className="eyebrow">PLACEMENT BRACKET</span><h3>季军与名次排位赛</h3></div><span className="muted">季军由半决赛负者直接对决，不按积分决定</span></div>
-            <div className="placement-match-grid">{tree!.placement_matches.map(({ range, match }) => <article key={match.id} className="placement-match-card">
+            <div className="placement-match-grid">{normalizePlacementMatches(tree!.placement_matches).map(({ range, match }) => <article key={match.id} className="placement-match-card">
               <span>{range[0] === 3 && range[1] === 4 ? '季军赛 · 三四名决胜' : range[0] === range[1] ? `第 ${range[0]} 名` : `${range[0]}–${range[1]} 名排位`}</span>
               <strong>{match.player_a?.name ?? '待定'} <i>VS</i> {match.player_b?.name ?? '待定'}</strong>
               {match.status === 'FINISHED' ? <small>{match.result_type !== 'NORMAL' ? 'W/O' : `${match.player_a_score}:${match.player_b_score}`} · 已结束</small> : match.player_a && match.player_b ? <button className="btn small primary" onClick={() => openScore(match)}>录入大比分</button> : <small>等待上一轮结果</small>}
             </article>)}</div>
           </section>}
-          {tree!.placements.length > 0 && <section className="card final-placements"><h3>最终名次</h3><div>{tree!.placements.map((row, index) => <span key={index}><b>#{String(row.rank)}</b>{String((row.entry as { name?: string } | undefined)?.name ?? '待定')}<small>{String(row.label ?? '')}</small></span>)}</div></section>}
+          {(tree!.placements ?? []).length > 0 && <section className="card final-placements"><h3>最终名次</h3><div>{(tree!.placements ?? []).map((row, index) => <span key={index}><b>#{String(row.rank)}</b>{String((row.entry as { name?: string } | undefined)?.name ?? '待定')}<small>{String(row.label ?? '')}</small></span>)}</div></section>}
         </>
       )}
 
@@ -169,8 +169,8 @@ export default function KnockoutPage() {
         match={modal}
         sideA={modal.player_a?.name ?? '待定'}
         sideB={modal.player_b?.name ?? '待定'}
-        gamesToWin={tournament.games_to_win}
-        pointsToWin={tournament.points_to_win}
+        gamesToWin={tournament.games_to_win ?? 2}
+        pointsToWin={tournament.points_to_win ?? 11}
         busy={busy}
         onClose={() => setModal(null)}
         onSave={submitScore}

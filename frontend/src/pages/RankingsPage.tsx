@@ -149,7 +149,7 @@ export default function RankingsPage() {
           {g.needs_point_scores && <div className="ranking-tiebreak">
             <div><strong>出线席位仍同分，需要补录小分</strong><p>只补录下列相关场次的逐局比分。录齐后系统按相互比赛的得失分比率重新排名。</p></div>
             <div className="tiebreak-match-list">
-              {g.point_score_match_ids.map((id) => {
+              {(g.point_score_match_ids ?? []).map((id) => {
                 const match = matches.find((item) => item.id === id)
                 if (!match) return null
                 return <button className="btn small" key={id} onClick={() => setDetailMatch(match)}>
@@ -206,8 +206,8 @@ export default function RankingsPage() {
         match={detailMatch}
         sideA={sideName(detailMatch, 'a')}
         sideB={sideName(detailMatch, 'b')}
-        gamesToWin={tournament.games_to_win}
-        pointsToWin={tournament.points_to_win}
+        gamesToWin={tournament.games_to_win ?? 2}
+        pointsToWin={tournament.points_to_win ?? 11}
         busy={busy}
         detailMode
         onClose={() => setDetailMatch(null)}

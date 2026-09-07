@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "contract:generate": "node scripts/generate-openapi.mjs",
+    "contract:typecheck": "tsc --noEmit",
+    "contract:check": "pnpm contract:generate && pnpm contract:typecheck && git diff --exit-code -- src/generated/openapi.d.ts"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -17,6 +20,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.11"
   }

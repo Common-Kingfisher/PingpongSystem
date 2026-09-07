@@ -15,13 +15,15 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
   onClose: () => void
   onSave: (payload: ScorePayload) => Promise<void>
 }) {
-  const existingGames = 'games' in match ? match.games : []
-  const existingNote = 'result_note' in match ? match.result_note : null
+  // KnockoutMatch 有 player_a / player_b（required），Match 没有 —— 用 `player_a in match` 作可靠判别。
+  const isKnockout = 'player_a' in match
+  const existingGames = isKnockout ? [] : (match.games ?? [])
+  const existingNote = isKnockout ? null : match.result_note
 
   const originalA = match.player_a_score
   const originalB = match.player_b_score
   // 历史仅大比分（无 MatchGame）的已结束 GROUP 比赛：可补录逐局小分用于排名。
-  const aggregateOnlyHistory = detailMode && 'games' in match && existingGames.length === 0
+  const aggregateOnlyHistory = detailMode && !isKnockout && existingGames.length === 0
 
   // 备注：回填已有备注；仅当用户修改时才提交，避免空串静默清空原备注。
   const [note, setNote] = useState(existingNote ?? '')
@@ -84,8 +86,8 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
     && Math.max(bigA, bigB) === gamesToWin && Math.min(bigA, bigB) >= 0 && Math.min(bigA, bigB) < gamesToWin
   const untouchedZeroScore = scoreA === '0' && scoreB === '0'
 
-  const sideAId = 'entry_a_id' in match ? (match.entry_a_id ?? match.player_a_id) : match.player_a?.id ?? null
-  const sideBId = 'entry_b_id' in match ? (match.entry_b_id ?? match.player_b_id) : match.player_b?.id ?? null
+  const sideAId = isKnockout ? (match.player_a?.id ?? null) : (match.entry_a_id ?? match.player_a_id)
+  const sideBId = isKnockout ? (match.player_b?.id ?? null) : (match.entry_b_id ?? match.player_b_id)
 
   const saveNormal = () => {
     if (detailMode) {

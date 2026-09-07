@@ -118,7 +118,7 @@ export default function PlayersPage() {
     setEditingId(p.id)
     setEditName(p.name)
     setEditCollege(p.college ?? '')
-    setEditRatingPoints(p.rating_points)
+    setEditRatingPoints(p.rating_points ?? 1000)
   }
 
   const saveEdit = async (p: Player) => {
@@ -542,14 +542,14 @@ export default function PlayersPage() {
                       onChange={(e) => setGroupQualification(g.id, Number(e.target.value))}
                     >
                       {Array.from(
-                        { length: Math.max(1, (g.entries.length || g.players.length) - 1) },
+                        { length: Math.max(1, ((g.entries ?? []).length || g.players.length) - 1) },
                         (_, i) => i + 1,
                       ).map((n) => <option key={n} value={n}>{n} 名</option>)}
                     </select>
                   </label>
                 </div>
                 <ul>
-                  {(g.entries.length > 0 ? g.entries : g.players).map((p) => {
+                  {((g.entries ?? []).length > 0 ? (g.entries ?? []) : g.players).map((p) => {
                     const sp = players.find((x) => x.id === p.id)
                     return (
                       <li key={p.id}>
@@ -560,7 +560,7 @@ export default function PlayersPage() {
                     )
                   })}
                 </ul>
-                <p className="muted">{g.entries.length || g.players.length} 个参赛位</p>
+                <p className="muted">{(g.entries ?? []).length || g.players.length} 个参赛位</p>
               </div>
             ))}
           </div>

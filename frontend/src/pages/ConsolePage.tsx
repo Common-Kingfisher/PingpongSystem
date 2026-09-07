@@ -364,14 +364,14 @@ export default function ConsolePage() {
                   </td>
                   <td>
                     {m.result_type && m.result_type !== 'NORMAL' ? 'W/O' : `${m.player_a_score} : ${m.player_b_score}`}{' '}
-                    {m.games.length > 0 && <span className="muted">{m.games.map((g) => `${g.side_a_score}-${g.side_b_score}`).join(' / ')}</span>}
+                    {(m.games ?? []).length > 0 && <span className="muted">{(m.games ?? []).map((g) => `${g.side_a_score}-${g.side_b_score}`).join(' / ')}</span>}
                   </td>
                   <td>
                     <button className="btn small" onClick={() => { setScoreDetailMode(false); setScoreMode('revise'); setScoringMatch(m) }}>
                       修改大比分
                     </button>
                     {m.stage === 'GROUP' && m.result_type === 'NORMAL' && <button className="btn small" onClick={() => { setScoreDetailMode(true); setScoreMode('revise'); setScoringMatch(m) }}>
-                      {m.games.length ? '修改小比分' : '补录小比分'}
+                      {(m.games ?? []).length ? '修改小比分' : '补录小比分'}
                     </button>}
                   </td>
                 </tr>
@@ -385,8 +385,8 @@ export default function ConsolePage() {
           match={scoringMatch}
           sideA={sideName(scoringMatch, 'a')}
           sideB={sideName(scoringMatch, 'b')}
-          gamesToWin={tournament.games_to_win}
-          pointsToWin={tournament.points_to_win}
+          gamesToWin={tournament.games_to_win ?? 2}
+          pointsToWin={tournament.points_to_win ?? 11}
           busy={busy}
           detailMode={scoreDetailMode}
           onClose={() => setScoringMatch(null)}

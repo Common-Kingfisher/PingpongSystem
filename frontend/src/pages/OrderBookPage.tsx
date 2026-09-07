@@ -6,10 +6,12 @@ import { getActiveTournamentId } from '../activeTournament'
 const chineseNumber = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
 
 function competitionRule(tournament: Tournament) {
-  const totalGames = tournament.games_to_win * 2 - 1
+  const gamesToWin = tournament.games_to_win ?? 2
+  const pointsToWin = tournament.points_to_win ?? 11
+  const totalGames = gamesToWin * 2 - 1
   const totalLabel = chineseNumber[totalGames] ?? String(totalGames)
-  const winLabel = chineseNumber[tournament.games_to_win] ?? String(tournament.games_to_win)
-  return `${totalLabel}局${winLabel}胜 · 每局 ${tournament.points_to_win} 分`
+  const winLabel = chineseNumber[gamesToWin] ?? String(gamesToWin)
+  return `${totalLabel}局${winLabel}胜 · 每局 ${pointsToWin} 分`
 }
 
 function statusLabel(status: Match['status']) {
@@ -71,11 +73,11 @@ export default function OrderBookPage() {
     </tbody></table></section>
     <section><h2>03 小组与排名</h2><div className="order-groups">{data.groups.groups.map((group) => {
       const ranking = data.rankings.rankings.find((item) => item.group_id === group.id)
-      return <div key={group.id}><h3>{group.name} · 前 {group.qualify_count ?? data.tournament.qualify_per_group} 名出线</h3><ol>{(ranking?.entries ?? group.entries).map((entry) => <li key={'id' in entry ? entry.id : entry.player_id}>{'display_name' in entry ? entry.display_name : entry.name}</li>)}</ol></div>
+      return <div key={group.id}><h3>{group.name} · 前 {group.qualify_count ?? data.tournament.qualify_per_group} 名出线</h3><ol>{(ranking?.entries ?? group.entries ?? []).map((entry) => <li key={'id' in entry ? entry.id : entry.player_id}>{'display_name' in entry ? entry.display_name : entry.name}</li>)}</ol></div>
     })}</div></section>
     <section className="order-schedule"><h2>04 完整赛程与球台</h2>{data.matches.length ? <table><thead><tr><th>场次</th><th>阶段</th><th>对阵</th><th>球台</th><th>状态</th></tr></thead><tbody>{data.matches.map((match) => <tr key={match.id}><td>M{match.id}</td><td>{match.stage === 'GROUP' ? '小组赛' : match.bracket === 'PLACEMENT' ? '名次排位' : `淘汰赛 R${match.round}`}</td><td>{sideName(match, 'a')} VS {sideName(match, 'b')}</td><td>{match.table_id ? tableNames[match.table_id] ?? `球台${match.table_id}` : '待安排'}</td><td><span className={`order-status order-status-${match.status.toLowerCase()}`}>{statusLabel(match.status)}</span></td></tr>)}</tbody></table> : <p>生成比赛后显示完整赛程与球台安排。</p>}</section>
     <section><h2>05 淘汰签表</h2>{data.tree.rounds.length ? <div className="order-bracket">{data.tree.rounds.map((round) => <div key={round.round}><h3>{round.label}</h3>{round.matches.map((match) => <p key={match.id}><span>M{match.id}</span>{match.player_a?.name ?? '待定'} <b>{knockoutResult(match)}</b> {match.player_b?.name ?? '待定'}</p>)}</div>)}</div> : <p>小组赛完成并生成淘汰赛后显示签表。</p>}</section>
-    <section><h2>06 最终名次</h2>{data.tree.placements.length ? <ol className="order-placements">{data.tree.placements.map((item, index) => <li key={index}>{String(item.label ?? '')}　{String((item.entry as { name?: string } | undefined)?.name ?? '待定')}</li>)}</ol> : <p>比赛尚未结束，名次将在录分后自动生成。</p>}</section>
+    <section><h2>06 最终名次</h2>{(data.tree.placements ?? []).length ? <ol className="order-placements">{(data.tree.placements ?? []).map((item, index) => <li key={index}>{String(item.label ?? '')}　{String((item.entry as { name?: string } | undefined)?.name ?? '待定')}</li>)}</ol> : <p>比赛尚未结束，名次将在录分后自动生成。</p>}</section>
     <footer>生成时间：{generatedAt} · 数据状态：{finishedCount}/{data.matches.length} 场已结束 · 演示版秩序册，后续可替换为组委会官方模板</footer>
   </article>
 }

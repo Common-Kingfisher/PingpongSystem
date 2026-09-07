@@ -1,0 +1,2 @@
+# 固定 generated contract artifact 为 LF，避免 Windows 下 regenerated 后仅因 CRLF 产生 Git dirty。
+frontend/src/generated/openapi.d.ts text eol=lf
