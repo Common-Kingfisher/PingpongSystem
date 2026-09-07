@@ -392,15 +392,35 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
 .order-cover { min-height: 280px; padding: 40px; color: #fff; background: var(--arena); border-left: 10px solid var(--magenta); }
 .order-cover span { color: var(--gold); letter-spacing: .2em; font-size: 10px; }
 .order-cover h1 { max-width: 700px; margin: 35px 0 8px; font-size: 48px; }
+.order-cover-stats { display: flex; gap: 1px; margin-top: 42px; background: rgba(255,255,255,.18); }
+.order-cover-stats b { min-width: 110px; padding: 12px 16px; background: rgba(8,21,42,.82); color: var(--gold); font: 800 25px Bahnschrift; }
+.order-cover-stats small { display: block; margin-top: 2px; color: #dbe5f4; font: 500 10px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: .08em; }
 .order-book section { margin-top: 40px; break-inside: avoid; }
 .order-book section h2 { padding-bottom: 8px; border-bottom: 2px solid var(--ink); font-size: 18px; }
 .order-facts { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
 .order-facts p { padding: 16px; background: #f2f4f7; }
 .order-facts b { display: block; margin-bottom: 4px; font: 800 25px Bahnschrift; }
+.order-rules { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; border: 1px solid #d0d5dd; }
+.order-rules > div { padding: 12px 14px; border-right: 1px solid #d0d5dd; }
+.order-rules > div:last-child { border-right: 0; }
+.order-rules dt { margin-bottom: 3px; color: #667085; font-size: 11px; }
+.order-rules dd { margin: 0; font-weight: 700; }
 .order-book table { width: 100%; border-collapse: collapse; }
 .order-book th, .order-book td { padding: 9px; border-bottom: 1px solid #d0d5dd; text-align: left; }
+.order-book thead { background: #eef2f7; }
+.order-book tr { break-inside: avoid; page-break-inside: avoid; }
+.order-status { display: inline-block; padding: 3px 7px; border-radius: 2px; font-size: 11px; font-weight: 700; }
+.order-status-waiting { color: #475467; background: #eef2f6; }
+.order-status-playing { color: #a10f48; background: #fde7ef; }
+.order-status-finished { color: #087443; background: #e5f7ee; }
 .order-groups { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; }
 .order-groups > div { padding: 14px; border: 1px solid #d0d5dd; }
+.order-bracket { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.order-bracket > div { padding: 12px; border-top: 3px solid var(--magenta); background: #f7f9fc; }
+.order-bracket h3 { margin: 0 0 8px; color: var(--ink); }
+.order-bracket p { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 6px; align-items: center; margin: 0; padding: 7px 0; border-bottom: 1px solid #dbe2ea; font-size: 12px; }
+.order-bracket p span { color: #667085; }
+.order-bracket p b { color: var(--magenta); white-space: nowrap; }
 .order-book footer { margin-top: 50px; padding-top: 12px; color: #667085; border-top: 1px solid #d0d5dd; font-size: 11px; }
 
 @keyframes pairEnter { from { opacity: 0; transform: translateY(8px); } }
@@ -420,6 +440,9 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
   .flying-names { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
   .order-book { padding: 24px; }
   .order-facts, .order-groups { grid-template-columns: 1fr 1fr; }
+  .order-rules { grid-template-columns: 1fr; }
+  .order-rules > div { border-right: 0; border-bottom: 1px solid #d0d5dd; }
+  .order-rules > div:last-child { border-bottom: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -430,6 +453,10 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
   .app-header, .order-toolbar { display: none !important; }
   .app-main { padding: 0; max-width: none; }
   .order-book { max-width: none; padding: 15mm; box-shadow: none; }
+  .order-book section { break-inside: auto; }
+  .order-book table thead { display: table-header-group; }
+  .order-cover { break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .order-status, .order-bracket > div { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .journey-page { margin: 0; min-height: 100vh; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
 

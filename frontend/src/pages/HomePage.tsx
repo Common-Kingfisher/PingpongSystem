@@ -262,7 +262,7 @@ export default function HomePage() {
             名次排位赛
             <select value={form.placement_mode} onChange={(e) => set('placement_mode', e.target.value as PlacementMode)}>
               <option value="COMPLETE">8 人内完整排出名次</option>
-              <option value="TIERED">16 人以上按名次分档</option>
+              <option value="TIERED" disabled>16 人以上按名次分档（后续版本）</option>
               <option value="OFF">不增加排位赛</option>
             </select>
           </label>
