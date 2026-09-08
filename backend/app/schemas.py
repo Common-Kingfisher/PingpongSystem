@@ -290,6 +290,30 @@ class RankingEntryOut(BaseModel):
     point_ratio: float = 0
 
 
+class QualificationDecisionCreate(BaseModel):
+    selected_entry_ids: list[int] = Field(min_length=1)
+    reason: str = Field(min_length=2, max_length=500)
+    operator_name: str = Field(min_length=1, max_length=100)
+
+
+class QualificationDecisionRevoke(BaseModel):
+    reason: str = Field(min_length=2, max_length=500)
+    operator_name: str = Field(min_length=1, max_length=100)
+
+
+class QualificationDecisionOut(BaseModel):
+    id: int
+    tournament_id: int
+    group_id: int
+    selected_entry_ids: list[int]
+    reason: str
+    operator_name: str
+    created_at: str
+    invalidated_at: str | None = None
+    invalidation_reason: str | None = None
+    active: bool
+
+
 class GroupRankingOut(BaseModel):
     group_id: int
     group_name: str
@@ -299,6 +323,10 @@ class GroupRankingOut(BaseModel):
     ambiguous_qualification: bool
     needs_point_scores: bool = False
     point_score_match_ids: list[int] = []
+    manually_resolved: bool = False
+    manual_candidate_entry_ids: list[int] = []
+    manual_slots_remaining: int = 0
+    qualification_decision: QualificationDecisionOut | None = None
     entries: list[RankingEntryOut]
 
 

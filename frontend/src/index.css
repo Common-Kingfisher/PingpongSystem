@@ -188,6 +188,13 @@ h1, h2, h3, h4, .app-title, .ko-card-score, .score-sheet-versus span {
 .detail-callout { padding: 10px 12px; color: #175cd3; background: #eff4ff; border-left: 3px solid #155eef; }
 .ranking-tiebreak { margin: 12px 0 16px; padding: 14px; color: #713b12; background: #fff8e9; border: 1px solid #f5d38b; }
 .ranking-tiebreak p { margin: 4px 0 10px; font-size: 12px; }
+.ranking-decision-callout, .ranking-decision-record { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 12px 0 16px; padding: 14px; border-left: 4px solid var(--magenta); background: #fff1f5; }
+.ranking-decision-callout p, .ranking-decision-record p { margin: 4px 0 0; color: #667085; font-size: 12px; }
+.ranking-decision-record { border-left-color: #079455; background: #ecfdf3; }
+.decision-candidate-list { display: grid; gap: 8px; margin: 10px 0 16px; }
+.decision-candidate-list label { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid #d0d5dd; background: #fff; cursor: pointer; }
+.decision-candidate-list small { color: #667085; }
+.modal textarea { width: 100%; min-height: 84px; margin-top: 6px; resize: vertical; }
 .tiebreak-match-list { display: flex; flex-wrap: wrap; gap: 7px; }
 
 @media (max-width: 780px) {

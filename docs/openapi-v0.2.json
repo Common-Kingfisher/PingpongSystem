@@ -1449,6 +1449,183 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decision": {
+      "post": {
+        "tags": [
+          "qualification-decisions"
+        ],
+        "summary": "Create Decision",
+        "operationId": "create_decision_api_tournaments__tournament_id__groups__group_id__qualification_decision_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualificationDecisionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationDecisionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decision/revoke": {
+      "post": {
+        "tags": [
+          "qualification-decisions"
+        ],
+        "summary": "Revoke Decision",
+        "operationId": "revoke_decision_api_tournaments__tournament_id__groups__group_id__qualification_decision_revoke_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualificationDecisionRevoke"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationDecisionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decisions": {
+      "get": {
+        "tags": [
+          "qualification-decisions"
+        ],
+        "summary": "List Decisions",
+        "operationId": "list_decisions_api_tournaments__tournament_id__groups__group_id__qualification_decisions_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QualificationDecisionOut"
+                  },
+                  "title": "Response List Decisions Api Tournaments  Tournament Id  Groups  Group Id  Qualification Decisions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}/generate-knockout": {
       "post": {
         "tags": [
@@ -1990,6 +2167,34 @@
             "type": "array",
             "title": "Point Score Match Ids",
             "default": []
+          },
+          "manually_resolved": {
+            "type": "boolean",
+            "title": "Manually Resolved",
+            "default": false
+          },
+          "manual_candidate_entry_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Manual Candidate Entry Ids",
+            "default": []
+          },
+          "manual_slots_remaining": {
+            "type": "integer",
+            "title": "Manual Slots Remaining",
+            "default": 0
+          },
+          "qualification_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QualificationDecisionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "entries": {
             "items": {
@@ -3098,6 +3303,132 @@
         },
         "type": "object",
         "title": "PlayerUpdate"
+      },
+      "QualificationDecisionCreate": {
+        "properties": {
+          "selected_entry_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Selected Entry Ids"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Reason"
+          },
+          "operator_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Operator Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "selected_entry_ids",
+          "reason",
+          "operator_name"
+        ],
+        "title": "QualificationDecisionCreate"
+      },
+      "QualificationDecisionOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "selected_entry_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Selected Entry Ids"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "operator_name": {
+            "type": "string",
+            "title": "Operator Name"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "invalidated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidated At"
+          },
+          "invalidation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidation Reason"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "group_id",
+          "selected_entry_ids",
+          "reason",
+          "operator_name",
+          "created_at",
+          "active"
+        ],
+        "title": "QualificationDecisionOut"
+      },
+      "QualificationDecisionRevoke": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Reason"
+          },
+          "operator_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Operator Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "operator_name"
+        ],
+        "title": "QualificationDecisionRevoke"
       },
       "RankingEntryOut": {
         "properties": {
