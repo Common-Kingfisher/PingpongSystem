@@ -2,6 +2,8 @@
 
 单机可运行的乒乓球比赛编排 Field Demo v0.2：从报名校验、单打/双打组队、抽签分组、现场排台、大比分录入、自动排名、淘汰与名次排位，到冠军之路和可打印秩序册的完整闭环。
 
+正式主裁判赛程调度的下一阶段方案见 [`docs/SCHEDULING_V1_DESIGN.md`](docs/SCHEDULING_V1_DESIGN.md)。当前自动排台是演示级贪心调度，不包含最短休息时间和预览确认。
+
 ## 技术栈
 
 - 前端：React 18 + TypeScript + Vite
