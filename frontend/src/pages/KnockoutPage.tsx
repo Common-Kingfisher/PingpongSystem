@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, KnockoutMatch, KnockoutTree, normalizePlacementMatches, RankingsResult, Tournament } from '../api'
+import { api, ApiError, KnockoutMatch, KnockoutTree, normalizePlacementMatches, PlacementMatch, RankingsResult, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import KnockoutBracket from '../components/KnockoutBracket'
 import ScoreSheet from '../components/ScoreSheet'
+
+type PlacementItem = PlacementMatch
+
+function placementRoundLabel(item: PlacementItem) {
+  const [min, max] = item.range
+  if (min === 3 && max === 4) return '季军赛'
+  const size = (max ?? min ?? 0) - (min ?? 0) + 1
+  const totalRounds = size > 1 ? Math.log2(size) : 1
+  if (item.match.round === totalRounds) return `${min}/${(min ?? 0) + 1} 名决胜`
+  return `第 ${item.match.round} 轮`
+}
 
 export default function KnockoutPage() {
   const [params] = useSearchParams()
@@ -104,6 +115,17 @@ export default function KnockoutPage() {
   // 尚未完成的小组赛场数（用于提示）
   const remainingGroupMatches =
     rankings?.rankings.reduce((acc, g) => acc + (g.total_matches - g.finished_matches), 0) ?? 0
+  const placementBands = Object.values(
+    normalizePlacementMatches(tree?.placement_matches ?? []).reduce<Record<string, { range: PlacementItem['range']; items: PlacementItem[] }>>(
+      (bands, item) => {
+        const key = `${item.range[0]}-${item.range[1]}`
+        if (!bands[key]) bands[key] = { range: item.range, items: [] }
+        bands[key].items.push(item)
+        return bands
+      },
+      {},
+    ),
+  )
 
   return (
     <div className="page">
@@ -154,12 +176,18 @@ export default function KnockoutPage() {
             onScore={openScore}
           />
           {tree!.placement_matches.length > 0 && <section className="card placement-board">
-            <div className="section-heading"><div><span className="eyebrow">PLACEMENT BRACKET</span><h3>季军与名次排位赛</h3></div><span className="muted">季军由半决赛负者直接对决，不按积分决定</span></div>
-            <div className="placement-match-grid">{normalizePlacementMatches(tree!.placement_matches).map(({ range, match }) => <article key={match.id} className="placement-match-card">
-              <span>{range[0] === 3 && range[1] === 4 ? '季军赛 · 三四名决胜' : range[0] === range[1] ? `第 ${range[0]} 名` : `${range[0]}–${range[1]} 名排位`}</span>
-              <strong>{match.player_a?.name ?? '待定'} <i>VS</i> {match.player_b?.name ?? '待定'}</strong>
-              {match.status === 'FINISHED' ? <small>{match.result_type !== 'NORMAL' ? 'W/O' : `${match.player_a_score}:${match.player_b_score}`} · 已结束</small> : match.player_a && match.player_b ? <button className="btn small primary" onClick={() => openScore(match)}>录入大比分</button> : <small>等待上一轮结果</small>}
-            </article>)}</div>
+            <div className="section-heading"><div><span className="eyebrow">PLACEMENT BRACKET</span><h3>季军与完整名次排位</h3></div><span className="muted">每个名次区间独立比赛，负者不会返回冠军主签</span></div>
+            <div className="placement-bands">{placementBands.map(({ range, items }) => <section key={`${range[0]}-${range[1]}`} className="placement-band">
+              <h4>{range[0] === 3 && range[1] === 4 ? '三四名决胜' : `${range[0]}–${range[1]} 名排位`}</h4>
+              <div className="placement-match-grid">{items.map((item) => {
+                const { match } = item
+                return <article key={match.id} className="placement-match-card">
+                  <span>{placementRoundLabel(item)}</span>
+                  <strong>{match.player_a?.name ?? '待定'} <i>VS</i> {match.player_b?.name ?? '待定'}</strong>
+                  {match.status === 'FINISHED' ? <small>{match.result_type !== 'NORMAL' ? 'W/O' : `${match.player_a_score}:${match.player_b_score}`} · 已结束</small> : match.player_a && match.player_b ? <button className="btn small primary" onClick={() => openScore(match)}>录入大比分</button> : <small>等待上一轮结果</small>}
+                </article>
+              })}</div>
+            </section>)}</div>
           </section>}
           {tree!.placements.length > 0 && <section className="card final-placements"><h3>最终名次</h3><div>{tree!.placements.map((row, index) => <span key={index}><b>#{String(row.rank)}</b>{String((row.entry as { name?: string } | undefined)?.name ?? '待定')}<small>{String(row.label ?? '')}</small></span>)}</div></section>}
         </>

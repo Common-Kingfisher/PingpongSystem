@@ -30,7 +30,7 @@
 - 小组排序已确认前缀：胜场数 → 净胜局 → 赛事积分（胜 2、正常负 1、弃权负 0）。后续同分细则仍须专项确认，不宣称已完整实现 ITTF 官方算法。
 - 小组出线数可配置；各组不同人数的组合仍有后端限制，见风险 R03。
 - 不做双败。所谓败者组是争夺较低名次的排位赛，不会返回主签争冠军。
-- 创建赛事选择季军赛或并列季军；完整 5–8 排位目前仅覆盖 8 人主签、首轮无轮空的情况。
+- 创建赛事选择季军赛或并列季军；完整排位支持 4 / 8 / 16 人无轮空标准签。非标准人数仍可完成冠军主签，但不会虚构无法由比赛确定的低位名次。
 - 名单确认后的过场动画、比赛球台视觉、从下到上的冠军之路继续保留。
 - 秩序册先用浏览器打印/保存 PDF，后续接组委会官方模板。
 
@@ -44,7 +44,7 @@
 | 分组 | 种子分散、人数均衡、同单位软回避；解除分组；配置各组出线数 | `services/groups.py`、`routers/groups.py` |
 | 现场控制台 | 真实 API 球台卡、批量/手动排台、下台、比分/弃权；待赛横向换行；已结束场次改分 | `ConsolePage.tsx`、`LiveTableCard.tsx` |
 | 录分与排名 | 大比分默认 0；小组小分补录；读取结果重算排名、提示出线歧义 | `ScoreSheet.tsx`、`RankingsPage.tsx`；`services/scores.py`、`domain/ranking.py` |
-| 淘汰赛与结果 | 主签胜者晋级、轮空、季军或并列季军、限定范围的 5–8 排位、最终名次 | `KnockoutPage.tsx`；`services/knockout.py` |
+| 淘汰赛与结果 | 主签胜者晋级、轮空、季军或并列季军、4/8/16 人递归完整排位、最终名次 | `KnockoutPage.tsx`；`services/knockout.py` |
 | 展示与输出 | 大屏、名单过场、冠军路径高亮、秩序册打印 | `BigScreenPage.tsx`、`RosterLaunch.tsx`、`ChampionJourneyPage.tsx`、`OrderBookPage.tsx` |
 
 新建赛事默认 `operation_mode=LIVE`；只有显式 `DEMO` 赛事可以调用演示数据接口。正式赛事删除需要完整名称确认。比分写入支持可选 `request_id`，前端默认生成并在网络失败时用同一编号重试一次。
@@ -72,7 +72,7 @@
 | result_type | NORMAL、FORFEIT、WALKOVER、NO_SHOW、DISQUALIFIED | 没有完整 CANCELLED 流程 |
 | qualify_count | 组级覆盖值；否则用赛事 `qualify_per_group` | 能保存不代表签表支持所有组合 |
 | bronze_mode | BRONZE_MATCH / JOINT_BRONZE | 决定 3、4 名是否真的再打一场 |
-| placement_mode | OFF / COMPLETE / TIERED | 不应把枚举存在理解成任意人数全名次排位已完成 |
+| placement_mode | OFF / COMPLETE / TIERED | COMPLETE 支持最多 16 人无轮空标准签；TIERED 仍为预留枚举 |
 
 当前赛事状态：REGISTRATION → GROUP_STAGE → KNOCKOUT → FINISHED。比赛状态：WAITING → PLAYING → FINISHED；下台回 WAITING。尚无独立 Event/Stage 表和通用 MatchSlot 依赖解析器。
 
@@ -112,7 +112,7 @@ pnpm -C frontend dev
 
 ## 建议的首次演示
 
-创建单打赛事：4 小组、每组前 2、4 台、季军赛、完整排位。导入 16 人示例 → 确认名单 → 分组/生成比赛 → 排台 → 录 2:0 或 2:1 → 查看排名 → 小组全部完成且出线明确后生成淘汰赛 → 打完八强 → 查看 5–8 排位 → 打完半决赛后查看季军赛 → 完成全部主签和排位 → 查看冠军之路、打印秩序册。
+创建单打赛事：4 小组、每组前 2、4 台、季军赛、完整排位。导入 16 人示例 → 确认名单 → 分组/生成比赛 → 排台 → 录 2:0 或 2:1 → 查看排名 → 小组全部完成且出线明确后生成淘汰赛 → 打完八强 → 查看 5–8 排位 → 打完半决赛后查看季军赛 → 完成全部主签和排位 → 查看冠军之路、打印秩序册。若要验收 16 人淘汰主签，需产生 16 个晋级 Entry，并完成 1–16 名所有排位场次。
 
 本次演示先使用各组一致的出线数，不在正式比赛中试验已知改分风险。每组可先让固定顺序的高位选手全胜以得到无歧义排名。循环同分另建测试赛事，不要修改正在使用的演示数据来凑名次。双打建议另建 8 或 16 名运动员的赛事，注意 8 名运动员只有 4 个 Entry。
 
