@@ -10,14 +10,22 @@ from app.services import matches as matches_service
 from app.services import scores as scores_service
 
 
-def _prepare(conn, *, bronze_mode="BRONZE_MATCH", placement_mode="COMPLETE", players=8):
+def _prepare(
+    conn,
+    *,
+    bronze_mode="BRONZE_MATCH",
+    placement_mode="COMPLETE",
+    players=8,
+    group_count=4,
+    qualify_per_group=2,
+):
     tournament = repo.create_tournament(
         conn,
         "依赖验收赛",
         "2026-09-07",
         4,
-        4,
-        2,
+        group_count,
+        qualify_per_group,
         bronze_mode=bronze_mode,
         placement_mode=placement_mode,
     )
@@ -143,3 +151,54 @@ def test_group_result_is_locked_after_knockout_generation(conn):
 
     with pytest.raises(scores_service.ScoreError, match="淘汰赛已生成"):
         scores_service.revise_score(conn, group_match["id"], 0, 2)
+
+
+def test_complete_sixteen_entry_draw_produces_every_rank_once(conn):
+    tid = _prepare(
+        conn,
+        players=32,
+        group_count=8,
+        qualify_per_group=2,
+        bronze_mode="BRONZE_MATCH",
+    )
+    tree = knockout_service.generate_knockout(conn, tid)
+    assert [len(round_["matches"]) for round_ in tree["rounds"]] == [8, 4, 2, 1]
+
+    for _ in range(20):
+        matches = repo.list_matches(conn, tid, stage="KNOCKOUT")
+        playable = [
+            match for match in matches
+            if match["status"] == MatchStatus.WAITING.value
+            and match["entry_a_id"] is not None
+            and match["entry_b_id"] is not None
+        ]
+        if not playable:
+            break
+        for match in playable:
+            _score_a_wins(conn, match)
+
+    tree = knockout_service.get_knockout(conn, tid)
+    assert tree["tournament"]["stage"] == "FINISHED"
+    assert [row["rank"] for row in tree["placements"]] == list(range(1, 17))
+    ranked_entries = [row["entry"]["id"] for row in tree["placements"]]
+    assert len(ranked_entries) == len(set(ranked_entries)) == 16
+    ranges = {tuple(item["range"]) for item in tree["placement_matches"]}
+    assert ranges == {(3, 4), (5, 8), (7, 8), (9, 16), (11, 12), (13, 16), (15, 16)}
+
+
+def test_complete_placement_does_not_invent_ranks_for_bye_draw(conn):
+    tid = _prepare(conn, players=12, group_count=4, qualify_per_group=2)
+    for group, qualify_count in zip(repo.list_groups(conn, tid), [1, 2, 1, 2]):
+        repo.update_group_qualify_count(conn, group["id"], qualify_count)
+    knockout_service.generate_knockout(conn, tid)
+    first_round = _main_round(conn, tid, 1)
+    for match in first_round:
+        if match["status"] != MatchStatus.FINISHED.value:
+            _score_a_wins(conn, match)
+
+    placement_ranges = {
+        (match["placement_min"], match["placement_max"])
+        for match in repo.list_matches(conn, tid, stage="KNOCKOUT")
+        if match["bracket"] == "PLACEMENT"
+    }
+    assert (5, 8) not in placement_ranges

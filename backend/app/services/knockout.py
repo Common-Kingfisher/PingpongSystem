@@ -188,34 +188,29 @@ def advance_winner(conn: sqlite3.Connection, match: dict) -> None:
             repo.update_match(conn, next_match["id"], entry_b_id=participant, player_b_id=_entry_player_id(conn, participant))
 
 
-def _create_direct_match(
+def _create_loser_bracket(
     conn: sqlite3.Connection,
     tournament_id: int,
-    a: int,
-    b: int,
+    source_matches: list[dict],
     placement_min: int,
     placement_max: int,
-    source_a_id: int,
-    source_b_id: int,
 ) -> None:
-    repo.create_match(
+    """Create an independent classification bracket from finished-match losers."""
+    losers = [_loser(match) for match in source_matches]
+    if any(entry_id is None for entry_id in losers):
+        return
+    loser_ids = [entry_id for entry_id in losers if entry_id is not None]
+    loser_sources = {
+        entry_id: match["id"] for entry_id, match in zip(loser_ids, source_matches)
+    }
+    _create_bracket(
         conn,
         tournament_id,
-        MatchStage.KNOCKOUT.value,
-        None,
-        1,
-        0,
-        _entry_player_id(conn, a),
-        _entry_player_id(conn, b),
-        entry_a_id=a,
-        entry_b_id=b,
-        prev_match_a_id=source_a_id,
-        prev_match_b_id=source_b_id,
-        prev_match_a_outcome="LOSER",
-        prev_match_b_outcome="LOSER",
-        bracket=MatchBracket.PLACEMENT.value,
-        placement_min=placement_min,
-        placement_max=placement_max,
+        loser_ids,
+        MatchBracket.PLACEMENT.value,
+        placement_min,
+        placement_max,
+        loser_sources,
     )
 
 
@@ -235,34 +230,85 @@ def ensure_placement_matches(conn: sqlite3.Connection, tournament_id: int) -> No
         and all(m["status"] == MatchStatus.FINISHED.value for m in semis)
         and not existing_34
     ):
-        losers = [_loser(m) for m in semis]
-        if all(x is not None for x in losers):
-            _create_direct_match(conn, tournament_id, losers[0], losers[1], 3, 4, semis[0]["id"], semis[1]["id"])
+        _create_loser_bracket(conn, tournament_id, semis, 3, 4)
 
-    first = [m for m in main if m["round"] == 1]
-    real_first = [m for m in first if _side(m, "a") is not None and _side(m, "b") is not None]
-    existing_58 = [m for m in all_matches if m.get("placement_min") == 5 and m.get("placement_max") == 8]
-    if (
-        tournament["placement_mode"] == PlacementMode.COMPLETE.value
-        and len(first) == 4
-        and all(m["status"] == MatchStatus.FINISHED.value for m in first)
-        and not existing_58
-    ):
-        losers = [_loser(m) for m in real_first]
-        if len(losers) == 4 and all(x is not None for x in losers):
-            loser_sources = {loser: match["id"] for loser, match in zip(losers, real_first)}
-            _create_bracket(conn, tournament_id, losers, MatchBracket.PLACEMENT.value, 5, 8, loser_sources)
+    if tournament["placement_mode"] != PlacementMode.COMPLETE.value:
+        return
 
+    # Every completed main-bracket round before the semifinals starts an
+    # independent classification band. A 16-entry draw therefore creates
+    # 9–16 from round-one losers and 5–8 from quarterfinal losers.
+    bracket_size = len([m for m in main if m["round"] == 1]) * 2
+    if bracket_size > 16:
+        return
+    for round_no in range(1, max_round - 1):
+        source_matches = sorted(
+            [m for m in main if m["round"] == round_no],
+            key=lambda match: match["match_index"] or 0,
+        )
+        placement_min = bracket_size // (2 ** round_no) + 1
+        placement_max = bracket_size // (2 ** (round_no - 1))
+        expected = placement_max - placement_min + 1
+        existing = [
+            m for m in all_matches
+            if m.get("placement_min") == placement_min
+            and m.get("placement_max") == placement_max
+        ]
+        real_sources = [
+            m for m in source_matches
+            if _side(m, "a") is not None and _side(m, "b") is not None
+        ]
+        if (
+            not existing
+            and len(real_sources) == expected
+            and all(m["status"] == MatchStatus.FINISHED.value for m in source_matches)
+        ):
+            _create_loser_bracket(
+                conn, tournament_id, real_sources, placement_min, placement_max
+            )
+
+    # Recursively classify losers inside every existing placement band. For
+    # example, 9–16 produces 13–16 and 11–12; 13–16 then produces 15–16.
     all_matches = repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value)
-    lower_semis = [
-        m for m in all_matches
-        if m.get("placement_min") == 5 and m.get("placement_max") == 8 and m["round"] == 1
-    ]
-    existing_78 = [m for m in all_matches if m.get("placement_min") == 7 and m.get("placement_max") == 8]
-    if len(lower_semis) == 2 and all(m["status"] == MatchStatus.FINISHED.value for m in lower_semis) and not existing_78:
-        losers = [_loser(m) for m in lower_semis]
-        if all(x is not None for x in losers):
-            _create_direct_match(conn, tournament_id, losers[0], losers[1], 7, 8, lower_semis[0]["id"], lower_semis[1]["id"])
+    bands = {
+        (m["placement_min"], m["placement_max"])
+        for m in all_matches
+        if m["bracket"] == MatchBracket.PLACEMENT.value
+        and m.get("placement_min") is not None
+        and m.get("placement_max") is not None
+        and m["placement_min"] >= 5
+    }
+    for placement_min, placement_max in sorted(bands):
+        size = placement_max - placement_min + 1
+        if size < 4 or size & (size - 1):
+            continue
+        rounds = size.bit_length() - 1
+        band_matches = [
+            m for m in all_matches
+            if m.get("placement_min") == placement_min
+            and m.get("placement_max") == placement_max
+        ]
+        for round_no in range(1, rounds):
+            source_matches = sorted(
+                [m for m in band_matches if m["round"] == round_no],
+                key=lambda match: match["match_index"] or 0,
+            )
+            child_min = placement_min + size // (2 ** round_no)
+            child_max = placement_min + size // (2 ** (round_no - 1)) - 1
+            child_exists = any(
+                m.get("placement_min") == child_min
+                and m.get("placement_max") == child_max
+                for m in all_matches
+            )
+            if (
+                source_matches
+                and not child_exists
+                and len(source_matches) == child_max - child_min + 1
+                and all(m["status"] == MatchStatus.FINISHED.value for m in source_matches)
+            ):
+                _create_loser_bracket(
+                    conn, tournament_id, source_matches, child_min, child_max
+                )
 
 
 def descendants(conn: sqlite3.Connection, match_id: int) -> list[dict]:
@@ -387,24 +433,30 @@ def _placement_rows(conn: sqlite3.Connection, tournament: dict, matches: list[di
             {"rank": 1, "entry": _brief(conn, _winner(final)), "label": "冠军"},
             {"rank": 2, "entry": _brief(conn, _loser(final)), "label": "亚军"},
         ])
-    for match in matches:
-        if match["status"] != MatchStatus.FINISHED.value or match["bracket"] != MatchBracket.PLACEMENT.value:
+    placement_matches = [
+        m for m in matches if m["bracket"] == MatchBracket.PLACEMENT.value
+    ]
+    bands = {
+        (m["placement_min"], m["placement_max"])
+        for m in placement_matches
+        if m.get("placement_min") is not None and m.get("placement_max") is not None
+    }
+    for placement_min, placement_max in sorted(bands):
+        band = [
+            m for m in placement_matches
+            if m.get("placement_min") == placement_min
+            and m.get("placement_max") == placement_max
+        ]
+        final_match = max(band, key=lambda match: match["round"])
+        if final_match["status"] != MatchStatus.FINISHED.value:
             continue
-        if match["placement_min"] == 3:
-            rows.extend([
-                {"rank": 3, "entry": _brief(conn, _winner(match)), "label": "季军"},
-                {"rank": 4, "entry": _brief(conn, _loser(match)), "label": "第四名"},
-            ])
-        elif match["placement_min"] == 5 and match["placement_max"] == 8 and match["round"] == 2:
-            rows.extend([
-                {"rank": 5, "entry": _brief(conn, _winner(match)), "label": "第五名"},
-                {"rank": 6, "entry": _brief(conn, _loser(match)), "label": "第六名"},
-            ])
-        elif match["placement_min"] == 7:
-            rows.extend([
-                {"rank": 7, "entry": _brief(conn, _winner(match)), "label": "第七名"},
-                {"rank": 8, "entry": _brief(conn, _loser(match)), "label": "第八名"},
-            ])
+        labels = ("季军", "第四名") if placement_min == 3 else (
+            f"第{placement_min}名", f"第{placement_min + 1}名"
+        )
+        rows.extend([
+            {"rank": placement_min, "entry": _brief(conn, _winner(final_match)), "label": labels[0]},
+            {"rank": placement_min + 1, "entry": _brief(conn, _loser(final_match)), "label": labels[1]},
+        ])
     if tournament["bronze_mode"] == BronzeMode.JOINT_BRONZE.value and final["round"] >= 2:
         semis = [m for m in main if m["round"] == final["round"] - 1]
         if len(semis) == 2 and all(m["status"] == MatchStatus.FINISHED.value for m in semis):
@@ -437,7 +489,10 @@ def get_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
     final = max(main, key=lambda m: m["round"])
     champion_id = _winner(final) if final["status"] == MatchStatus.FINISHED.value else None
     runner_id = _loser(final) if champion_id is not None else None
-    placement_matches = [m for m in matches if m["bracket"] == MatchBracket.PLACEMENT.value]
+    placement_matches = sorted(
+        [m for m in matches if m["bracket"] == MatchBracket.PLACEMENT.value],
+        key=lambda m: (m["placement_min"] or 0, m["round"], m["match_index"] or 0),
+    )
     return {
         "tournament": tournament,
         "rounds": rounds,
