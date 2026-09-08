@@ -45,6 +45,7 @@ export type ImportPreviewResult = Schemas['ImportPreviewResult']
 export type RankingEntry = Schemas['RankingEntryOut']
 export type GroupRanking = Schemas['GroupRankingOut']
 export type RankingsResult = Schemas['RankingsResult']
+export type QualificationDecision = Schemas['QualificationDecisionOut']
 export type PlayerBrief = Schemas['PlayerBrief']
 export type KnockoutMatch = Schemas['KnockoutMatchOut']
 export type KnockoutRound = Schemas['KnockoutRoundOut']
@@ -279,6 +280,26 @@ export const api = {
   ),
   getRankings: (tournamentId: number) =>
     request<RankingsResult>(`/api/tournaments/${tournamentId}/rankings`),
+  createQualificationDecision: (
+    tournamentId: number,
+    groupId: number,
+    body: Schemas['QualificationDecisionCreate'],
+  ) => request<QualificationDecision>(
+    `/api/tournaments/${tournamentId}/groups/${groupId}/qualification-decision`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ),
+  revokeQualificationDecision: (
+    tournamentId: number,
+    groupId: number,
+    body: Schemas['QualificationDecisionRevoke'],
+  ) => request<QualificationDecision>(
+    `/api/tournaments/${tournamentId}/groups/${groupId}/qualification-decision/revoke`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ),
+  listQualificationDecisions: (tournamentId: number, groupId: number) =>
+    request<QualificationDecision[]>(
+      `/api/tournaments/${tournamentId}/groups/${groupId}/qualification-decisions`,
+    ),
 
   generateKnockout: (tournamentId: number) =>
     request<KnockoutTree>(`/api/tournaments/${tournamentId}/generate-knockout`, {

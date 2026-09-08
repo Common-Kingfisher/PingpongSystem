@@ -191,6 +191,8 @@ def record_score(
     if match["stage"] == MatchStage.KNOCKOUT.value:
         knockout_service.advance_winner(conn, repo.get_match(conn, match_id))
         knockout_service.sync_stage(conn, match["tournament_id"])
+    elif match["group_id"] is not None:
+        repo.invalidate_qualification_decision(conn, match["group_id"], "相关比赛结果已录入")
     conn.commit()
     return repo.decorate_match(conn, repo.get_match(conn, match_id))
 
@@ -246,6 +248,8 @@ def revise_score(
         # 校验全部通过后才更新备注：note is None 保留原备注，note == "" 显式清空。
         if note is not None:
             repo.update_match(conn, match_id, result_note=note)
+        if match["group_id"] is not None:
+            repo.invalidate_qualification_decision(conn, match["group_id"], "相关比赛小比分已修改")
         conn.commit()
         return repo.decorate_match(conn, repo.get_match(conn, match_id))
 
@@ -299,5 +303,7 @@ def revise_score(
         knockout_service.reset_branch(conn, match_id)
         knockout_service.advance_winner(conn, repo.get_match(conn, match_id))
         knockout_service.sync_stage(conn, match["tournament_id"])
+    elif match["group_id"] is not None:
+        repo.invalidate_qualification_decision(conn, match["group_id"], "相关比赛结果已修改")
     conn.commit()
     return repo.decorate_match(conn, repo.get_match(conn, match_id))

@@ -302,6 +302,68 @@ def update_group_qualify_count(
     return get_group(conn, group_id)
 
 
+# ------------------------------------------------ qualification decisions
+
+def create_qualification_decision(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    group_id: int,
+    selected_entry_ids: str,
+    ranking_snapshot: str,
+    reason: str,
+    operator_name: str,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO qualification_decisions "
+        "(tournament_id, group_id, selected_entry_ids, ranking_snapshot, reason, operator_name) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (tournament_id, group_id, selected_entry_ids, ranking_snapshot, reason, operator_name),
+    )
+    return get_qualification_decision(conn, cur.lastrowid)
+
+
+def get_qualification_decision(
+    conn: sqlite3.Connection, decision_id: int
+) -> Optional[dict]:
+    row = conn.execute(
+        "SELECT * FROM qualification_decisions WHERE id = ?", (decision_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_active_qualification_decision(
+    conn: sqlite3.Connection, group_id: int
+) -> Optional[dict]:
+    row = conn.execute(
+        "SELECT * FROM qualification_decisions "
+        "WHERE group_id = ? AND invalidated_at IS NULL ORDER BY id DESC LIMIT 1",
+        (group_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_qualification_decisions(
+    conn: sqlite3.Connection, group_id: int
+) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM qualification_decisions WHERE group_id = ? ORDER BY id DESC",
+        (group_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def invalidate_qualification_decision(
+    conn: sqlite3.Connection, group_id: int, reason: str
+) -> bool:
+    cur = conn.execute(
+        "UPDATE qualification_decisions "
+        "SET invalidated_at = datetime('now'), invalidation_reason = ? "
+        "WHERE group_id = ? AND invalidated_at IS NULL",
+        (reason, group_id),
+    )
+    return cur.rowcount > 0
+
+
 def delete_groups_for_tournament(conn: sqlite3.Connection, tournament_id: int) -> None:
     conn.execute("DELETE FROM groups WHERE tournament_id = ?", (tournament_id,))
 

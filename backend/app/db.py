@@ -129,6 +129,19 @@ CREATE TABLE IF NOT EXISTS score_requests (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS qualification_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    selected_entry_ids TEXT NOT NULL,
+    ranking_snapshot TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    operator_name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    invalidated_at TEXT,
+    invalidation_reason TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_players_tournament ON players(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
@@ -136,6 +149,9 @@ CREATE INDEX IF NOT EXISTS idx_entries_tournament ON entries(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_entry_members_player ON entry_members(player_id);
 CREATE INDEX IF NOT EXISTS idx_match_games_match ON match_games(match_id);
 CREATE INDEX IF NOT EXISTS idx_score_requests_match ON score_requests(match_id);
+CREATE INDEX IF NOT EXISTS idx_qualification_decisions_group ON qualification_decisions(group_id, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_qualification_decision_active
+    ON qualification_decisions(group_id) WHERE invalidated_at IS NULL;
 """
 
 

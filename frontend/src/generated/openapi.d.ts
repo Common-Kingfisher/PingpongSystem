@@ -453,6 +453,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Decision */
+        post: operations["create_decision_api_tournaments__tournament_id__groups__group_id__qualification_decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decision/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Decision */
+        post: operations["revoke_decision_api_tournaments__tournament_id__groups__group_id__qualification_decision_revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Decisions */
+        get: operations["list_decisions_api_tournaments__tournament_id__groups__group_id__qualification_decisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}/generate-knockout": {
         parameters: {
             query?: never;
@@ -674,6 +725,22 @@ export interface components {
              * @default []
              */
             point_score_match_ids: number[];
+            /**
+             * Manually Resolved
+             * @default false
+             */
+            manually_resolved: boolean;
+            /**
+             * Manual Candidate Entry Ids
+             * @default []
+             */
+            manual_candidate_entry_ids: number[];
+            /**
+             * Manual Slots Remaining
+             * @default 0
+             */
+            manual_slots_remaining: number;
+            qualification_decision?: components["schemas"]["QualificationDecisionOut"] | null;
             /** Entries */
             entries: components["schemas"]["RankingEntryOut"][];
         };
@@ -985,6 +1052,45 @@ export interface components {
             college?: string | null;
             /** Rating Points */
             rating_points?: number | null;
+        };
+        /** QualificationDecisionCreate */
+        QualificationDecisionCreate: {
+            /** Selected Entry Ids */
+            selected_entry_ids: number[];
+            /** Reason */
+            reason: string;
+            /** Operator Name */
+            operator_name: string;
+        };
+        /** QualificationDecisionOut */
+        QualificationDecisionOut: {
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            /** Group Id */
+            group_id: number;
+            /** Selected Entry Ids */
+            selected_entry_ids: number[];
+            /** Reason */
+            reason: string;
+            /** Operator Name */
+            operator_name: string;
+            /** Created At */
+            created_at: string;
+            /** Invalidated At */
+            invalidated_at?: string | null;
+            /** Invalidation Reason */
+            invalidation_reason?: string | null;
+            /** Active */
+            active: boolean;
+        };
+        /** QualificationDecisionRevoke */
+        QualificationDecisionRevoke: {
+            /** Reason */
+            reason: string;
+            /** Operator Name */
+            operator_name: string;
         };
         /** RankingEntryOut */
         RankingEntryOut: {
@@ -2159,6 +2265,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RankingsResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_decision_api_tournaments__tournament_id__groups__group_id__qualification_decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QualificationDecisionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualificationDecisionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_decision_api_tournaments__tournament_id__groups__group_id__qualification_decision_revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QualificationDecisionRevoke"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualificationDecisionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_decisions_api_tournaments__tournament_id__groups__group_id__qualification_decisions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualificationDecisionOut"][];
                 };
             };
             /** @description Validation Error */
