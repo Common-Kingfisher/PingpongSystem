@@ -139,9 +139,9 @@ export default function BigScreenPage() {
               <div className="bigscreen-table" key={tb.id}>
                 <div className="bigscreen-table-name">{tb.name}</div>
                 <div className="bigscreen-pair">
-                  <div>{nameOf(tb.match!.entry_a_id, tb.match!.player_a_id)}</div>
+                  <div>{nameOf(tb.match!.entry_a_id ?? null, tb.match!.player_a_id)}</div>
                   <div className="bigscreen-vs">VS</div>
-                  <div>{nameOf(tb.match!.entry_b_id, tb.match!.player_b_id)}</div>
+                  <div>{nameOf(tb.match!.entry_b_id ?? null, tb.match!.player_b_id)}</div>
                 </div>
                 <div className="muted">
                   {tb.match!.stage === 'GROUP' ? '小组赛' : '淘汰赛'}
@@ -173,7 +173,7 @@ export default function BigScreenPage() {
             <ul className="bigscreen-upcoming">
               {upcoming.map((m) => (
                 <li key={m.id}>
-                  {nameOf(m.entry_a_id, m.player_a_id)} VS {nameOf(m.entry_b_id, m.player_b_id)}
+                  {nameOf(m.entry_a_id ?? null, m.player_a_id)} VS {nameOf(m.entry_b_id ?? null, m.player_b_id)}
                 </li>
               ))}
             </ul>

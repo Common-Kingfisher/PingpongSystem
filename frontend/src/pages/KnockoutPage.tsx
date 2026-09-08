@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, KnockoutMatch, KnockoutTree, RankingsResult, Tournament } from '../api'
+import { api, ApiError, KnockoutMatch, KnockoutTree, normalizePlacementMatches, RankingsResult, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import KnockoutBracket from '../components/KnockoutBracket'
 import ScoreSheet from '../components/ScoreSheet'
@@ -155,7 +155,7 @@ export default function KnockoutPage() {
           />
           {tree!.placement_matches.length > 0 && <section className="card placement-board">
             <div className="section-heading"><div><span className="eyebrow">PLACEMENT BRACKET</span><h3>季军与名次排位赛</h3></div><span className="muted">季军由半决赛负者直接对决，不按积分决定</span></div>
-            <div className="placement-match-grid">{tree!.placement_matches.map(({ range, match }) => <article key={match.id} className="placement-match-card">
+            <div className="placement-match-grid">{normalizePlacementMatches(tree!.placement_matches).map(({ range, match }) => <article key={match.id} className="placement-match-card">
               <span>{range[0] === 3 && range[1] === 4 ? '季军赛 · 三四名决胜' : range[0] === range[1] ? `第 ${range[0]} 名` : `${range[0]}–${range[1]} 名排位`}</span>
               <strong>{match.player_a?.name ?? '待定'} <i>VS</i> {match.player_b?.name ?? '待定'}</strong>
               {match.status === 'FINISHED' ? <small>{match.result_type !== 'NORMAL' ? 'W/O' : `${match.player_a_score}:${match.player_b_score}`} · 已结束</small> : match.player_a && match.player_b ? <button className="btn small primary" onClick={() => openScore(match)}>录入大比分</button> : <small>等待上一轮结果</small>}
