@@ -1207,6 +1207,9 @@ body {
   margin-right: 4px;
 }
 
+.mode-badge.live { background: #eaf7ef; color: #067647; border-color: #a6e0bc; }
+.mode-badge.demo { background: #fff4e5; color: #9a4d00; border-color: #f3c887; }
+
 .status-warn {
   color: #b26a00;
   background: #fff8ec;

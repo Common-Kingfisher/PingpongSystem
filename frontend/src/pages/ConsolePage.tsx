@@ -217,7 +217,10 @@ export default function ConsolePage() {
         </h2>
         {tournament && (
           <p className="muted">
-            阶段 <span className="badge">{tournament.stage}</span>
+            阶段 <span className="badge">{tournament.stage}</span>{' '}·{' '}
+            <span className={`badge mode-badge ${tournament.operation_mode === 'LIVE' ? 'live' : 'demo'}`}>
+              {tournament.operation_mode === 'LIVE' ? '正式赛事' : '演示赛事'}
+            </span>
           </p>
         )}
         {dash && (
@@ -243,7 +246,7 @@ export default function ConsolePage() {
               自动安排下一批比赛
             </button>
           )}
-          {tournament?.stage === 'GROUP_STAGE' && hasUnfinishedGroup && (
+          {tournament?.operation_mode === 'DEMO' && tournament.stage === 'GROUP_STAGE' && hasUnfinishedGroup && (
             <button className="btn" onClick={confirmDemoFinish} disabled={busy}>
               <span className="demo-tag">Demo</span> 模拟完成剩余小组赛
             </button>

@@ -1067,6 +1067,8 @@ export interface components {
             forfeit_entry_id?: number | null;
             /** Note */
             note?: string | null;
+            /** Request Id */
+            request_id?: string | null;
         };
         /** SetSeedsRequest */
         SetSeedsRequest: {
@@ -1119,7 +1121,15 @@ export interface components {
              * @default 11
              */
             points_to_win: number;
+            /** @default LIVE */
+            operation_mode: components["schemas"]["TournamentMode"];
         };
+        /**
+         * TournamentMode
+         * @description 赛事运行模式。正式赛事禁止调用演示数据接口。
+         * @enum {string}
+         */
+        TournamentMode: "LIVE" | "DEMO";
         /** TournamentOut */
         TournamentOut: {
             /** Id */
@@ -1163,6 +1173,8 @@ export interface components {
             roster_confirmed: boolean;
             /** Confirmed At */
             confirmed_at?: string | null;
+            /** @default LIVE */
+            operation_mode: components["schemas"]["TournamentMode"];
         };
         /**
          * TournamentStage
@@ -1309,7 +1321,9 @@ export interface operations {
     };
     delete_tournament_api_tournaments__tournament_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                confirm_name?: string | null;
+            };
             header?: never;
             path: {
                 tournament_id: number;

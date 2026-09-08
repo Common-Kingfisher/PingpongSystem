@@ -29,6 +29,7 @@ def record_score(
             payload.result_type.value,
             payload.forfeit_entry_id,
             payload.note,
+            str(payload.request_id) if payload.request_id is not None else None,
         )
     except scores_service.ScoreError as exc:
         raise _http(exc)
@@ -49,6 +50,7 @@ def revise_score(
             payload.result_type.value,
             payload.forfeit_entry_id,
             payload.note,
+            str(payload.request_id) if payload.request_id is not None else None,
         )
     except scores_service.ScoreError as exc:
         raise _http(exc)

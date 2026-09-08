@@ -14,7 +14,7 @@ from .models import TableStatus
 _TOURNAMENT_COLS = (
     "id, name, date, table_count, group_count, qualify_per_group, stage, created_at, "
     "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, "
-    "roster_confirmed, confirmed_at"
+    "roster_confirmed, confirmed_at, operation_mode"
 )
 
 
@@ -30,13 +30,14 @@ def create_tournament(
     placement_mode: str = "OFF",
     games_to_win: int = 2,
     points_to_win: int = 11,
+    operation_mode: str = "LIVE",
 ) -> dict:
     cur = conn.execute(
         "INSERT INTO tournaments (name, date, table_count, group_count, qualify_per_group, "
-        "event_type, bronze_mode, placement_mode, games_to_win, points_to_win) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (name, date, table_count, group_count, qualify_per_group, event_type,
-         bronze_mode, placement_mode, games_to_win, points_to_win),
+         bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode),
     )
     row = conn.execute(
         f"SELECT {_TOURNAMENT_COLS} FROM tournaments WHERE id = ?", (cur.lastrowid,)
@@ -438,6 +439,32 @@ def update_match(conn: sqlite3.Connection, match_id: int, **fields) -> dict:
             f"UPDATE matches SET {', '.join(sets)} WHERE id = ?", params
         )
     return get_match(conn, match_id)
+
+
+def claim_score_request(
+    conn: sqlite3.Connection,
+    request_id: str,
+    match_id: int,
+    action: str,
+    payload_fingerprint: str,
+) -> str:
+    """认领比分请求；返回 NEW、REPLAY 或 CONFLICT。"""
+    try:
+        conn.execute(
+            "INSERT INTO score_requests (request_id, match_id, action, payload_fingerprint) VALUES (?, ?, ?, ?)",
+            (request_id, match_id, action, payload_fingerprint),
+        )
+        return "NEW"
+    except sqlite3.IntegrityError:
+        row = conn.execute(
+            "SELECT match_id, action, payload_fingerprint FROM score_requests WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+        if row and (row["match_id"], row["action"], row["payload_fingerprint"]) == (
+            match_id, action, payload_fingerprint
+        ):
+            return "REPLAY"
+        return "CONFLICT"
 
 
 def list_playing_matches(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:

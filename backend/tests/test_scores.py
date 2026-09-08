@@ -79,6 +79,33 @@ def test_record_score_on_finished_rejected(conn):
         pass
 
 
+def test_record_score_same_request_is_idempotent(conn):
+    tid = _service_tournament(conn)
+    match, _ = _assign_first(conn, tid)
+    request_id = "96d7e2e8-128c-43f4-9794-46c2d24438d5"
+
+    first = scores_service.record_score(conn, match["id"], 2, 1, request_id=request_id)
+    replay = scores_service.record_score(conn, match["id"], 2, 1, request_id=request_id)
+
+    assert replay["id"] == first["id"]
+    assert replay["status"] == "FINISHED"
+    count = conn.execute(
+        "SELECT COUNT(*) FROM score_requests WHERE request_id = ?", (request_id,)
+    ).fetchone()[0]
+    assert count == 1
+
+
+def test_score_request_id_cannot_be_reused_for_different_payload(conn):
+    tid = _service_tournament(conn)
+    match, _ = _assign_first(conn, tid)
+    request_id = "d31dd53f-fe78-475f-8bbd-ef440e5e6ccd"
+    scores_service.record_score(conn, match["id"], 2, 1, request_id=request_id)
+
+    with pytest.raises(scores_service.ScoreError) as exc_info:
+        scores_service.record_score(conn, match["id"], 2, 0, request_id=request_id)
+    assert exc_info.value.code == 409
+
+
 def test_revise_score_flips_winner(conn):
     tid = _service_tournament(conn)
     match, _ = _assign_first(conn, tid)

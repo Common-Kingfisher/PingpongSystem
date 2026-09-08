@@ -1,6 +1,8 @@
 # PingpongSystem 开发交接
 
-核查日期：2026-09-04。业务代码基线：`09c09e8`。本次交接只新增文档，不修改赛制或业务实现。
+最近维护：2026-09-08。当前集成分支：`develop/field-demo-v02`；精确基线以该分支最新提交为准。
+
+维护规则：每个功能 PR 必须同步更新相关 Markdown、OpenAPI 快照（接口变化时）和 `CHANGELOG.md`；不再把文档集中留到最后补写。
 
 ## 先看结论
 
@@ -17,7 +19,7 @@
 3. [开发路线](DEVELOPMENT_ROADMAP.md)：优先级、风险、责任边界和验收门槛。
 4. `PingpongSystem_交接与开发路线.docx`：面向队友的综合阅读版；精确字段和命令以本目录 Markdown、Pydantic 与 OpenAPI 为准。
 
-旧 `README.md` 和 `DEMO_GUIDE.md` 有历史信息残留，例如赛制限制和测试数量，遇到冲突以当前代码与这组三份交接材料为准。不能将旧文档的“已完成”当作本轮验收结论。
+若文档与代码冲突，以 Pydantic/OpenAPI 和已通过的测试为准，并在同一 PR 修正文档，不能长期保留已知过期说明。
 
 ## 已确认的产品范围
 
@@ -44,6 +46,8 @@
 | 录分与排名 | 大比分默认 0；小组小分补录；读取结果重算排名、提示出线歧义 | `ScoreSheet.tsx`、`RankingsPage.tsx`；`services/scores.py`、`domain/ranking.py` |
 | 淘汰赛与结果 | 主签胜者晋级、轮空、季军或并列季军、限定范围的 5–8 排位、最终名次 | `KnockoutPage.tsx`；`services/knockout.py` |
 | 展示与输出 | 大屏、名单过场、冠军路径高亮、秩序册打印 | `BigScreenPage.tsx`、`RosterLaunch.tsx`、`ChampionJourneyPage.tsx`、`OrderBookPage.tsx` |
+
+新建赛事默认 `operation_mode=LIVE`；只有显式 `DEMO` 赛事可以调用演示数据接口。正式赛事删除需要完整名称确认。比分写入支持可选 `request_id`，前端默认生成并在网络失败时用同一编号重试一次。
 
 表中前端短文件名均位于 `frontend/src/pages/`，组件位于 `frontend/src/components/`；后端短路径均位于 `backend/app/`。存在页面不代表所有 V0.2 要求都已满足，特别是 Schedule 页面不是完整计划时间引擎。
 

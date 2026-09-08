@@ -45,6 +45,13 @@ class EventType(str, Enum):
     DOUBLES = "DOUBLES"
 
 
+class TournamentMode(str, Enum):
+    """赛事运行模式。正式赛事禁止调用演示数据接口。"""
+
+    LIVE = "LIVE"
+    DEMO = "DEMO"
+
+
 class BronzeMode(str, Enum):
     BRONZE_MATCH = "BRONZE_MATCH"
     JOINT_BRONZE = "JOINT_BRONZE"
