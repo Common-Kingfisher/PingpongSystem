@@ -1,6 +1,7 @@
 """Pydantic 请求/响应模型。"""
 
 from datetime import date
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,7 @@ from .models import (
     PlacementMode,
     ResultType,
     TableStatus,
+    TournamentMode,
     TournamentStage,
 )
 
@@ -28,6 +30,7 @@ class TournamentCreate(BaseModel):
     placement_mode: PlacementMode = PlacementMode.OFF
     games_to_win: int = Field(default=2, ge=1, le=4)
     points_to_win: int = Field(default=11, ge=1, le=99)
+    operation_mode: TournamentMode = TournamentMode.LIVE
 
 
 class TournamentOut(BaseModel):
@@ -46,6 +49,7 @@ class TournamentOut(BaseModel):
     points_to_win: int = 11
     roster_confirmed: bool = False
     confirmed_at: str | None = None
+    operation_mode: TournamentMode = TournamentMode.LIVE
 
 
 class PlayerCreate(BaseModel):
@@ -265,6 +269,7 @@ class ScoreRequest(BaseModel):
     result_type: ResultType = ResultType.NORMAL
     forfeit_entry_id: int | None = None
     note: str | None = Field(default=None, max_length=500)
+    request_id: UUID | None = None
 
 
 class RankingEntryOut(BaseModel):

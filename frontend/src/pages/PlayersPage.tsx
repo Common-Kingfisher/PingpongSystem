@@ -325,6 +325,9 @@ export default function PlayersPage() {
             {tournament.group_count} 个 · 每组晋级 {tournament.qualify_per_group} 人 · 选手{' '}
             {players.length} 人（已分组 {groupedCount} 人） · 阶段{' '}
             <span className="badge">{tournament.stage}</span>
+            {' '}· <span className={`badge mode-badge ${tournament.operation_mode === 'LIVE' ? 'live' : 'demo'}`}>
+              {tournament.operation_mode === 'LIVE' ? '正式赛事' : '演示赛事'}
+            </span>
           </p>
         )}
         {error && <p className="status-error">{error}</p>}
@@ -368,7 +371,7 @@ export default function PlayersPage() {
             {busy ? '添加中…' : '添加'}
           </button>
         </form>
-        {!locked && (
+        {!locked && tournament?.operation_mode === 'DEMO' && (
           <div className="button-row" style={{ marginTop: 14 }}>
             <button className="btn" onClick={() => setDemoModal({ count: 16, withSeeds: true })}>
               <span className="demo-tag">Demo</span> 生成演示选手
@@ -599,7 +602,7 @@ export default function PlayersPage() {
         )}
       </div>
 
-      {demoModal && (
+      {demoModal && tournament?.operation_mode === 'DEMO' && (
         <div className="modal-overlay" onClick={() => setDemoModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>生成演示选手</h3>

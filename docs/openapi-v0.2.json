@@ -168,6 +168,22 @@
               "type": "integer",
               "title": "Tournament Id"
             }
+          },
+          {
+            "name": "confirm_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Confirm Name"
+            }
           }
         ],
         "responses": {
@@ -3289,6 +3305,18 @@
               }
             ],
             "title": "Note"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
           }
         },
         "type": "object",
@@ -3408,6 +3436,10 @@
             "minimum": 1.0,
             "title": "Points To Win",
             "default": 11
+          },
+          "operation_mode": {
+            "$ref": "#/components/schemas/TournamentMode",
+            "default": "LIVE"
           }
         },
         "type": "object",
@@ -3419,6 +3451,15 @@
           "qualify_per_group"
         ],
         "title": "TournamentCreate"
+      },
+      "TournamentMode": {
+        "type": "string",
+        "enum": [
+          "LIVE",
+          "DEMO"
+        ],
+        "title": "TournamentMode",
+        "description": "赛事运行模式。正式赛事禁止调用演示数据接口。"
       },
       "TournamentOut": {
         "properties": {
@@ -3491,6 +3532,10 @@
               }
             ],
             "title": "Confirmed At"
+          },
+          "operation_mode": {
+            "$ref": "#/components/schemas/TournamentMode",
+            "default": "LIVE"
           }
         },
         "type": "object",

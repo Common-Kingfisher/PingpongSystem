@@ -8,6 +8,8 @@
 - 淘汰赛：录分后胜者自动晋级下一轮；改分后整条下游链级联重置再重新晋级。
 """
 
+import hashlib
+import json
 import sqlite3
 
 from .. import repository as repo
@@ -89,6 +91,33 @@ def _ensure_match(conn: sqlite3.Connection, match_id: int) -> dict:
     return match
 
 
+def _claim_request(
+    conn: sqlite3.Connection,
+    request_id: str | None,
+    match_id: int,
+    action: str,
+    score_a: int | None,
+    score_b: int | None,
+    games: list[tuple[int, int]] | None,
+    result_type: str,
+    forfeit_entry_id: int | None,
+    note: str | None,
+) -> bool:
+    """返回 True 表示同一请求已成功处理，可直接返回当前比赛。"""
+    if request_id is None:
+        return False
+    raw = json.dumps(
+        [score_a, score_b, games, result_type, forfeit_entry_id, note],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    fingerprint = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    state = repo.claim_score_request(conn, request_id, match_id, action, fingerprint)
+    if state == "CONFLICT":
+        raise ScoreError("请求编号已用于其他比分操作，请刷新后重试", 409)
+    return state == "REPLAY"
+
+
 def record_score(
     conn: sqlite3.Connection,
     match_id: int,
@@ -98,6 +127,7 @@ def record_score(
     result_type: str = ResultType.NORMAL.value,
     forfeit_entry_id: int | None = None,
     note: str | None = None,
+    request_id: str | None = None,
 ) -> dict:
     """录入比分：允许 PLAYING 或 WAITING 比赛 → FINISHED。
 
@@ -105,6 +135,11 @@ def record_score(
     比赛也可直接出结果；若已分配球台（PLAYING）则释放球台。
     """
     match = _ensure_match(conn, match_id)
+    if _claim_request(
+        conn, request_id, match_id, "RECORD", score_a, score_b, games,
+        result_type, forfeit_entry_id, note,
+    ):
+        return repo.decorate_match(conn, match)
     if match["status"] not in (MatchStatus.PLAYING.value, MatchStatus.WAITING.value):
         raise ScoreError("只有进行中或待安排的比赛可以录入比分")
     side_a, side_b = _side_ids(match)
@@ -169,6 +204,7 @@ def revise_score(
     result_type: str = ResultType.NORMAL.value,
     forfeit_entry_id: int | None = None,
     note: str | None = None,
+    request_id: str | None = None,
 ) -> dict:
     """修改已结束比赛的比分（纠错）。
 
@@ -176,6 +212,11 @@ def revise_score(
     则阻止修改；全部下游尚未开始时允许修改并重新同步双方签位。
     """
     match = _ensure_match(conn, match_id)
+    if _claim_request(
+        conn, request_id, match_id, "REVISE", score_a, score_b, games,
+        result_type, forfeit_entry_id, note,
+    ):
+        return repo.decorate_match(conn, match)
     if match["status"] != MatchStatus.FINISHED.value:
         raise ScoreError("只有已结束的比赛可以修改比分")
     side_a, side_b = _side_ids(match)

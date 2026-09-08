@@ -17,6 +17,7 @@ def create_tournament_with_tables(
     placement_mode: str = "OFF",
     games_to_win: int = 2,
     points_to_win: int = 11,
+    operation_mode: str = "LIVE",
 ) -> dict:
     """在同一个事务中创建赛事并生成球台。"""
     tournament = repo.create_tournament(
@@ -31,6 +32,7 @@ def create_tournament_with_tables(
         placement_mode,
         games_to_win,
         points_to_win,
+        operation_mode,
     )
     repo.create_tables_for_tournament(conn, tournament["id"], table_count)
     conn.commit()

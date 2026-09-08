@@ -119,10 +119,13 @@ export default function RankingsPage() {
         {tournament && (
           <p className="muted">
             各组出线人数可独立设置 · 排序：胜场 &gt; 净胜局 &gt; 积分；仍并列时按相互比赛与乒联小分比率判定
+            {' '}· <span className={`badge mode-badge ${tournament.operation_mode === 'LIVE' ? 'live' : 'demo'}`}>
+              {tournament.operation_mode === 'LIVE' ? '正式赛事' : '演示赛事'}
+            </span>
           </p>
         )}
         {error && <p className="status-error">{error}</p>}
-        {tournament?.stage === 'GROUP_STAGE' &&
+        {tournament?.operation_mode === 'DEMO' && tournament.stage === 'GROUP_STAGE' &&
           rankings.rankings.some((g) => g.finished_matches < g.total_matches) && (
             <div className="button-row">
               <button className="btn" onClick={confirmDemoFinish} disabled={busy}>

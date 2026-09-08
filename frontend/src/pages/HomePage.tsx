@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, BronzeMode, Dashboard, EventType, PlacementMode, Tournament } from '../api'
+import { api, ApiError, BronzeMode, Dashboard, EventType, PlacementMode, Tournament, TournamentMode } from '../api'
 import { getActiveTournamentId, setActiveTournamentId } from '../activeTournament'
 
 interface FormState {
@@ -12,6 +12,7 @@ interface FormState {
   event_type: EventType
   bronze_mode: BronzeMode
   placement_mode: PlacementMode
+  operation_mode: TournamentMode
 }
 
 const emptyForm: FormState = {
@@ -23,6 +24,7 @@ const emptyForm: FormState = {
   event_type: 'SINGLES',
   bronze_mode: 'JOINT_BRONZE',
   placement_mode: 'COMPLETE',
+  operation_mode: 'LIVE',
 }
 
 export default function HomePage() {
@@ -108,8 +110,18 @@ export default function HomePage() {
       `该操作将同时删除：\n- 分组\n- 比赛\n- 比分\n- 淘汰赛\n- 球台分配\n- 其他该赛事关联数据\n\n` +
       `此操作不可恢复。`
     if (!window.confirm(msg)) return
+    let confirmName: string | undefined
+    if (t.operation_mode === 'LIVE') {
+      const entered = window.prompt(`正式赛事受到保护。请输入完整赛事名称以确认删除：\n${t.name}`)
+      if (entered === null) return
+      if (entered !== t.name) {
+        setError('赛事名称不一致，已取消删除。')
+        return
+      }
+      confirmName = entered
+    }
     try {
-      await api.deleteTournament(t.id)
+      await api.deleteTournament(t.id, confirmName)
       if (activeId === t.id) {
         setActiveTournamentId(null)
         setActiveId(null)
@@ -141,6 +153,9 @@ export default function HomePage() {
             </span>
             <span className="badge current-badge" style={{ marginLeft: 6 }}>
               当前赛事
+            </span>
+            <span className={`badge mode-badge ${current.operation_mode === 'LIVE' ? 'live' : 'demo'}`} style={{ marginLeft: 6 }}>
+              {current.operation_mode === 'LIVE' ? '正式' : '演示'}
             </span>
             <Link className="btn small float-right" to={`/console?tid=${current.id}`}>
               进入比赛控制台 →
@@ -245,6 +260,13 @@ export default function HomePage() {
             />
           </label>
           <label>
+            运行模式
+            <select value={form.operation_mode} onChange={(e) => set('operation_mode', e.target.value as TournamentMode)}>
+              <option value="LIVE">正式赛事 · 禁用模拟数据</option>
+              <option value="DEMO">演示赛事 · 允许一键模拟</option>
+            </select>
+          </label>
+          <label>
             比赛项目
             <select value={form.event_type} onChange={(e) => set('event_type', e.target.value as EventType)}>
               <option value="SINGLES">单打</option>
@@ -312,6 +334,9 @@ export default function HomePage() {
                 <td>{t.id}</td>
                 <td>
                   {t.name}
+                  <span className={`badge mode-badge ${t.operation_mode === 'LIVE' ? 'live' : 'demo'}`} style={{ marginLeft: 6 }}>
+                    {t.operation_mode === 'LIVE' ? '正式' : '演示'}
+                  </span>
                   {activeId === t.id && (
                     <span className="badge current-badge" style={{ marginLeft: 6 }}>
                       当前赛事

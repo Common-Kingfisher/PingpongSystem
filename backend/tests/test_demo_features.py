@@ -4,7 +4,7 @@
 def _create(client, n_players=0, group_count=4, qualify=2, table_count=6):
     tid = client.post(
         "/api/tournaments",
-        json={"name": "Demo功能", "date": "2025-06-01", "table_count": table_count, "group_count": group_count, "qualify_per_group": qualify},
+        json={"name": "Demo功能", "date": "2025-06-01", "table_count": table_count, "group_count": group_count, "qualify_per_group": qualify, "operation_mode": "DEMO"},
     ).json()["id"]
     for i in range(1, n_players + 1):
         client.post(f"/api/tournaments/{tid}/players", json={"name": f"选手{i:02d}"})
@@ -82,3 +82,20 @@ def test_demo_finish_group_stage_only_in_group_stage(client):
     tid = _create(client)
     resp = client.post(f"/api/tournaments/{tid}/demo/finish-group-stage")
     assert resp.status_code == 409
+
+
+def test_live_tournament_rejects_demo_endpoints(client):
+    tid = client.post(
+        "/api/tournaments",
+        json={"name": "正式赛事", "date": "2025-06-01", "table_count": 4, "group_count": 2, "qualify_per_group": 1},
+    ).json()["id"]
+
+    players = client.post(
+        f"/api/tournaments/{tid}/demo/generate-players",
+        json={"count": 8, "with_seeds": True},
+    )
+    finish = client.post(f"/api/tournaments/{tid}/demo/finish-group-stage")
+
+    assert players.status_code == 409
+    assert finish.status_code == 409
+    assert players.json()["detail"] == "正式赛事禁止使用演示数据功能"

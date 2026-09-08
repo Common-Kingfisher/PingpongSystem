@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS tournaments (
     points_to_win INTEGER NOT NULL DEFAULT 11 CHECK (points_to_win >= 1),
     roster_confirmed INTEGER NOT NULL DEFAULT 0 CHECK (roster_confirmed IN (0,1)),
     confirmed_at TEXT,
+    operation_mode TEXT NOT NULL DEFAULT 'LIVE' CHECK (operation_mode IN ('LIVE','DEMO')),
     stage TEXT NOT NULL DEFAULT 'REGISTRATION'
         CHECK (stage IN ('REGISTRATION','GROUP_STAGE','KNOCKOUT','FINISHED')),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -120,12 +121,21 @@ CREATE TABLE IF NOT EXISTS match_games (
     UNIQUE (match_id, game_no)
 );
 
+CREATE TABLE IF NOT EXISTS score_requests (
+    request_id TEXT PRIMARY KEY,
+    match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    action TEXT NOT NULL CHECK (action IN ('RECORD','REVISE')),
+    payload_fingerprint TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_players_tournament ON players(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
 CREATE INDEX IF NOT EXISTS idx_entries_tournament ON entries(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_entry_members_player ON entry_members(player_id);
 CREATE INDEX IF NOT EXISTS idx_match_games_match ON match_games(match_id);
+CREATE INDEX IF NOT EXISTS idx_score_requests_match ON score_requests(match_id);
 """
 
 
@@ -206,6 +216,7 @@ def init_db() -> None:
             ("points_to_win", "INTEGER NOT NULL DEFAULT 11"),
             ("roster_confirmed", "INTEGER NOT NULL DEFAULT 0"),
             ("confirmed_at", "TEXT"),
+            ("operation_mode", "TEXT NOT NULL DEFAULT 'LIVE' CHECK (operation_mode IN ('LIVE','DEMO'))"),
         ):
             _add_column_if_missing(conn, "tournaments", column, ddl)
         for column, ddl in (

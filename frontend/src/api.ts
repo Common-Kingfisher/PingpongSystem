@@ -17,6 +17,7 @@ export type TableStatus = Schemas['TableStatus']
 export type TournamentStage = Schemas['TournamentStage']
 export type MatchStage = Schemas['MatchStage']
 export type EventType = Schemas['EventType']
+export type TournamentMode = Schemas['TournamentMode']
 export type BronzeMode = Schemas['BronzeMode']
 export type PlacementMode = Schemas['PlacementMode']
 export type MatchBracket = Schemas['MatchBracket']
@@ -119,6 +120,31 @@ export function normalizePlacementMatches(raw: KnockoutTree['placement_matches']
   return result
 }
 
+function newRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  // 局域网 HTTP 访问可能没有 secure-context Web Crypto；仍生成合法 UUID 供后端幂等键使用。
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16)
+    return (char === 'x' ? value : (value & 0x3) | 0x8).toString(16)
+  })
+}
+
+async function submitScore(path: string, payload: ScorePayload): Promise<Match> {
+  const body = JSON.stringify({
+    ...payload,
+    request_id: payload.request_id ?? newRequestId(),
+  })
+  try {
+    return await request<Match>(path, { method: 'POST', body })
+  } catch (error) {
+    // 网络在服务端提交成功后中断时，用同一 request_id 重试一次；后端会返回同一结果而不重复写入。
+    if (error instanceof ApiError) throw error
+    return request<Match>(path, { method: 'POST', body })
+  }
+}
+
 export const api = {
   health: () => request<{ status: string }>('/api/health'),
 
@@ -126,8 +152,8 @@ export const api = {
   createTournament: (body: TournamentCreateRequest) =>
     request<Tournament>('/api/tournaments', { method: 'POST', body: JSON.stringify(body) }),
   getTournament: (id: number) => request<Tournament>(`/api/tournaments/${id}`),
-  deleteTournament: (id: number) =>
-    request<void>(`/api/tournaments/${id}`, { method: 'DELETE' }),
+  deleteTournament: (id: number, confirmName?: string) =>
+    request<void>(`/api/tournaments/${id}${confirmName ? `?confirm_name=${encodeURIComponent(confirmName)}` : ''}`, { method: 'DELETE' }),
 
   listPlayers: (tournamentId: number) =>
     request<Player[]>(`/api/tournaments/${tournamentId}/players`),
@@ -235,28 +261,22 @@ export const api = {
     matchId: number,
     player_a_score: number | ScorePayload,
     player_b_score?: number,
-  ) =>
-    request<Match>(`/api/matches/${matchId}/score`, {
-      method: 'POST',
-      body: JSON.stringify(
-        typeof player_a_score === 'number'
-          ? { player_a_score, player_b_score }
-          : player_a_score,
-      ),
-    }),
+  ) => submitScore(
+    `/api/matches/${matchId}/score`,
+    typeof player_a_score === 'number'
+      ? { player_a_score, player_b_score, result_type: 'NORMAL' }
+      : player_a_score,
+  ),
   reviseScore: (
     matchId: number,
     player_a_score: number | ScorePayload,
     player_b_score?: number,
-  ) =>
-    request<Match>(`/api/matches/${matchId}/revise-score`, {
-      method: 'POST',
-      body: JSON.stringify(
-        typeof player_a_score === 'number'
-          ? { player_a_score, player_b_score }
-          : player_a_score,
-      ),
-    }),
+  ) => submitScore(
+    `/api/matches/${matchId}/revise-score`,
+    typeof player_a_score === 'number'
+      ? { player_a_score, player_b_score, result_type: 'NORMAL' }
+      : player_a_score,
+  ),
   getRankings: (tournamentId: number) =>
     request<RankingsResult>(`/api/tournaments/${tournamentId}/rankings`),
 
