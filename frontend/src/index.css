@@ -282,6 +282,20 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
 .score-sheet-versus { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 15px; margin: 22px 0; }
 .score-sheet-versus strong:last-child { text-align: right; }
 .score-sheet-versus span { padding: 9px 13px; color: #fff; background: var(--arena); font-size: 24px; }
+.score-audit-fields { display: grid; gap: 10px; margin-top: 16px; padding: 14px; border-left: 4px solid var(--blue); background: #f4f7fb; }
+.score-audit-fields label { display: grid; gap: 5px; color: #344054; font-size: 13px; font-weight: 700; }
+.score-audit-fields input, .score-audit-fields textarea { width: 100%; padding: 9px 11px; border: 1px solid #cbd5e1; background: #fff; font: inherit; }
+.score-audit-fields textarea { min-height: 62px; resize: vertical; }
+.score-audit-fields p { margin: 0; color: #667085; font-size: 12px; }
+.match-time-cell { min-width: 164px; }
+.match-time-cell span { display: block; color: #475467; font-size: 12px; line-height: 1.7; }
+.score-audit-panel { position: relative; width: min(650px, 96vw); max-height: 86vh; overflow: auto; padding: 28px; border-top: 5px solid #e5294f; background: #fff; box-shadow: 0 30px 80px rgba(0,0,0,.38); }
+.score-audit-list { display: grid; gap: 10px; margin-top: 20px; }
+.score-audit-list article { padding: 15px 17px; border: 1px solid #dce3ec; background: linear-gradient(135deg, #fff 70%, #f4f7fb); }
+.score-audit-list article > div:first-child { display: flex; justify-content: space-between; gap: 12px; }
+.score-audit-list time, .score-audit-list p { color: #667085; font-size: 12px; }
+.audit-score-change { display: flex; align-items: center; gap: 12px; margin: 12px 0; font: 700 22px Bahnschrift, "DIN Alternate", sans-serif; }
+.audit-score-change b { color: #e5294f; }
 .result-tabs { display: flex; border-bottom: 1px solid #d0d5dd; }
 .result-tabs button { padding: 9px 14px; border: 0; border-bottom: 3px solid transparent; background: transparent; }
 .result-tabs button.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 700; }

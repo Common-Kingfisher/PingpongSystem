@@ -246,7 +246,12 @@ def test_api_score_flow(client):
     # 改分
     resp = client.post(
         f"/api/matches/{matches[0]['id']}/revise-score",
-        json={"player_a_score": 1, "player_b_score": 2},
+        json={
+            "player_a_score": 1,
+            "player_b_score": 2,
+            "operator_name": "测试主裁",
+            "change_reason": "纠正录入错误",
+        },
     )
     assert resp.status_code == 200
     assert resp.json()["winner_id"] == matches[0]["player_b_id"]
@@ -611,9 +616,11 @@ def test_api_supplement_note_persisted(client):
                 {"side_a_score": 11, "side_b_score": 8},
                 {"side_a_score": 12, "side_b_score": 10},
             ],
-            "result_type": "NORMAL",
-            "note": "补录确认",
-        },
+                "result_type": "NORMAL",
+                "note": "补录确认",
+                "operator_name": "测试主裁",
+                "change_reason": "补录小分",
+            },
     )
     assert resp.status_code == 200
     assert resp.json()["result_note"] == "补录确认"

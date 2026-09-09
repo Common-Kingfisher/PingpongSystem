@@ -36,6 +36,11 @@ export type GroupInfo = Schemas['GroupOut']
 export type GroupingResult = Schemas['GroupingResult']
 export type MatchGame = Schemas['MatchGameOut']
 export type ScorePayload = Schemas['ScoreRequest']
+export type ScoreRevisionPayload = Schemas['ScoreRevisionRequest'] & {
+  operator_name: string
+  change_reason: string
+}
+export type ScoreAudit = Schemas['ScoreAuditOut']
 export type GenerateMatchesResult = Schemas['GenerateMatchesResult']
 export type DashboardStats = Schemas['DashboardStats']
 export type ScheduleNextResult = Schemas['ScheduleNextResult']
@@ -270,14 +275,16 @@ export const api = {
   ),
   reviseScore: (
     matchId: number,
-    player_a_score: number | ScorePayload,
+    player_a_score: number | ScoreRevisionPayload,
     player_b_score?: number,
   ) => submitScore(
     `/api/matches/${matchId}/revise-score`,
     typeof player_a_score === 'number'
-      ? { player_a_score, player_b_score, result_type: 'NORMAL' }
+      ? { player_a_score, player_b_score, result_type: 'NORMAL', operator_name: '系统操作', change_reason: '兼容调用' }
       : player_a_score,
   ),
+  listScoreAudits: (matchId: number) =>
+    request<ScoreAudit[]>(`/api/matches/${matchId}/score-audits`),
   getRankings: (tournamentId: number) =>
     request<RankingsResult>(`/api/tournaments/${tournamentId}/rankings`),
   createQualificationDecision: (

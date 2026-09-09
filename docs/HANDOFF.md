@@ -1,6 +1,6 @@
 # PingpongSystem 开发交接
 
-最近维护：2026-09-08。当前集成分支：`develop/field-demo-v02`；精确基线以该分支最新提交为准。
+最近维护：2026-09-09。当前集成分支：`develop/field-demo-v02`；精确基线以该分支最新提交为准。
 
 维护规则：每个功能 PR 必须同步更新相关 Markdown、OpenAPI 快照（接口变化时）和 `CHANGELOG.md`；不再把文档集中留到最后补写。
 
@@ -26,6 +26,8 @@
 - 保留 React + TypeScript + Vite + FastAPI + SQLite，不搬回 Next.js 原型。
 - 单打和双打；双打按运动员积分相近进行随机配对，不等于“强弱搭配使各队实力均衡”。
 - 默认三局两胜、每局 11 分；常规只录大比分，输入初值为 0。
+- 比赛第一次上台记录开赛时间，第一次完赛记录结束时间；赛后改分不覆盖这两个事实时间。
+- 比分修改必须填写操作人与修改理由，系统保存修改前后完整快照和不可覆盖的操作历史。
 - 小组正常完赛场次可补录/修改小比分，用于同分排名；淘汰赛 UI 仍只录大比分。
 - 小组排序已确认前缀：胜场数 → 净胜局 → 赛事积分（胜 2、正常负 1、弃权负 0）。后续同分细则仍须专项确认，不宣称已完整实现 ITTF 官方算法。
 - 小组出线数可配置；各组不同人数的组合仍有后端限制，见风险 R03。
@@ -43,7 +45,7 @@
 | Entry 与双打 | 单打 1 人、双打 2 人；近积分候选随机配对；未配齐不能确认名单 | `services/entries.py`、`routers/entries.py` |
 | 分组 | 种子分散、人数均衡、同单位软回避；解除分组；配置各组出线数 | `services/groups.py`、`routers/groups.py` |
 | 现场控制台 | 真实 API 球台卡、批量/手动排台、下台、比分/弃权；待赛横向换行；已结束场次改分。当前自动排台仍是按记录顺序贪心，V1 设计见 `docs/SCHEDULING_V1_DESIGN.md` | `ConsolePage.tsx`、`LiveTableCard.tsx` |
-| 录分与排名 | 大比分默认 0；小组小分补录；读取结果重算排名、提示出线歧义 | `ScoreSheet.tsx`、`RankingsPage.tsx`；`services/scores.py`、`domain/ranking.py` |
+| 录分与排名 | 大比分默认 0；小组小分补录；改分强制操作人/理由并保存前后快照；读取结果重算排名、提示出线歧义 | `ScoreSheet.tsx`、`RankingsPage.tsx`；`services/scores.py`、`domain/ranking.py` |
 | 人工晋级裁定 | 只处理晋级线并列，记录选择、理由、主裁判和时间；相关数据变化后自动失效 | `services/qualification_decisions.py`、`qualification_decisions.py` |
 | 淘汰赛与结果 | 主签胜者晋级、轮空、季军或并列季军、4/8/16 人递归完整排位、最终名次 | `KnockoutPage.tsx`；`services/knockout.py` |
 | 展示与输出 | 大屏、名单过场、冠军路径高亮、秩序册打印 | `BigScreenPage.tsx`、`RosterLaunch.tsx`、`ChampionJourneyPage.tsx`、`OrderBookPage.tsx` |
@@ -69,6 +71,8 @@
 | Match.entry_a_id / entry_b_id | 对阵双方 Entry | 不要与 Player ID 混用 |
 | player_a_score / player_b_score | 保留旧名称的大比分，即胜局数 | 2:0 表示赢两局，不是单局得分 |
 | MatchGame | `game_no`、双方单局得分、胜者 | 缺小分不等于实际得 0 分 |
+| started_at / finished_at | 首次上台与首次完赛的事实时间 | 释放重排、改分和补录小分均不覆盖 |
+| score_audits | RECORD/REVISE 前后快照、操作者、原因、时间、请求标识 | 历史只追加不覆盖；旧比分可能没有历史审计 |
 | winner_entry_id / winner_id | 新旧兼容字段 | 淘汰树 `player_a.id` 与排名 `player_id` 可能实际承载 Entry ID；见 service 映射 |
 | result_type | NORMAL、FORFEIT、WALKOVER、NO_SHOW、DISQUALIFIED | 没有完整 CANCELLED 流程 |
 | qualify_count | 组级覆盖值；否则用赛事 `qualify_per_group` | 能保存不代表签表支持所有组合 |

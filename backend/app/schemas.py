@@ -209,6 +209,8 @@ class MatchOut(BaseModel):
     bracket: MatchBracket = MatchBracket.GROUP
     placement_min: int | None = None
     placement_max: int | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
     games: list["MatchGameOut"] = []
 
 
@@ -270,6 +272,26 @@ class ScoreRequest(BaseModel):
     forfeit_entry_id: int | None = None
     note: str | None = Field(default=None, max_length=500)
     request_id: UUID | None = None
+    operator_name: str | None = Field(default=None, max_length=100)
+    change_reason: str | None = Field(default=None, max_length=500)
+
+
+class ScoreRevisionRequest(ScoreRequest):
+    # 由 service 在全部业务校验通过、写入前强制要求，避免审计字段掩盖更具体的比分错误。
+    operator_name: str | None = Field(default=None, max_length=100)
+    change_reason: str | None = Field(default=None, max_length=500)
+
+
+class ScoreAuditOut(BaseModel):
+    id: int
+    match_id: int
+    action: str
+    before_snapshot: dict
+    after_snapshot: dict
+    operator_name: str | None
+    change_reason: str | None
+    request_id: str | None
+    created_at: str
 
 
 class RankingEntryOut(BaseModel):
