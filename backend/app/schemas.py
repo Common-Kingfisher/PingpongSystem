@@ -280,7 +280,7 @@ class ScoreRevisionRequest(ScoreRequest):
     """改分请求必须在机器可读契约中明确携带操作人和原因。"""
 
     operator_name: str = Field(min_length=1, max_length=100)
-    change_reason: str = Field(min_length=1, max_length=500)
+    change_reason: str = Field(min_length=2, max_length=500)
 
 
 class ScoreAuditOut(BaseModel):

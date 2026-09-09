@@ -3909,7 +3909,7 @@
           "change_reason": {
             "type": "string",
             "maxLength": 500,
-            "minLength": 1,
+            "minLength": 2,
             "title": "Change Reason"
           }
         },
