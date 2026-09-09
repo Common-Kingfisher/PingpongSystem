@@ -178,6 +178,7 @@ h1, h2, h3, h4, .app-title, .ko-card-score, .score-sheet-versus span {
 .live-table-actions { position: relative; z-index: 3; display: flex; justify-content: center; gap: 7px; margin-top: 9px; }
 .live-table-actions .live-ghost { color: #dbe8ff; background: #29405f; border-color: #45607e; }
 .live-table-actions .live-assign { color: #e7efff; background: #29405f; border-color: #45607e; }
+.live-table-prefer { position: relative; z-index: 3; margin: 8px 0 0; text-align: center; color: #8fa8c9; font-size: 11px; }
 @keyframes liveBall { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-15px,8px); } }
 
 .big-score-entry { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 18px; margin: 18px 0; padding: 18px; background: #f4f7fb; border: 1px solid #dce4ef; }

@@ -1,11 +1,12 @@
 import { Match, TableWithMatch } from '../api'
 
-export default function LiveTableCard({ table, sideName, stageLabel, busy, groupFinished, onAssign, onScore, onRelease }: {
+export default function LiveTableCard({ table, sideName, stageLabel, busy, groupFinished, preferredLabel, onAssign, onScore, onRelease }: {
   table: TableWithMatch
   sideName: (match: Match, side: 'a' | 'b') => string
   stageLabel: (match: Match) => string
   busy: boolean
   groupFinished: boolean
+  preferredLabel?: string
   onAssign: (tableId: number) => void
   onScore: (match: Match) => void
   onRelease: (match: Match) => void
@@ -38,5 +39,8 @@ export default function LiveTableCard({ table, sideName, stageLabel, busy, group
         {groupFinished ? '赛段已结束' : '安排下一场'}
       </button>}
     </div>
+    {!match && preferredLabel && (
+      <p className="live-table-prefer">本台优先：{preferredLabel}</p>
+    )}
   </article>
 }

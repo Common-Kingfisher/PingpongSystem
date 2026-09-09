@@ -66,6 +66,23 @@ def _busy_player_ids(conn: sqlite3.Connection, tournament_id: int) -> set[int]:
     return busy
 
 
+def group_table_affinity(conn: sqlite3.Connection, tournament_id: int) -> dict[int, int]:
+    """group_id → 首选球台 id（软约束）。
+
+    按小组顺序（sort_order）与球台顺序（id）一一对应：第 1 组用第 1 张台……
+    小组数多于球台数时按球台数取模复用；多于球台的小组、以及没有对应小组的球台，
+    都只是"没有偏好"，调度时回退到任意可执行比赛。
+    """
+    tables = repo.list_tables(conn, tournament_id)
+    if not tables:
+        return {}
+    groups = repo.list_groups(conn, tournament_id)
+    return {
+        group["id"]: tables[index % len(tables)]["id"]
+        for index, group in enumerate(groups)
+    }
+
+
 def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict:
     """把一场 WAITING 比赛安排到指定空闲球台 → PLAYING。"""
     match = _ensure_match(conn, match_id)
@@ -92,7 +109,12 @@ def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict
 
 
 def schedule_next(conn: sqlite3.Connection, tournament_id: int) -> list[tuple[int, int]]:
-    """贪心：把当前可执行的比赛批量分配给所有空闲球台。"""
+    """贪心批量调度：每张空闲球台优先安排其对应小组的待赛比赛。
+
+    软约束（group-table affinity）：按 `group_table_affinity` 的对应关系，
+    先尝试该球台"专属小组"的比赛；该小组当前没有可执行比赛时，回退到任意可执行比赛。
+    硬约束（选手不冲突、球台不重复、只排 WAITING）保持不变。
+    """
     _ensure_tournament(conn, tournament_id)
     free_tables = [
         t for t in repo.list_tables(conn, tournament_id)
@@ -102,24 +124,36 @@ def schedule_next(conn: sqlite3.Connection, tournament_id: int) -> list[tuple[in
         return []
 
     busy = _busy_player_ids(conn, tournament_id)
-    candidates = [
+    waiting = [
         m for m in repo.list_matches(conn, tournament_id)
-        if m["status"] == MatchStatus.WAITING.value
-        and _match_ready(m)
-        and not (_match_member_ids(conn, m) & busy)
+        if m["status"] == MatchStatus.WAITING.value and _match_ready(m)
     ]
+    members_by_match = {m["id"]: _match_member_ids(conn, m) for m in waiting}
+    candidates = [m for m in waiting if not (members_by_match[m["id"]] & busy)]
+    affinity = group_table_affinity(conn, tournament_id)
+
     assignments: list[tuple[int, int]] = []
     batch_busy = set(busy)
-    table_index = 0
-    for match in candidates:
-        if table_index >= len(free_tables):
-            break
-        members = _match_member_ids(conn, match)
-        if members & batch_busy:
+    used: set[int] = set()
+    for table in free_tables:
+        chosen: dict | None = None
+        fallback: dict | None = None
+        for match in candidates:
+            if match["id"] in used or members_by_match[match["id"]] & batch_busy:
+                continue
+            if affinity.get(match["group_id"]) == table["id"]:
+                chosen = match
+                break
+            if fallback is None:
+                fallback = match
+        if chosen is None:
+            chosen = fallback
+        if chosen is None:
             continue
-        assignments.append((match["id"], free_tables[table_index]["id"]))
-        table_index += 1
-        batch_busy.update(members)
+        assignments.append((chosen["id"], table["id"]))
+        used.add(chosen["id"])
+        batch_busy.update(members_by_match[chosen["id"]])
+
     for match_id, table_id in assignments:
         repo.update_match(conn, match_id, status=MatchStatus.PLAYING.value, table_id=table_id)
         repo.update_table_status(conn, table_id, TableStatus.OCCUPIED.value)
