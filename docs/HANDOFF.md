@@ -1,6 +1,6 @@
 # PingpongSystem 开发交接
 
-最近维护：2026-09-08。当前集成分支：`develop/field-demo-v02`；精确基线以该分支最新提交为准。
+最近维护：2026-09-09。当前集成分支：`develop/field-demo-v02`；精确基线以该分支最新提交为准。
 
 维护规则：每个功能 PR 必须同步更新相关 Markdown、OpenAPI 快照（接口变化时）和 `CHANGELOG.md`；不再把文档集中留到最后补写。
 
@@ -10,7 +10,7 @@
 
 正式开发目录为 `pingpong_plantform`。`teammate-draft/pingpong_plantform` 是旧副本；`frontend-demo` 是早期独立视觉原型，不是当前应用入口。交接前，正式目录与 `teammate-draft/pingpong_plantform` 的 95 个源码、配置和文档文件内容一致，依赖、数据库和缓存未参与比较。今后只在正式目录开发，避免双副本漂移。
 
-仓库：[Common-Kingfisher/PingpongSystem](https://github.com/Common-Kingfisher/PingpongSystem)。本次核查开始时远程没有分支或提交；业务基线 `09c09e8` 已成功首次推送到 `master`，交接材料另作一个文档提交。最终交接版本请用 `git log -1 --oneline` 查看，并与远程 `master` 核对；本报告的业务基线 SHA 不包含后加的文档提交。
+仓库：[Common-Kingfisher/PingpongSystem](https://github.com/Common-Kingfisher/PingpongSystem)。当前新增 120 人规模验收数据与自动化闭环测试，详见 [120 人规模验收数据](SCALE_VALIDATION_120.md)。
 
 ## 阅读顺序
 
@@ -47,6 +47,8 @@
 | 人工晋级裁定 | 只处理晋级线并列，记录选择、理由、主裁判和时间；相关数据变化后自动失效 | `services/qualification_decisions.py`、`qualification_decisions.py` |
 | 淘汰赛与结果 | 主签胜者晋级、轮空、季军或并列季军、4/8/16 人递归完整排位、最终名次 | `KnockoutPage.tsx`；`services/knockout.py` |
 | 展示与输出 | 大屏、名单过场、冠军路径高亮、秩序册打印 | `BigScreenPage.tsx`、`RosterLaunch.tsx`、`ChampionJourneyPage.tsx`、`OrderBookPage.tsx` |
+
+规模验收数据位于 `docs/demo-data/realistic_players_120.csv` 和 `.xlsx`；24 组×5 人、15 台、每组前 2 的验证命令见 `backend/tests/test_scale_120.py`。
 
 新建赛事默认 `operation_mode=LIVE`；只有显式 `DEMO` 赛事可以调用演示数据接口。正式赛事删除需要完整名称确认。比分写入支持可选 `request_id`，前端默认生成并在网络失败时用同一编号重试一次。
 
