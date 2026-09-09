@@ -3901,32 +3901,25 @@
             "title": "Request Id"
           },
           "operator_name": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 100
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
             "title": "Operator Name"
           },
           "change_reason": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 500
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
             "title": "Change Reason"
           }
         },
         "type": "object",
-        "title": "ScoreRevisionRequest"
+        "required": [
+          "operator_name",
+          "change_reason"
+        ],
+        "title": "ScoreRevisionRequest",
+        "description": "改分请求必须在机器可读契约中明确携带操作人和原因。"
       },
       "SetSeedsRequest": {
         "properties": {

@@ -82,3 +82,13 @@ def test_revision_requires_identity_and_preserves_finish_time(client):
     )
     assert replay.status_code == 200
     assert len(client.get(f"/api/matches/{match_id}/score-audits").json()) == 2
+
+
+def test_revision_openapi_marks_audit_fields_required(client):
+    schema = client.get("/openapi.json").json()["components"]["schemas"]["ScoreRevisionRequest"]
+    assert {"operator_name", "change_reason"}.issubset(schema["required"])
+
+
+def test_revision_contract_requires_audit_fields(client):
+    schema = client.get("/openapi.json").json()["components"]["schemas"]["ScoreRevisionRequest"]
+    assert {"operator_name", "change_reason"}.issubset(schema["required"])

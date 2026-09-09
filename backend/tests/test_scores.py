@@ -229,17 +229,27 @@ def test_api_score_flow(client):
     assert data["status"] == "FINISHED"
     assert data["winner_id"] == matches[0]["player_a_id"]
 
-    # 平局 422（pydantic 层不拦，服务层 409）
+    # 审计字段完整时，平局由业务层返回 409。
     resp = client.post(
         f"/api/matches/{matches[0]['id']}/revise-score",
-        json={"player_a_score": 2, "player_b_score": 2},
+        json={
+            "player_a_score": 2,
+            "player_b_score": 2,
+            "operator_name": "测试主裁",
+            "change_reason": "验证非法平局",
+        },
     )
     assert resp.status_code == 409
 
     # 负数 422
     resp = client.post(
         f"/api/matches/{matches[0]['id']}/revise-score",
-        json={"player_a_score": -1, "player_b_score": 3},
+        json={
+            "player_a_score": -1,
+            "player_b_score": 3,
+            "operator_name": "测试主裁",
+            "change_reason": "验证负分",
+        },
     )
     assert resp.status_code == 422
 

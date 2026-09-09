@@ -390,11 +390,11 @@ export default function ConsolePage() {
                   <td>
                     {sideName(m, 'a')} VS {sideName(m, 'b')}
                   </td>
-                  <td className="match-time-cell"><span>{formatTime(m.started_at)}</span><span>{formatTime(m.finished_at)}</span></td>
                   <td>
                     {m.result_type && m.result_type !== 'NORMAL' ? 'W/O' : `${m.player_a_score} : ${m.player_b_score}`}{' '}
                     {m.games.length > 0 && <span className="muted">{m.games.map((g) => `${g.side_a_score}-${g.side_b_score}`).join(' / ')}</span>}
                   </td>
+                  <td className="match-time-cell"><span>{formatTime(m.started_at)}</span><span>{formatTime(m.finished_at)}</span></td>
                   <td>
                     <button className="btn small" onClick={() => { setScoreDetailMode(false); setScoreMode('revise'); setScoringMatch(m) }}>
                       修改大比分

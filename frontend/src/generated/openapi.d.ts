@@ -1226,7 +1226,10 @@ export interface components {
             /** Change Reason */
             change_reason?: string | null;
         };
-        /** ScoreRevisionRequest */
+        /**
+         * ScoreRevisionRequest
+         * @description 改分请求必须在机器可读契约中明确携带操作人和原因。
+         */
         ScoreRevisionRequest: {
             /** Player A Score */
             player_a_score?: number | null;
@@ -1243,9 +1246,9 @@ export interface components {
             /** Request Id */
             request_id?: string | null;
             /** Operator Name */
-            operator_name?: string | null;
+            operator_name: string;
             /** Change Reason */
-            change_reason?: string | null;
+            change_reason: string;
         };
         /** SetSeedsRequest */
         SetSeedsRequest: {

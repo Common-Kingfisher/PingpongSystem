@@ -277,9 +277,10 @@ class ScoreRequest(BaseModel):
 
 
 class ScoreRevisionRequest(ScoreRequest):
-    # 由 service 在全部业务校验通过、写入前强制要求，避免审计字段掩盖更具体的比分错误。
-    operator_name: str | None = Field(default=None, max_length=100)
-    change_reason: str | None = Field(default=None, max_length=500)
+    """改分请求必须在机器可读契约中明确携带操作人和原因。"""
+
+    operator_name: str = Field(min_length=1, max_length=100)
+    change_reason: str = Field(min_length=1, max_length=500)
 
 
 class ScoreAuditOut(BaseModel):
