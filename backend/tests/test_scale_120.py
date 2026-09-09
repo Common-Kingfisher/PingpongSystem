@@ -3,6 +3,7 @@
 import csv
 from pathlib import Path
 
+import pytest
 from openpyxl import load_workbook
 
 
@@ -49,6 +50,42 @@ def test_realistic_roster_files_match_import_contract():
     assert len(values) == 121
 
 
+@pytest.mark.parametrize(
+    ("path", "media_type"),
+    [
+        (CSV_PATH, "text/csv"),
+        (XLSX_PATH, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ],
+)
+def test_each_realistic_roster_file_imports_all_players(client, path, media_type):
+    tournament_id = client.post(
+        "/api/tournaments",
+        json={
+            "name": f"{path.suffix} 名单导入验收",
+            "date": "2026-09-12",
+            "table_count": 15,
+            "group_count": 24,
+            "qualify_per_group": 2,
+        },
+    ).json()["id"]
+
+    response = client.post(
+        f"/api/tournaments/{tournament_id}/players/import",
+        files={"file": (path.name, path.read_bytes(), media_type)},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["imported"] == 120
+    assert response.json()["skipped"] == 0
+    assert response.json()["errors"] == []
+    players = client.get(f"/api/tournaments/{tournament_id}/players").json()
+    assert len(players) == 120
+    by_name = {player["name"]: player for player in players}
+    assert by_name["陈子涵"]["rating_points"] == 1840
+    assert by_name["陈子涵"]["seed_no"] == 1
+    assert by_name["李梓辰"]["seed_no"] is None
+
+
 def test_realistic_120_player_full_scale_flow(client):
     tournament = client.post(
         "/api/tournaments",
@@ -83,6 +120,12 @@ def test_realistic_120_player_full_scale_flow(client):
     assert response.status_code == 200, response.text
     assert response.json()["matches_generated"] == 240
     assert len(client.get(f"/api/tournaments/{tid}/matches?stage=GROUP").json()) == 240
+
+    first_schedule = client.post(f"/api/tournaments/{tid}/schedule-next")
+    assert first_schedule.status_code == 200, first_schedule.text
+    first_dashboard = client.get(f"/api/tournaments/{tid}/dashboard").json()
+    assert len(first_dashboard["tables"]) == 15
+    assert first_dashboard["stats"]["playing"] == 15
 
     _play_all(client, tid)
     dashboard = client.get(f"/api/tournaments/{tid}/dashboard").json()
