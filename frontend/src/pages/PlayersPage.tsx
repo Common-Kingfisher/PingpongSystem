@@ -554,9 +554,12 @@ export default function PlayersPage() {
                 <ul>
                   {(g.entries.length > 0 ? g.entries : g.players).map((p) => {
                     const sp = players.find((x) => x.id === p.id)
+                    // Entry 与 Player 是两套独立实体，删除并重新添加选手后两者 ID
+                    // 不再必然相同。分组使用 Entry 展示时应直接读取 Entry.seed_no。
+                    const seedNo = 'seed_no' in p ? p.seed_no : sp?.seed_no
                     return (
                       <li key={p.id}>
-                        {sp?.seed_no != null && <span className="seed-badge">⭐{sp.seed_no}</span>}{' '}
+                        {seedNo != null && <span className="seed-badge">⭐{seedNo}</span>}{' '}
                         {'display_name' in p ? p.display_name : p.name}
                         {'college' in p && p.college ? <span className="muted">（{p.college}）</span> : null}
                       </li>
