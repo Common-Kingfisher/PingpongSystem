@@ -44,7 +44,10 @@ def generate_group_matches(
     if repo.count_matches(conn, tournament_id, stage=MatchStage.GROUP.value) > 0:
         raise MatchesExistError("小组比赛已生成，不能重复生成")
 
-    entries = repo.list_entries(conn, tournament_id)
+    entries = [
+        entry for entry in repo.list_entries(conn, tournament_id)
+        if entry["status"] == "ACTIVE"
+    ]
     by_group: dict[int, list[int]] = {}
     for entry in entries:
         if entry["group_id"] is not None:

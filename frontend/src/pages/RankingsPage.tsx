@@ -254,14 +254,16 @@ export default function RankingsPage() {
                     {e.rank}
                     {e.tied && <span title="并列，未分先后"> *</span>}
                   </td>
-                  <td>{e.name}</td>
+                  <td>{e.name} {e.entry_status === 'WITHDRAWN' && <span className="withdrawn-badge">已退赛</span>}</td>
                   <td>{e.wins}</td>
                   <td>{e.losses}</td>
                   <td>{e.games_won - e.games_lost}</td>
                   <td>{e.match_points}</td>
                   <td>{e.points_won || e.points_lost ? `${e.points_won}:${e.points_lost}` : '按需补录'}</td>
                   <td>
-                    {e.qualified ? (
+                    {e.entry_status === 'WITHDRAWN' ? (
+                      <span className="muted">不参与晋级</span>
+                    ) : e.qualified ? (
                       <span className="status-ok">✅ {g.qualification_decision?.selected_entry_ids.includes(e.player_id) ? '裁定晋级' : '晋级'}</span>
                     ) : g.finished_matches === g.total_matches && g.total_matches > 0 ? (
                       '—'

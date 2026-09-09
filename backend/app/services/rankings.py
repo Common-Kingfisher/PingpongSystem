@@ -84,6 +84,7 @@ def get_rankings(
         if use_entries
         else {p["id"]: p["name"] for p in players}
     )
+    status_by_id = {e["id"]: e["status"] for e in entries}
     group_of = (
         {e["id"]: e["group_id"] for e in entries}
         if use_entries
@@ -104,9 +105,11 @@ def get_rankings(
         for e in ranked_entries:
             e["name"] = name_by_id[e["player_id"]]
             e["entry_id"] = e["player_id"] if use_entries else None
-        qualified, ambiguous = ranking.compute_qualification(ranked_entries, qualify)
+            e["entry_status"] = status_by_id.get(e["player_id"], "ACTIVE")
+        eligible_entries = [e for e in ranked_entries if e["entry_status"] == "ACTIVE"]
+        qualified, ambiguous = ranking.compute_qualification(eligible_entries, qualify)
         point_score_match_ids = ranking.missing_point_score_match_ids(
-            [repo.decorate_match(conn, m) for m in group_matches], ranked_entries, qualify
+            [repo.decorate_match(conn, m) for m in group_matches], eligible_entries, qualify
         )
         for e in ranked_entries:
             e["qualified"] = e["player_id"] in qualified
@@ -128,7 +131,7 @@ def get_rankings(
                 "entries": ranked_entries,
             }
         if ambiguous:
-            candidates, remaining = _cutoff_candidates(ranked_entries, qualify)
+            candidates, remaining = _cutoff_candidates(eligible_entries, qualify)
             group_result["manual_candidate_entry_ids"] = candidates
             group_result["manual_slots_remaining"] = remaining
         if include_decisions and ambiguous:

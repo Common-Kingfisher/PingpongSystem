@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS entries (
     group_id INTEGER REFERENCES groups(id),
     seed_no INTEGER,
     status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','WITHDRAWN')),
+    withdrawn_at TEXT,
+    withdrawn_by TEXT,
+    withdrawal_reason TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -249,6 +252,12 @@ def init_db() -> None:
             ("prev_match_b_outcome", "TEXT NOT NULL DEFAULT 'WINNER'"),
         ):
             _add_column_if_missing(conn, "matches", column, ddl)
+        for column, ddl in (
+            ("withdrawn_at", "TEXT"),
+            ("withdrawn_by", "TEXT"),
+            ("withdrawal_reason", "TEXT"),
+        ):
+            _add_column_if_missing(conn, "entries", column, ddl)
         # New tables are created after legacy tables have been upgraded so their FKs target the final table.
         conn.executescript(SCHEMA)
         conn.commit()
