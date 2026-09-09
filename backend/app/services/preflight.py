@@ -3,7 +3,7 @@
 import sqlite3
 
 from .. import repository as repo
-from ..models import MatchStage, MatchStatus, PreflightLevel, TableStatus, TournamentMode
+from ..models import MatchStage, MatchStatus, PreflightLevel, TableStatus, TournamentMode, TournamentStage
 from . import rankings as rankings_service
 
 
@@ -80,8 +80,11 @@ def inspect_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
     else:
         checks.append(_check("groups", "分组与抽签", f"{len(groups)} 个小组、{assigned} 个参赛位均已落位。", PreflightLevel.READY))
 
-    if not group_matches:
+    group_schedule_generated = tournament["stage"] != TournamentStage.REGISTRATION.value
+    if not group_matches and not group_schedule_generated:
         checks.append(_check("group_schedule", "小组赛程", "小组循环赛尚未生成。", PreflightLevel.BLOCK, "生成小组比赛", f"/players?tid={tid}"))
+    elif not group_matches:
+        checks.append(_check("group_schedule", "小组赛程", "小组阶段已生成；各组无需产生循环赛场次。", PreflightLevel.READY, "查看小组排名", f"/rankings?tid={tid}"))
     else:
         unfinished_group = sum(1 for match in group_matches if match["status"] != MatchStatus.FINISHED.value)
         checks.append(_check(
@@ -93,9 +96,14 @@ def inspect_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
             f"/{'console' if unfinished_group else 'rankings'}?tid={tid}",
         ))
 
-    table_consistent = len(tables) == tournament["table_count"] and len(playing) == len(occupied)
     occupied_ids = {table["id"] for table in occupied}
-    table_consistent = table_consistent and all(match.get("table_id") in occupied_ids for match in playing)
+    playing_table_ids = [match.get("table_id") for match in playing]
+    table_consistent = (
+        len(tables) == tournament["table_count"]
+        and all(table_id is not None for table_id in playing_table_ids)
+        and len(set(playing_table_ids)) == len(playing_table_ids)
+        and set(playing_table_ids) == occupied_ids
+    )
     if table_consistent:
         checks.append(_check("tables", "球台状态", f"{len(tables)} 张球台状态一致，当前占用 {len(occupied)} 张。", PreflightLevel.READY, "查看现场", f"/console?tid={tid}"))
     else:
@@ -103,9 +111,9 @@ def inspect_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
 
     ambiguous_groups = 0
     needs_scores = 0
-    if group_matches:
+    if group_schedule_generated:
         for group in rankings_service.get_rankings(conn, tournament_id):
-            complete = group["total_matches"] > 0 and group["finished_matches"] == group["total_matches"]
+            complete = group["finished_matches"] == group["total_matches"]
             if complete and group["ambiguous_qualification"]:
                 ambiguous_groups += 1
                 if group["needs_point_scores"]:
@@ -119,7 +127,7 @@ def inspect_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
     unfinished_group = sum(1 for match in group_matches if match["status"] != MatchStatus.FINISHED.value)
     if knockout_matches:
         checks.append(_check("knockout", "淘汰赛衔接", f"淘汰签已生成，共 {len(knockout_matches)} 场。", PreflightLevel.READY, "查看淘汰赛", f"/knockout?tid={tid}"))
-    elif group_matches and unfinished_group == 0 and ambiguous_groups == 0:
+    elif group_schedule_generated and unfinished_group == 0 and ambiguous_groups == 0:
         checks.append(_check("knockout", "淘汰赛衔接", "小组赛已结束且晋级明确，可以生成淘汰签。", PreflightLevel.READY, "生成淘汰赛", f"/knockout?tid={tid}"))
     else:
         checks.append(_check("knockout", "淘汰赛衔接", "完成全部小组赛并处理晋级线并列后，才能生成淘汰签。", PreflightLevel.WARN, "查看当前进度", f"/rankings?tid={tid}"))
