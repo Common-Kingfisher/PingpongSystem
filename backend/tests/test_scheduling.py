@@ -2,6 +2,8 @@
 
 from collections import Counter
 
+import pytest
+
 from app import repository as repo
 from app.models import MatchStage, MatchStatus, TableStatus
 from app.services import groups as groups_service
@@ -28,9 +30,14 @@ def _tournament_with_matches(client, n_players=24, group_count=4, table_count=6)
     return tid
 
 
-def _service_tournament(conn, n_players=24, table_count=6, group_count=4) -> int:
+def _service_tournament(
+    conn, n_players=24, table_count=6, group_count=4, operation_mode="LIVE"
+) -> int:
     """服务级测试用：建赛事（含球台）→ 加选手 → 分组 → 生成小组赛。"""
-    t = repo.create_tournament(conn, "T", "2025-06-01", table_count, group_count, 2)
+    t = repo.create_tournament(
+        conn, "T", "2025-06-01", table_count, group_count, 2,
+        operation_mode=operation_mode,
+    )
     repo.create_tables_for_tournament(conn, t["id"], table_count)
     for i in range(1, n_players + 1):
         repo.add_player(conn, t["id"], f"P{i}", None)
@@ -197,6 +204,25 @@ def test_schedule_next_falls_back_when_preferred_group_has_no_match(conn):
     preferred_table = affinity[first_group["id"]]
     fallback_match = next(mid for mid, table_id in assignments if table_id == preferred_table)
     assert group_of[fallback_match] != first_group["id"]
+    _assert_invariants(conn, tid)
+
+
+@pytest.mark.parametrize("operation_mode", ["LIVE", "DEMO"])
+def test_group_table_affinity_applies_to_live_and_demo(conn, operation_mode):
+    """球台亲和与赛事运行模式无关：正式赛事与演示赛事结果一致。"""
+    tid = _service_tournament(
+        conn, n_players=24, group_count=4, table_count=4,
+        operation_mode=operation_mode,
+    )
+    assert repo.get_tournament(conn, tid)["operation_mode"] == operation_mode
+    affinity = scheduling_service.group_table_affinity(conn, tid)
+    group_of = {m["id"]: m["group_id"] for m in repo.list_matches(conn, tid)}
+
+    assignments = scheduling_service.schedule_next(conn, tid)
+
+    assert len(assignments) == 4
+    for match_id, table_id in assignments:
+        assert affinity[group_of[match_id]] == table_id
     _assert_invariants(conn, tid)
 
 
