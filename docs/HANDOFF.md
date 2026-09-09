@@ -1,6 +1,6 @@
 # PingpongSystem 开发交接
 
-最近维护：2026-09-08。当前集成分支：`develop/field-demo-v02`；精确基线以该分支最新提交为准。
+最近维护：2026-09-09。当前集成分支：`develop/field-demo-v02`；精确基线以该分支最新提交为准。
 
 维护规则：每个功能 PR 必须同步更新相关 Markdown、OpenAPI 快照（接口变化时）和 `CHANGELOG.md`；不再把文档集中留到最后补写。
 
@@ -39,6 +39,7 @@
 | 模块 | 现有能力 | 主要代码 |
 |---|---|---|
 | 赛事首页 | 创建、选择、删除赛事；单/双打、球台、小组、出线数、季军与排位配置 | `frontend/src/pages/HomePage.tsx` |
+| 赛前检查 | 面向主裁聚合名单、参赛位、分组、赛程、球台、晋级和规则状态；只读检查，不替主裁自动决策 | `PreflightPage.tsx`；`services/preflight.py` |
 | 报名与导入 | 在线报名、增删改选手、积分/单位、种子；CSV/XLSX 预览后确认；预览全部行 | `RegisterPage.tsx`、`PlayersPage.tsx`；`services/import_players.py` |
 | Entry 与双打 | 单打 1 人、双打 2 人；近积分候选随机配对；未配齐不能确认名单 | `services/entries.py`、`routers/entries.py` |
 | 分组 | 种子分散、人数均衡、同单位软回避；解除分组；配置各组出线数 | `services/groups.py`、`routers/groups.py` |
@@ -60,7 +61,7 @@
 - `backend/app/models.py`：枚举；`backend/app/db.py`：数据库结构及启动时兼容迁移。
 - `backend/app/repository.py`：持久化与旧 Player / 新 Entry 的兼容映射。
 - `docs/openapi-v0.2.json`：OpenAPI 快照；本轮确认与 `app.openapi()` 相等。
-- `frontend/src/api.ts`：目前仍为手写 TypeScript 类型和请求封装，尚无自动生成的 `schema.d.ts`。
+- `frontend/src/api.ts`：手写请求封装；`frontend/src/generated/openapi.d.ts` 为 OpenAPI 生成类型，接口改动时必须同步刷新。
 
 | 字段/实体 | 正确理解 | 接手注意 |
 |---|---|---|

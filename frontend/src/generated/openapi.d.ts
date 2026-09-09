@@ -453,6 +453,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect Tournament */
+        get: operations["inspect_tournament_api_tournaments__tournament_id__preflight_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decision": {
         parameters: {
             query?: never;
@@ -1052,6 +1069,42 @@ export interface components {
             college?: string | null;
             /** Rating Points */
             rating_points?: number | null;
+        };
+        /** PreflightCheckOut */
+        PreflightCheckOut: {
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
+            /** Detail */
+            detail: string;
+            level: components["schemas"]["PreflightLevel"];
+            /** Action Label */
+            action_label?: string | null;
+            /** Action Path */
+            action_path?: string | null;
+        };
+        /**
+         * PreflightLevel
+         * @enum {string}
+         */
+        PreflightLevel: "READY" | "WARN" | "BLOCK";
+        /** PreflightResult */
+        PreflightResult: {
+            tournament: components["schemas"]["TournamentOut"];
+            overall: components["schemas"]["PreflightLevel"];
+            /** Ready Count */
+            ready_count: number;
+            /** Warning Count */
+            warning_count: number;
+            /** Blocker Count */
+            blocker_count: number;
+            /** Metrics */
+            metrics: {
+                [key: string]: number;
+            };
+            /** Checks */
+            checks: components["schemas"]["PreflightCheckOut"][];
         };
         /** QualificationDecisionCreate */
         QualificationDecisionCreate: {
@@ -2265,6 +2318,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RankingsResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    inspect_tournament_api_tournaments__tournament_id__preflight_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreflightResult"];
                 };
             };
             /** @description Validation Error */
