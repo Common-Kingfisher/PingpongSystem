@@ -186,6 +186,11 @@ def advance_winner(conn: sqlite3.Connection, match: dict) -> None:
         elif next_match["prev_match_b_id"] == match["id"]:
             participant = loser if next_match.get("prev_match_b_outcome", "WINNER") == "LOSER" else winner
             repo.update_match(conn, next_match["id"], entry_b_id=participant, player_b_id=_entry_player_id(conn, participant))
+        # 对手可能早已退赛且此前另一侧仍待定；签位刚补齐时必须立即补判。
+        from . import entries as entry_service
+        entry_service.resolve_withdrawn_participants(
+            conn, repo.get_match(conn, next_match["id"])
+        )
 
 
 def _create_loser_bracket(

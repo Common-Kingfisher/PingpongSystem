@@ -45,6 +45,7 @@ def qualification_snapshot(group: dict) -> str:
                 for key in (
                     "player_id", "wins", "losses", "games_won", "games_lost",
                     "match_points", "points_won", "points_lost", "rank", "tied",
+                    "entry_status",
                 )
             }
             for entry in sorted(group["entries"], key=lambda item: item["player_id"])
@@ -139,7 +140,7 @@ def get_rankings(
             if decision and decision["ranking_snapshot"] == qualification_snapshot(group_result):
                 selected = set(json.loads(decision["selected_entry_ids"]))
                 for entry in ranked_entries:
-                    if entry["player_id"] in selected:
+                    if entry["entry_status"] == "ACTIVE" and entry["player_id"] in selected:
                         entry["qualified"] = True
                 group_result["ambiguous_qualification"] = False
                 group_result["manually_resolved"] = True

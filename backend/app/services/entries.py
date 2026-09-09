@@ -163,6 +163,30 @@ def _forfeit_unfinished_match(
     return True
 
 
+def resolve_withdrawn_participants(conn: sqlite3.Connection, match: dict) -> bool:
+    """签位双方到齐后，自动处理其中恰有一方已整项退赛的比赛。"""
+    if match["status"] == MatchStatus.FINISHED.value:
+        return False
+    a, b = match.get("entry_a_id"), match.get("entry_b_id")
+    if a is None or b is None:
+        return False
+    withdrawn = [
+        entry for entry_id in (a, b)
+        if (entry := repo.get_entry(conn, entry_id)) is not None
+        and entry["status"] == "WITHDRAWN"
+    ]
+    if len(withdrawn) != 1:
+        # 双方退赛没有竞技胜者，继续交由主裁特殊处理。
+        return False
+    entry = withdrawn[0]
+    return _forfeit_unfinished_match(
+        conn,
+        match,
+        entry["id"],
+        entry.get("withdrawal_reason") or "已退出赛事",
+    )
+
+
 def withdraw_from_tournament(
     conn: sqlite3.Connection,
     tournament_id: int,
@@ -189,6 +213,10 @@ def withdraw_from_tournament(
         raise EntryError("请填写至少 2 个字的退赛原因", 422)
 
     repo.withdraw_entry(conn, entry_id, operator, cleaned_reason)
+    if entry["group_id"] is not None:
+        repo.invalidate_qualification_decision(
+            conn, entry["group_id"], "参赛位已退出赛事"
+        )
     finished_before = sum(
         1 for match in repo.list_matches(conn, tournament_id)
         if match["status"] == MatchStatus.FINISHED.value
