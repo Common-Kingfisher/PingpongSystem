@@ -383,14 +383,18 @@ export default function PlayersPage() {
             {busy ? '添加中…' : '添加'}
           </button>
         </form>
-        {!locked && tournament?.operation_mode === 'DEMO' && (
+        {!locked && (
           <div className="button-row" style={{ marginTop: 14 }}>
-            <button className="btn" onClick={() => setDemoModal({ count: 16, withSeeds: true })}>
-              <span className="demo-tag">Demo</span> 生成演示选手
-            </button>
+            {/* 名单导入是正式能力：LIVE 与 DEMO 赛事都显示 */}
             <button className="btn" onClick={openImport}>
               Excel / CSV 导入
             </button>
+            {/* 演示数据生成只属于 DEMO 赛事 */}
+            {tournament?.operation_mode === 'DEMO' && (
+              <button className="btn" onClick={() => setDemoModal({ count: 16, withSeeds: true })}>
+                <span className="demo-tag">Demo</span> 生成演示选手
+              </button>
+            )}
           </div>
         )}
 
