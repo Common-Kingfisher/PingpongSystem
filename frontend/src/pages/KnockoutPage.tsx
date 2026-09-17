@@ -115,6 +115,12 @@ export default function KnockoutPage() {
   // 尚未完成的小组赛场数（用于提示）
   const remainingGroupMatches =
     rankings?.rankings.reduce((acc, g) => acc + (g.total_matches - g.finished_matches), 0) ?? 0
+  // 晋级人数决定签表规模文案（4 组 × 2 人 = “8 强”，不写死 8 强）
+  const qualifierCount =
+    rankings?.rankings.reduce(
+      (acc, group) => acc + group.entries.filter((entry) => entry.qualified).length,
+      0,
+    ) ?? 0
   const placementBands = Object.values(
     normalizePlacementMatches(tree?.placement_matches ?? []).reduce<Record<string, { range: PlacementItem['range']; items: PlacementItem[] }>>(
       (bands, item) => {
@@ -147,7 +153,7 @@ export default function KnockoutPage() {
 
       {!knockoutReady && groupsAllDone && (
         <div className="card">
-          <p className="status-ok">✅ 小组赛已全部完成，晋级名单已经确定，可以生成 8 强淘汰赛。</p>
+          <p className="status-ok">✅ 小组赛已全部完成，晋级名单已经确定，可以生成 {qualifierCount > 0 ? `${qualifierCount} 强` : ''}淘汰赛。</p>
           <div className="button-row">
             <button className="btn primary" onClick={doGenerate} disabled={busy}>
               {busy ? '处理中…' : '生成淘汰赛签表'}
