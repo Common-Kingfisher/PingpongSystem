@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, Dashboard, Match, Player, Tournament } from '../api'
+import { api, ApiError, Dashboard, Match, Player, TableWithMatch, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import ScoreSheet from '../components/ScoreSheet'
 import LiveTableCard from '../components/LiveTableCard'
@@ -131,17 +131,37 @@ export default function ConsolePage() {
     return groupNames[gid] ?? `组${gid}`
   }
 
-  /** 该球台要安排的比赛：优先本台对应小组，该组暂无待赛比赛时回退到任意一场。 */
-  const nextMatchForTable = (tableId: number): Match | undefined => {
+  /** 服务端调度建议（亲和 + 组间公平 + 连续上场惩罚由后端统一计算）。 */
+  const recommendedMatchForTable = (table: TableWithMatch): Match | undefined => {
+    const matchId = table.recommended_match_id
+    if (matchId === null || matchId === undefined) return undefined
+    return dash?.next_playable.find((m) => m.id === matchId)
+  }
+
+  /** 球台提示：优先显示服务端建议的对阵，其次显示该台的固定小组。 */
+  const tableHint = (table: TableWithMatch): string | undefined => {
+    const recommended = recommendedMatchForTable(table)
+    if (recommended) {
+      return `建议安排：${sideName(recommended, 'a')} vs ${sideName(recommended, 'b')}`
+    }
+    const label = preferredLabelForTable(table.id)
+    return label ? `本台优先：${label}` : undefined
+  }
+
+  /** 该球台要安排的比赛：服务端建议优先，其次本台对应小组，最后任意一场。 */
+  const nextMatchForTable = (table: TableWithMatch): Match | undefined => {
     const playable = dash?.next_playable ?? []
     if (playable.length === 0) return undefined
-    const gid = preferredGroupForTable(tableId)
+    const recommended = recommendedMatchForTable(table)
+    if (recommended) return recommended
+    const gid = preferredGroupForTable(table.id)
     if (gid === undefined) return playable[0]
     return playable.find((m) => m.group_id === gid) ?? playable[0]
   }
 
   const assignFreeTable = async (tableId: number) => {
-    const next = nextMatchForTable(tableId)
+    const table = dash?.tables.find((t) => t.id === tableId)
+    const next = table ? nextMatchForTable(table) : undefined
     if (!next) {
       setError('当前没有可安排的比赛')
       return
@@ -344,7 +364,7 @@ export default function ConsolePage() {
             stageLabel={stageLabel}
             busy={busy}
             groupFinished={showGroupCompleted}
-            preferredLabel={preferredLabelForTable(table.id)}
+            hintLabel={tableHint(table)}
             onAssign={assignFreeTable}
             onScore={(match) => { setScoreDetailMode(false); setScoreMode('record'); setScoringMatch(match) }}
             onRelease={release}

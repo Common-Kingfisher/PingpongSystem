@@ -239,6 +239,8 @@ class TableWithMatch(BaseModel):
     name: str
     status: TableStatus
     match: MatchOut | None
+    # 空闲球台的调度建议（服务端调度器算出，前端只展示不重算优先级）。
+    recommended_match_id: int | None = None
 
 
 class Dashboard(BaseModel):
