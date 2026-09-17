@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, BronzeMode, Dashboard, EventType, PlacementMode, Tournament, TournamentMode } from '../api'
 import { getActiveTournamentId, setActiveTournamentId } from '../activeTournament'
+import { formatName, formatOptions } from '../format'
 
 interface FormState {
   name: string
@@ -13,6 +14,8 @@ interface FormState {
   bronze_mode: BronzeMode
   placement_mode: PlacementMode
   operation_mode: TournamentMode
+  games_to_win: number
+  points_to_win: number
 }
 
 const emptyForm: FormState = {
@@ -25,6 +28,8 @@ const emptyForm: FormState = {
   bronze_mode: 'JOINT_BRONZE',
   placement_mode: 'COMPLETE',
   operation_mode: 'LIVE',
+  games_to_win: 2,
+  points_to_win: 11,
 }
 
 export default function HomePage() {
@@ -288,9 +293,35 @@ export default function HomePage() {
               <option value="OFF">不增加排位赛</option>
             </select>
           </label>
+          <label>
+            比赛局制
+            <select
+              value={form.games_to_win}
+              onChange={(e) => set('games_to_win', Number(e.target.value))}
+            >
+              {formatOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            每局目标分
+            <input
+              type="number"
+              min={1}
+              max={99}
+              required
+              value={form.points_to_win}
+              onChange={(e) => set('points_to_win', Number(e.target.value))}
+            />
+          </label>
           <div className="rule-summary">
-            <strong>默认规则</strong>
-            <span>三局两胜 · 每局 11 分 · 胜 2 / 负 1 / 未赛弃权 0</span>
+            <strong>当前规则</strong>
+            <span>
+              {formatName(form.games_to_win)} · 每局 {form.points_to_win} 分 · 胜 2 / 负 1 / 未赛弃权 0
+            </span>
           </div>
           <label>
             每组晋级人数

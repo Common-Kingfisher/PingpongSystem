@@ -81,7 +81,16 @@ def generate_group_matches(
     return total, per_group
 
 
-DEMO_SCORE_OPTIONS = [(2, 0), (2, 1), (0, 2), (1, 2)]
+def demo_score_options(games_to_win: int) -> list[tuple[int, int]]:
+    """按赛事局制生成合法的模拟大比分：N:0 … N:(N-1) 以及反向。
+
+    三局两胜（N=2）→ 2:0/2:1/0:2/1:2；五局三胜（N=3）→ 3:0/3:1/3:2/…；
+    七局四胜（N=4）→ 4:0…4:3/…。这样 demo 模拟不会产生被比分校验拒绝的结果。
+    """
+    games = max(1, games_to_win)
+    return [(games, loser) for loser in range(games)] + [
+        (loser, games) for loser in range(games)
+    ]
 
 
 def finish_group_stage(
@@ -100,7 +109,8 @@ def finish_group_stage(
     matches = repo.list_matches(conn, tournament_id, stage=MatchStage.GROUP.value)
     unfinished = [m for m in matches if m["status"] != MatchStatus.FINISHED.value]
     rng = rng or random.Random()
+    options = demo_score_options(tournament["games_to_win"])
     for m in unfinished:
-        sa, sb = rng.choice(DEMO_SCORE_OPTIONS)
+        sa, sb = rng.choice(options)
         scores_service.record_score(conn, m["id"], sa, sb)
     return len(unfinished)

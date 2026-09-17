@@ -29,7 +29,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
   const updateNote = (value: string) => { setNote(value); setNoteDirty(true) }
   const notePayload = noteDirty ? note : undefined
 
-  // 默认模式：大比分录入/修改。新比赛默认 0:0，便于现场直接改成 2:0 / 2:1。
+  // 默认模式：大比分录入/修改。新比赛默认 0:0，现场直接改成 {gamesToWin}:{0..gamesToWin-1}。
   const [scoreA, setScoreA] = useState(originalA === null ? '0' : String(originalA))
   const [scoreB, setScoreB] = useState(originalB === null ? '0' : String(originalB))
   const [resultType, setResultType] = useState<ResultType>('NORMAL')
@@ -167,7 +167,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
                   <label><span>{sideB}</span><input aria-label={`${sideB}大比分`} type="number" min={0} max={gamesToWin} value={scoreB} onChange={(e) => setScoreB(e.target.value)} /></label>
                 </div>
                 {!untouchedZeroScore && scoreA !== '' && scoreB !== '' && !validBigScore && (
-                  <p className="score-rule status-error">大比分应为 {gamesToWin}:0、{gamesToWin}:1 或反之（不能平局、不能超出局数）。</p>
+                  <p className="score-rule status-error">大比分应为 {gamesToWin}:0 至 {gamesToWin}:{gamesToWin - 1}（或反之），不能平局、不能超出局数。</p>
                 )}
               </>
             ) : (
