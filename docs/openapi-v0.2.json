@@ -882,6 +882,53 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/seeds/auto": {
+      "post": {
+        "tags": [
+          "seeds"
+        ],
+        "summary": "Auto Seeds",
+        "description": "按赛事积分自动生成种子（单打）：积分高者 S1…SN，同分按选手 id。",
+        "operationId": "auto_seeds_api_tournaments__tournament_id__seeds_auto_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlayerOut"
+                  },
+                  "title": "Response Auto Seeds Api Tournaments  Tournament Id  Seeds Auto Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}/demo/generate-players": {
       "post": {
         "tags": [
@@ -3700,6 +3747,17 @@
                 "type": "null"
               }
             ]
+          },
+          "recommended_match_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Match Id"
           }
         },
         "type": "object",

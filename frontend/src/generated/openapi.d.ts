@@ -266,6 +266,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/seeds/auto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Auto Seeds
+         * @description 按赛事积分自动生成种子（单打）：积分高者 S1…SN，同分按选手 id。
+         */
+        post: operations["auto_seeds_api_tournaments__tournament_id__seeds_auto_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}/demo/generate-players": {
         parameters: {
             query?: never;
@@ -1195,6 +1215,8 @@ export interface components {
             name: string;
             status: components["schemas"]["TableStatus"];
             match: components["schemas"]["MatchOut"] | null;
+            /** Recommended Match Id */
+            recommended_match_id?: number | null;
         };
         /** TournamentCreate */
         TournamentCreate: {
@@ -1896,6 +1918,37 @@ export interface operations {
                 "application/json": components["schemas"]["SetSeedsRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayerOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    auto_seeds_api_tournaments__tournament_id__seeds_auto_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
