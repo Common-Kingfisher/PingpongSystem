@@ -21,3 +21,13 @@ def set_seeds(
     except players_service.PlayerError as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc))
     return [schemas.PlayerOut(**p) for p in players]
+
+
+@router.post("/seeds/auto", response_model=list[schemas.PlayerOut])
+def auto_seeds(tournament_id: int, conn: Connection = Depends(get_db)):
+    """按赛事积分自动生成种子（单打）：积分高者 S1…SN，同分按选手 id。"""
+    try:
+        players = players_service.auto_seed_by_rating(conn, tournament_id)
+    except players_service.PlayerError as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc))
+    return [schemas.PlayerOut(**p) for p in players]

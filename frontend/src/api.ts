@@ -176,6 +176,8 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ player_ids: playerIds } satisfies Schemas['SetSeedsRequest']),
     }),
+  autoSeeds: (tournamentId: number) =>
+    request<Player[]>(`/api/tournaments/${tournamentId}/seeds/auto`, { method: 'POST' }),
 
   generateDemoPlayers: (tournamentId: number, count: number, with_seeds: boolean) =>
     request<Player[]>(`/api/tournaments/${tournamentId}/demo/generate-players`, {

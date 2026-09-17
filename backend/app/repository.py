@@ -251,6 +251,10 @@ def list_entries(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
     return result
 
 
+def set_entry_seed(conn: sqlite3.Connection, entry_id: int, seed_no: int | None) -> None:
+    conn.execute("UPDATE entries SET seed_no = ? WHERE id = ?", (seed_no, entry_id))
+
+
 def clear_entry_groups(conn: sqlite3.Connection, tournament_id: int) -> None:
     conn.execute("UPDATE entries SET group_id = NULL WHERE tournament_id = ?", (tournament_id,))
 
