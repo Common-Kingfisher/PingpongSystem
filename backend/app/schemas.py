@@ -234,6 +234,34 @@ class ScheduleNextResult(BaseModel):
     assignments: list[dict[str, int]]
 
 
+class ScheduleEstimateMatch(BaseModel):
+    """单场 WAITING 比赛的预计上场时间（无法估算时字段为 null）。"""
+
+    match_id: int
+    stage: MatchStage
+    round: int
+    group_id: int | None = None
+    estimated_start_at: str | None = None
+    estimated_wait_minutes: float | None = None
+    queue_ahead: int | None = None
+    estimate_basis: str | None = None
+    unavailable_reason: str | None = None
+
+
+class ScheduleEstimates(BaseModel):
+    """赛事预计上场时间（只读模拟结果）。"""
+
+    tournament_id: int
+    generated_at: str
+    estimated_match_duration_seconds: int
+    estimate_basis: str
+    sample_count: int
+    initial_playing_matches: int = 0
+    simulated_batches: int = 0
+    truncated: bool = False
+    matches: list[ScheduleEstimateMatch] = []
+
+
 class DashboardStats(BaseModel):
     total: int
     finished: int
