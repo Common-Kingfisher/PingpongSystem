@@ -309,6 +309,14 @@ export const api = {
     }),
   getKnockout: (tournamentId: number) =>
     request<KnockoutTree>(`/api/tournaments/${tournamentId}/knockout`),
+  // 撤销淘汰签表：淘汰赛未开始时可用，已开赛返回 409（后端保护，前端只需展示错误）。
+  undoKnockout: (tournamentId: number) =>
+    request<Schemas['KnockoutUndoResult']>(`/api/tournaments/${tournamentId}/knockout/undo`, {
+      method: 'POST',
+    }),
+  // 赛事结构化导出（只读）：可用于删除前的人工备份。
+  exportTournament: (tournamentId: number) =>
+    request<Schemas['TournamentExport']>(`/api/tournaments/${tournamentId}/export`),
   getOrderBookSnapshot: (tournamentId: number) =>
     request<OrderBookSnapshot>(`/api/tournaments/${tournamentId}/order-book-snapshot`),
 }
