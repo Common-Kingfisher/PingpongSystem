@@ -95,7 +95,21 @@ class EntryOut(BaseModel):
     group_id: int | None
     seed_no: int | None
     status: str
+    withdrawn_at: str | None = None
+    withdrawn_by: str | None = None
+    withdrawal_reason: str | None = None
     members: list[EntryMemberOut]
+
+
+class EntryWithdrawRequest(BaseModel):
+    operator_name: str = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=2, max_length=500)
+
+
+class EntryWithdrawalResult(BaseModel):
+    entry: EntryOut
+    affected_match_ids: list[int]
+    preserved_finished_matches: int
 
 
 class PairingResult(BaseModel):
@@ -422,6 +436,7 @@ class RankingEntryOut(BaseModel):
     points_lost: int = 0
     point_difference: int = 0
     point_ratio: float = 0
+    entry_status: str = "ACTIVE"
 
 
 class QualificationDecisionCreate(BaseModel):

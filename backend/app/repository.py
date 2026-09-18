@@ -189,7 +189,10 @@ def set_player_seed(conn: sqlite3.Connection, player_id: int, seed_no: int) -> N
 
 # ------------------------------------------------------------------ entries
 
-_ENTRY_COLS = "id, tournament_id, entry_type, display_name, rating_points, group_id, seed_no, status"
+_ENTRY_COLS = (
+    "id, tournament_id, entry_type, display_name, rating_points, group_id, seed_no, status, "
+    "withdrawn_at, withdrawn_by, withdrawal_reason"
+)
 
 
 def clear_entries(conn: sqlite3.Connection, tournament_id: int) -> None:
@@ -276,6 +279,17 @@ def list_entries_by_type(
         entry["members"] = list_entry_members(conn, entry["id"])
         result.append(entry)
     return result
+
+
+def withdraw_entry(
+    conn: sqlite3.Connection, entry_id: int, operator_name: str, reason: str
+) -> dict:
+    conn.execute(
+        "UPDATE entries SET status = 'WITHDRAWN', withdrawn_at = datetime('now'), "
+        "withdrawn_by = ?, withdrawal_reason = ? WHERE id = ?",
+        (operator_name, reason, entry_id),
+    )
+    return get_entry(conn, entry_id)
 
 
 def update_entry(

@@ -205,6 +205,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/entries/{entry_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw Entry */
+        post: operations["withdraw_entry_api_tournaments__tournament_id__entries__entry_id__withdraw_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}/groups": {
         parameters: {
             query?: never;
@@ -846,8 +863,29 @@ export interface components {
             seed_no: number | null;
             /** Status */
             status: string;
+            /** Withdrawn At */
+            withdrawn_at?: string | null;
+            /** Withdrawn By */
+            withdrawn_by?: string | null;
+            /** Withdrawal Reason */
+            withdrawal_reason?: string | null;
             /** Members */
             members: components["schemas"]["EntryMemberOut"][];
+        };
+        /** EntryWithdrawRequest */
+        EntryWithdrawRequest: {
+            /** Operator Name */
+            operator_name: string;
+            /** Reason */
+            reason: string;
+        };
+        /** EntryWithdrawalResult */
+        EntryWithdrawalResult: {
+            entry: components["schemas"]["EntryOut"];
+            /** Affected Match Ids */
+            affected_match_ids: number[];
+            /** Preserved Finished Matches */
+            preserved_finished_matches: number;
         };
         /**
          * EventType
@@ -1425,6 +1463,11 @@ export interface components {
              * @default 0
              */
             point_ratio: number;
+            /**
+             * Entry Status
+             * @default ACTIVE
+             */
+            entry_status: string;
         };
         /** RankingsResult */
         RankingsResult: {
@@ -2487,6 +2530,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfirmRosterResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_entry_api_tournaments__tournament_id__entries__entry_id__withdraw_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntryWithdrawRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryWithdrawalResult"];
                 };
             };
             /** @description Validation Error */

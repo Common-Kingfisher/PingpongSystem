@@ -220,7 +220,7 @@ def test_confirm_roster_for_team_requires_two_teams(conn):
     with pytest.raises(teams_service.TeamError) as excinfo:
         entry_service.confirm_roster(conn, tid)
     assert excinfo.value.code == 409
-    assert "至少需要 2 支队伍" in str(excinfo.value)
+    assert "至少需要 2 支在赛队伍" in str(excinfo.value)
     assert repo.get_tournament(conn, tid)["roster_confirmed"] == 0
 
 
@@ -249,6 +249,31 @@ def test_confirm_roster_for_team_keeps_team_entries(conn):
     assert after == before
     assert set(after) == {a["id"], b["id"]}
     assert all(e["entry_type"] == EventType.TEAM.value for e in entries)
+
+
+def test_withdrawn_team_is_excluded_from_roster_confirmation(conn):
+    """整项退赛（#14 已合入）与团体赛名单的交互：退赛队伍不能凑"至少 2 支队伍"，
+    但它仍然留在名单里（队员不会被判定为"没有加入任何队伍"）。"""
+    tid = _create_tournament(conn, players=4)
+    a, b = _two_teams(conn, tid, size_a=2, size_b=2)
+    entry_service.withdraw_from_tournament(conn, tid, b["id"], "主裁", "队伍整项退赛")
+    assert repo.get_entry(conn, b["id"])["status"] == "WITHDRAWN"
+
+    with pytest.raises(teams_service.TeamError) as excinfo:
+        entry_service.confirm_roster(conn, tid)
+    assert excinfo.value.code == 409
+    assert "在赛队伍" in str(excinfo.value)
+
+    # 补一支队伍后即可确认：退赛队伍不被强制删除，其他队员也不会被判为"无队"
+    extra = repo.add_player(conn, tid, "替补选手", None, 1000)
+    conn.commit()
+    teams_service.create_team_entry(conn, tid, "C队", [extra["id"]])
+
+    tournament, entries = entry_service.confirm_roster(conn, tid)
+    assert tournament["roster_confirmed"] == 1
+    statuses = {e["id"]: e["status"] for e in entries}
+    assert statuses[a["id"]] == "ACTIVE"
+    assert statuses[b["id"]] == "WITHDRAWN"
 
 
 def test_confirm_roster_singles_and_doubles_paths_unchanged(conn):
@@ -334,7 +359,7 @@ def test_auto_group_without_teams_reports_stage_error(conn):
     tid = _create_tournament(conn, players=6)
     with pytest.raises(groups_service.TournamentStageError) as excinfo:
         groups_service.auto_group_tournament(conn, tid)
-    assert "至少需要 2 支队伍" in str(excinfo.value)
+    assert "至少需要 2 支在赛队伍" in str(excinfo.value)
 
 
 # ------------------------------------------------------------------- API 层
@@ -427,7 +452,7 @@ def test_confirm_roster_api_for_team_returns_409_not_500(client):
 
     resp = client.post(f"/api/tournaments/{tid}/confirm-roster")
     assert resp.status_code == 409
-    assert "至少需要 2 支队伍" in resp.json()["detail"]
+    assert "至少需要 2 支在赛队伍" in resp.json()["detail"]
 
     client.post(
         f"/api/tournaments/{tid}/teams", json={"display_name": "B队", "member_ids": player_ids[2:]}

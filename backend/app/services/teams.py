@@ -21,6 +21,11 @@ from ..models import EventType, TournamentStage
 MIN_TEAM_MEMBERS = 1
 MIN_TEAM_ENTRIES = 2
 
+# entries.status 目前没有对应 Enum（既有代码直接用字符串），团体赛沿用同一口径：
+# 已退赛（WITHDRAWN）的队伍不再计入"可以开赛"的队伍，也不能被安排新的对抗。
+ENTRY_STATUS_ACTIVE = "ACTIVE"
+ENTRY_STATUS_WITHDRAWN = "WITHDRAWN"
+
 
 class TeamError(Exception):
     def __init__(self, message: str, code: int = 409):
@@ -191,19 +196,25 @@ def delete_team_entry(conn: sqlite3.Connection, tournament_id: int, entry_id: in
 def validate_team_roster(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
     """确认团体赛名单前的整体校验（由 entries.confirm_roster 调用）。
 
-    只要求自洽：至少 2 支队伍、每队至少 1 人、没有选手被落下或重复代表两队。
+    只要求自洽：至少 2 支"在赛队伍"、每支在赛队伍至少 1 人、没有选手被落下或重复代表两队。
     不校验队伍人数是否满足某个赛制——赛制尚未冻结。
+
+    与退赛（整项退赛，见 services/entries.py::withdraw_from_tournament）的交互：
+    - 已退赛的队伍**不计入**"至少 2 支队伍"——退赛队伍不会再上场，不能用来凑数；
+    - 但已退赛队伍里的选手仍算"有队"，不强迫组织者删除历史名单。
     """
     entries = list_team_entries(conn, tournament_id)
     players = repo.list_players(conn, tournament_id)
-    if len(entries) < MIN_TEAM_ENTRIES:
+    active = [entry for entry in entries if entry["status"] == ENTRY_STATUS_ACTIVE]
+    if len(active) < MIN_TEAM_ENTRIES:
         raise TeamError(
-            f"团体赛至少需要 {MIN_TEAM_ENTRIES} 支队伍才能确认名单（当前 {len(entries)} 支）",
+            f"团体赛至少需要 {MIN_TEAM_ENTRIES} 支在赛队伍才能确认名单"
+            f"（已退赛队伍不计入，当前 {len(active)} 支）",
             409,
         )
     member_ids: list[int] = []
     for entry in entries:
-        if len(entry["members"]) < MIN_TEAM_MEMBERS:
+        if entry["status"] == ENTRY_STATUS_ACTIVE and len(entry["members"]) < MIN_TEAM_MEMBERS:
             raise TeamError(f"队伍「{entry['display_name']}」还没有队员", 409)
         member_ids.extend(m["player_id"] for m in entry["members"])
     # 兜底：entry_members 对 player_id 有 UNIQUE 约束，正常情况下不会重复，

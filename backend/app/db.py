@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS entries (
     group_id INTEGER REFERENCES groups(id),
     seed_no INTEGER,
     status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','WITHDRAWN')),
+    withdrawn_at TEXT,
+    withdrawn_by TEXT,
+    withdrawal_reason TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -356,6 +359,12 @@ def init_db() -> None:
             ("finished_at", "TEXT"),
         ):
             _add_column_if_missing(conn, "matches", column, ddl)
+        for column, ddl in (
+            ("withdrawn_at", "TEXT"),
+            ("withdrawn_by", "TEXT"),
+            ("withdrawal_reason", "TEXT"),
+        ):
+            _add_column_if_missing(conn, "entries", column, ddl)
         # TEAM 事件类型：旧库需要重建 tournaments 表（SQLite 无法直接修改 CHECK）
         _upgrade_tournament_event_type(conn)
         # New tables are created after legacy tables have been upgraded so their FKs target the final table.

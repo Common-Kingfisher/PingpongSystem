@@ -689,6 +689,67 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/entries/{entry_id}/withdraw": {
+      "post": {
+        "tags": [
+          "entries"
+        ],
+        "summary": "Withdraw Entry",
+        "operationId": "withdraw_entry_api_tournaments__tournament_id__entries__entry_id__withdraw_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntryWithdrawRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryWithdrawalResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}/groups": {
       "get": {
         "tags": [
@@ -2660,6 +2721,39 @@
             "type": "string",
             "title": "Status"
           },
+          "withdrawn_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawn At"
+          },
+          "withdrawn_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawn By"
+          },
+          "withdrawal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawal Reason"
+          },
           "members": {
             "items": {
               "$ref": "#/components/schemas/EntryMemberOut"
@@ -2681,6 +2775,53 @@
           "members"
         ],
         "title": "EntryOut"
+      },
+      "EntryWithdrawRequest": {
+        "properties": {
+          "operator_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Operator Name"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operator_name",
+          "reason"
+        ],
+        "title": "EntryWithdrawRequest"
+      },
+      "EntryWithdrawalResult": {
+        "properties": {
+          "entry": {
+            "$ref": "#/components/schemas/EntryOut"
+          },
+          "affected_match_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Affected Match Ids"
+          },
+          "preserved_finished_matches": {
+            "type": "integer",
+            "title": "Preserved Finished Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry",
+          "affected_match_ids",
+          "preserved_finished_matches"
+        ],
+        "title": "EntryWithdrawalResult"
       },
       "EventType": {
         "type": "string",
@@ -4415,6 +4556,11 @@
             "type": "number",
             "title": "Point Ratio",
             "default": 0
+          },
+          "entry_status": {
+            "type": "string",
+            "title": "Entry Status",
+            "default": "ACTIVE"
           }
         },
         "type": "object",

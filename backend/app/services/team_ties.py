@@ -26,6 +26,7 @@ from .. import repository as repo
 from ..domain import team_formats
 from ..domain.team_formats import TeamFormatError
 from ..models import EventType, MatchStage, TeamRubberStatus
+from .teams import ENTRY_STATUS_ACTIVE
 
 TIE_STAGES = (MatchStage.GROUP.value, MatchStage.KNOCKOUT.value)
 
@@ -123,6 +124,15 @@ def create_team_tie(
 
     _team_entry(conn, tournament_id, entry_a_id, "主队")
     _team_entry(conn, tournament_id, entry_b_id, "客队")
+    for label, entry_id in (("主队", entry_a_id), ("客队", entry_b_id)):
+        entry = repo.get_entry(conn, entry_id)
+        if entry is not None and entry["status"] != ENTRY_STATUS_ACTIVE:
+            # 与整项退赛（#14）同一口径：已退赛的队伍不能再被安排新对抗。
+            # 注意：已经建立、之后才退赛的对抗不会在这里自动判负——那需要团体赛的
+            # 盘比分与状态机（A4），A3 不伪造对抗结果。
+            raise TeamTieError(
+                f"{label}「{entry['display_name']}」已退出赛事，不能安排新的团体对抗", 409
+            )
 
     tie = repo.create_team_tie(
         conn,

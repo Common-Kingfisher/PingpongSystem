@@ -23,6 +23,7 @@ from app.models import (
     TeamTieStatus,
 )
 from app.services import knockout as knockout_service
+from app.services import entries as entry_service
 from app.services import matches as matches_service
 from app.services import team_ties as tie_service
 from app.services import teams as teams_service
@@ -283,6 +284,34 @@ def test_team_tie_group_membership(conn):
     with pytest.raises(tie_service.TeamTieError) as cross_group:
         tie_service.create_team_tie(conn, tid, a["id"], b["id"], group_id=foreign_group["id"])
     assert cross_group.value.code == 404
+
+
+def test_withdrawn_team_cannot_join_new_tie(conn, test_only_format):
+    """整项退赛（#14 已合入）与团体对抗的边界：
+
+    - 已退赛的队伍不能再被安排新的对抗；
+    - 但"先建立对抗、之后才退赛"不会被自动判负或改写（A3 没有团体赛比分层），
+      留待 A4 的盘比分与状态机处理，这里只验证数据没有被悄悄修改。
+    """
+    tid = _team_tournament(conn)
+    a, b = _two_teams(conn, tid)
+    tie = tie_service.create_team_tie(conn, tid, a["id"], b["id"])
+    built = tie_service.build_rubber_skeleton(conn, tid, tie["id"], TEST_ONLY_SPEC.code)
+    before = repo.get_team_tie(conn, tie["id"])
+
+    entry_service.withdraw_from_tournament(conn, tid, b["id"], "主裁", "伤病整队退赛")
+
+    with pytest.raises(tie_service.TeamTieError) as excinfo:
+        tie_service.create_team_tie(conn, tid, a["id"], b["id"])
+    assert excinfo.value.code == 409
+    assert "已退出赛事" in str(excinfo.value)
+
+    after = repo.get_team_tie(conn, tie["id"])
+    assert after == before  # 对抗与赛制快照原样保留
+    assert {r["status"] for r in repo.list_team_rubbers(conn, tie["id"])} == {"PENDING"}
+    assert {r["match_id"] for r in repo.list_team_rubbers(conn, tie["id"])} == {None}
+    assert len(built["rubbers"]) == 3
+    assert conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 0
 
 
 def test_get_and_list_team_tie_errors(conn):

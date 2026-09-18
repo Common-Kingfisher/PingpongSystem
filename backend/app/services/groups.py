@@ -73,7 +73,10 @@ def auto_group_tournament(
     流程：清空旧分组 → 删除旧组 → 按算法重新分配 → 建组并归属选手。
     """
     tournament = _ensure_registration(conn, tournament_id)
-    entries = repo.list_entries(conn, tournament_id)
+    entries = [
+        entry for entry in repo.list_entries(conn, tournament_id)
+        if entry["status"] == "ACTIVE"
+    ]
     if not entries:
         try:
             _, entries = entry_service.confirm_roster(conn, tournament_id)

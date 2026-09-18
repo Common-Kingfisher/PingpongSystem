@@ -32,6 +32,7 @@ export type Tournament = Schemas['TournamentOut']
 export type Player = Schemas['PlayerOut']
 export type EntryMember = Schemas['EntryMemberOut']
 export type Entry = Schemas['EntryOut']
+export type EntryWithdrawalResult = Schemas['EntryWithdrawalResult']
 export type PairingResult = Schemas['PairingResult']
 export type ConfirmRosterResult = Schemas['ConfirmRosterResult']
 // 团体赛（A3）：队伍就是 entry_type='TEAM' 的 Entry，所以复用 Entry 类型，不复制字段。
@@ -225,6 +226,11 @@ export const api = {
   confirmRoster: (tournamentId: number) =>
     request<ConfirmRosterResult>(`/api/tournaments/${tournamentId}/confirm-roster`, {
       method: 'POST',
+    }),
+  withdrawEntry: (tournamentId: number, entryId: number, body: Schemas['EntryWithdrawRequest']) =>
+    request<EntryWithdrawalResult>(`/api/tournaments/${tournamentId}/entries/${entryId}/withdraw`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     }),
 
   // 团体赛（A3）：队伍即 Entry（entry_type='TEAM'），队员即 entry_members。
