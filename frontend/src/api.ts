@@ -60,6 +60,7 @@ export type TableWithMatch = Schemas['TableWithMatch']
 export type Dashboard = Schemas['Dashboard']
 export type OrderBookSnapshot = Schemas['OrderBookSnapshot']
 export type KnockoutTree = Schemas['KnockoutTree']
+export type PreflightResult = Schemas['PreflightResult']
 
 // Client request helper（非 transport contract）：
 // generated TournamentCreate 将带非 null 默认值的字段标为 required，
@@ -330,4 +331,6 @@ export const api = {
     ),
   getOrderBookSnapshot: (tournamentId: number) =>
     request<OrderBookSnapshot>(`/api/tournaments/${tournamentId}/order-book-snapshot`),
+  getPreflight: (tournamentId: number) =>
+    request<PreflightResult>(`/api/tournaments/${tournamentId}/preflight`),
 }
