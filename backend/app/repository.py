@@ -550,6 +550,15 @@ def list_matches_by_prev(conn: sqlite3.Connection, match_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def delete_match(conn: sqlite3.Connection, match_id: int) -> bool:
+    """删除一场比赛（match_games / score_requests 由外键级联清理）。
+
+    调用方必须保证没有其它比赛通过 prev_match_a_id / prev_match_b_id 引用它。
+    """
+    cur = conn.execute("DELETE FROM matches WHERE id = ?", (match_id,))
+    return cur.rowcount > 0
+
+
 def replace_match_games(
     conn: sqlite3.Connection,
     match_id: int,

@@ -172,6 +172,91 @@ def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
     return get_knockout(conn, tournament_id)
 
 
+def _has_real_result(conn: sqlite3.Connection, match: dict) -> bool:
+    """判断淘汰赛比赛是否已经产生"真实"结果（轮空自动晋级不算）。
+
+    轮空由系统在生成签表时写入（一方为空、WALKOVER、0:0），它不代表任何真实比赛，
+    撤销签表时应当连同签表一起消失；一旦双方就位并开赛/录分，就属于真实结果，禁止静默删除。
+    """
+    if match["status"] == MatchStatus.PLAYING.value:
+        return True
+    side_a, side_b = _side(match, "a"), _side(match, "b")
+    if side_a is None or side_b is None:
+        return False
+    if match["status"] == MatchStatus.FINISHED.value:
+        return True
+    return any(
+        match.get(field) is not None
+        for field in (
+            "player_a_score",
+            "player_b_score",
+            "winner_id",
+            "winner_entry_id",
+            "result_type",
+        )
+    )
+
+
+def _restored_stage(conn: sqlite3.Connection, tournament_id: int) -> str:
+    """撤销淘汰赛后恢复的阶段。
+
+    淘汰赛只有在小组赛全部结束后才能生成，因此已生成过小组赛 → 回到 GROUP_STAGE；
+    没有小组赛时不设置阶段（保持当前值由调用方决定）。
+    """
+    if repo.count_matches(conn, tournament_id, stage=MatchStage.GROUP.value) > 0:
+        return TournamentStage.GROUP_STAGE.value
+    return TournamentStage.REGISTRATION.value
+
+
+def undo_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
+    """撤销淘汰签表：删除 KNOCKOUT / PLACEMENT 比赛，让小组结果重新可修正。
+
+    安全策略：
+      - 尚未生成淘汰赛 → 409；
+      - 淘汰赛已经开始（存在 PLAYING、或双方就位的 FINISHED / 已录比分）→ 409，不静默删除；
+      - 系统轮空（一方为空 + WALKOVER）不算真实结果，允许随签表一起撤销。
+    只删除淘汰阶段派生数据，不动选手、分组、小组比赛与小组比分。
+    """
+    _ensure_tournament(conn, tournament_id)
+    knockout_matches = repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value)
+    main_matches = [m for m in knockout_matches if m["bracket"] == MatchBracket.MAIN.value]
+    if not main_matches:
+        raise KnockoutError("尚未生成淘汰赛，无需撤销")
+
+    for match in knockout_matches:
+        if _has_real_result(conn, match):
+            raise KnockoutError("淘汰赛已经开始，不能直接撤销。")
+
+    # 先删名次排位（其来源指向主签），再按轮次从后往前删主签，避免 prev_match 外键冲突。
+    ordered = sorted(
+        knockout_matches,
+        key=lambda m: (
+            0 if m["bracket"] == MatchBracket.PLACEMENT.value else 1,
+            -(m["round"] or 0),
+        ),
+    )
+    deleted_placement = 0
+    deleted_main = 0
+    for match in ordered:
+        if match["table_id"] is not None:
+            # 未开始的比赛不应占用球台；防御性释放，保持"PLAYING 数 == OCCUPIED 数"。
+            repo.update_table_status(conn, match["table_id"], TableStatus.FREE.value)
+        repo.delete_match(conn, match["id"])
+        if match["bracket"] == MatchBracket.PLACEMENT.value:
+            deleted_placement += 1
+        else:
+            deleted_main += 1
+
+    repo.update_tournament_stage(conn, tournament_id, _restored_stage(conn, tournament_id))
+    conn.commit()
+    return {
+        "tournament": repo.get_tournament(conn, tournament_id),
+        "deleted_main_matches": deleted_main,
+        "deleted_placement_matches": deleted_placement,
+        "deleted_matches": deleted_main + deleted_placement,
+    }
+
+
 def advance_winner(conn: sqlite3.Connection, match: dict) -> None:
     """把本场胜者/负者同步到所有声明依赖的后续签位。"""
     if match["stage"] != MatchStage.KNOCKOUT.value:

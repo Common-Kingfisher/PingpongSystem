@@ -32,6 +32,24 @@ def get_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
     return _to_schema(tree)
 
 
+@router.post("/knockout/undo", response_model=schemas.KnockoutUndoResult)
+def undo_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
+    """撤销淘汰签表（主签 + 名次排位），恢复到可修正小组结果的状态。
+
+    淘汰赛已经开始（有 PLAYING 或已录比分）时返回 409，不静默删除真实结果。
+    """
+    try:
+        result = knockout_service.undo_knockout(conn, tournament_id)
+    except knockout_service.KnockoutError as exc:
+        raise _http(exc)
+    return schemas.KnockoutUndoResult(
+        tournament=schemas.TournamentOut(**result["tournament"]),
+        deleted_main_matches=result["deleted_main_matches"],
+        deleted_placement_matches=result["deleted_placement_matches"],
+        deleted_matches=result["deleted_matches"],
+    )
+
+
 def _to_schema(tree: dict) -> schemas.KnockoutTree:
     return schemas.KnockoutTree(
         tournament=schemas.TournamentOut(**tree["tournament"]),

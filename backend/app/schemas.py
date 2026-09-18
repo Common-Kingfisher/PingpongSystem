@@ -1,6 +1,7 @@
 """Pydantic 请求/响应模型。"""
 
 from datetime import date
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -396,3 +397,12 @@ class TournamentResults(BaseModel):
     placements: list[dict]
     total_matches: int
     finished_matches: int
+
+
+class KnockoutUndoResult(BaseModel):
+    """撤销淘汰签表的结果：只报告删除了哪些淘汰阶段派生数据。"""
+
+    tournament: TournamentOut
+    deleted_main_matches: int
+    deleted_placement_matches: int
+    deleted_matches: int
