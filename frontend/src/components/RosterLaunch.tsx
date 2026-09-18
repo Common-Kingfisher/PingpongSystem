@@ -65,6 +65,27 @@ export default function RosterLaunch({
 
   if (tournament.stage !== 'REGISTRATION') return null
 
+  // 团体赛（TEAM）不走单打/双打这套"确认名单 → 抽签"流程：它的名单是一支支队伍，
+  // 需要队伍名单界面与团体对抗编排，本版本尚未提供，因此这里只做说明、不改动任何数据。
+  if (tournament.event_type === 'TEAM') {
+    return (
+      <section className="card launch-card">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">TEAM EVENT</span>
+            <h3>团体赛的名单由队伍组成</h3>
+          </div>
+          <span className="readiness">尚未开放</span>
+        </div>
+        <p className="muted">
+          当前版本提供了团体赛的队伍与团体对抗接口（队伍即参赛实体，队员即参赛成员），
+          但界面还没有队伍名单编辑与团体对抗编排，因此这里不提供"确认名单并抽签"操作。
+          单打与双打赛事不受影响。
+        </p>
+      </section>
+    )
+  }
+
   return (
     <>
       <section className="card launch-card">

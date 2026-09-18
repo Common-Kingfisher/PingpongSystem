@@ -92,3 +92,32 @@ def test_delete_cascades_every_child_table(conn):
         assert rows == 0, f"{table} 仍有残留（级联不完整）"
     assert repo.get_tournament(conn, tid) is None
     assert repo.delete_tournament(conn, tid) is False
+
+
+def test_delete_cascades_team_ties_and_rubbers(conn):
+    """A3：删除团体赛赛事必须一并清掉 team_ties / team_rubbers，且不留悬空外键。
+
+    注意 team_ties.entry_a_id / entry_b_id 故意不带 ON DELETE CASCADE：
+    单删一支队伍必须被业务层拦住（否则对抗会凭空少一边）。这里验证的是"删整个赛事"
+    这条路径（队伍、对抗、盘一起消失）不会因为外键而失败或残留。
+    """
+    tid = repo.create_tournament(conn, "团体级联验收", "2026-05-01", 4, 2, 1, event_type="TEAM")["id"]
+    repo.create_tables_for_tournament(conn, tid, 4)
+    players = [repo.add_player(conn, tid, f"P{index}", None) for index in range(1, 5)]
+    a = repo.create_entry(conn, tid, "TEAM", "A队", 0, [players[0]["id"], players[1]["id"]])
+    b = repo.create_entry(conn, tid, "TEAM", "B队", 0, [players[2]["id"], players[3]["id"]])
+    tie = repo.create_team_tie(conn, tid, "GROUP", None, 1, 1, a["id"], b["id"])
+    # 直接用 repository 造盘：本用例只验证级联，不依赖任何"已冻结的赛制"
+    repo.create_team_rubber(conn, tie["id"], 1, "SINGLES", '["H1"]', '["A1"]')
+    repo.create_team_rubber(conn, tie["id"], 2, "DOUBLES", '["H2","H3"]', '["A2","A3"]')
+    conn.commit()
+    assert conn.execute("SELECT COUNT(*) FROM team_ties").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM team_rubbers").fetchone()[0] == 2
+
+    assert repo.delete_tournament(conn, tid) is True
+    conn.commit()
+
+    assert conn.execute("SELECT COUNT(*) FROM team_ties").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM team_rubbers").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0] == 0
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []

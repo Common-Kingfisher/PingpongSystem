@@ -677,6 +677,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Teams */
+        get: operations["list_teams_api_tournaments__tournament_id__teams_get"];
+        put?: never;
+        /** Create Team */
+        post: operations["create_team_api_tournaments__tournament_id__teams_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/teams/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Team */
+        get: operations["get_team_api_tournaments__tournament_id__teams__entry_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Team */
+        delete: operations["delete_team_api_tournaments__tournament_id__teams__entry_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Team */
+        patch: operations["update_team_api_tournaments__tournament_id__teams__entry_id__patch"];
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/team-ties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Team Ties */
+        get: operations["list_team_ties_api_tournaments__tournament_id__team_ties_get"];
+        put?: never;
+        /** Create Team Tie */
+        post: operations["create_team_tie_api_tournaments__tournament_id__team_ties_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Team Tie */
+        get: operations["get_team_tie_api_tournaments__tournament_id__team_ties__tie_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubber-skeleton": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Build Rubber Skeleton */
+        post: operations["build_rubber_skeleton_api_tournaments__tournament_id__team_ties__tie_id__rubber_skeleton_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -817,10 +906,15 @@ export interface components {
         };
         /**
          * EventType
-         * @description 参赛项目。第一版完整支持单打与固定搭档双打。
+         * @description 参赛项目。
+         *
+         *     SINGLES / DOUBLES 走现有 Match（Entry vs Entry）引擎；
+         *     TEAM 走 TeamTie / TeamRubber 两层的团体赛引擎（A3 只建立领域模型，
+         *     不生成普通 Match：见 services/teams.py 与 services/team_ties.py）。
+         *     任何"非单打即双打"的二元假设都必须显式改成三分支。
          * @enum {string}
          */
-        EventType: "SINGLES" | "DOUBLES";
+        EventType: "SINGLES" | "DOUBLES" | "TEAM";
         /** GenerateDemoPlayersRequest */
         GenerateDemoPlayersRequest: {
             /** Count */
@@ -1438,6 +1532,16 @@ export interface components {
          * @enum {string}
          */
         ResultType: "NORMAL" | "FORFEIT" | "WALKOVER" | "NO_SHOW" | "DISQUALIFIED";
+        /** RubberSkeletonRequest */
+        RubberSkeletonRequest: {
+            /** Format Code */
+            format_code: string;
+            /**
+             * Replace
+             * @default false
+             */
+            replace: boolean;
+        };
         /**
          * ScheduleEstimateMatch
          * @description 单场 WAITING 比赛的预计上场时间（无法估算时字段为 null）。
@@ -1624,6 +1728,233 @@ export interface components {
             /** Recommended Match Id */
             recommended_match_id?: number | null;
         };
+        /** TeamEntryCreate */
+        TeamEntryCreate: {
+            /** Display Name */
+            display_name: string;
+            /** Member Ids */
+            member_ids: number[];
+            /**
+             * Rating Points
+             * @default 0
+             */
+            rating_points: number;
+        };
+        /** TeamEntryUpdate */
+        TeamEntryUpdate: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Member Ids */
+            member_ids?: number[] | null;
+            /** Rating Points */
+            rating_points?: number | null;
+        };
+        /** TeamRubberOut */
+        TeamRubberOut: {
+            /** Id */
+            id: number;
+            /** Team Tie Id */
+            team_tie_id: number;
+            /** Sequence */
+            sequence: number;
+            rubber_type: components["schemas"]["TeamRubberType"];
+            /** Home Slots */
+            home_slots: string[];
+            /** Away Slots */
+            away_slots: string[];
+            status: components["schemas"]["TeamRubberStatus"];
+            /** Match Id */
+            match_id: number | null;
+            /** Created At */
+            created_at: string;
+        };
+        /**
+         * TeamRubberRecordOut
+         * @description team_rubbers 表的落库形态：位置需求保持存储时的 JSON 文本。
+         */
+        TeamRubberRecordOut: {
+            /** Id */
+            id: number;
+            /** Team Tie Id */
+            team_tie_id: number;
+            /** Sequence */
+            sequence: number;
+            /** Rubber Type */
+            rubber_type: string;
+            /** Home Slots Json */
+            home_slots_json: string;
+            /** Away Slots Json */
+            away_slots_json: string;
+            /** Status */
+            status: string;
+            /** Match Id */
+            match_id?: number | null;
+            /** Created At */
+            created_at: string;
+        };
+        /**
+         * TeamRubberStatus
+         * @description 团体对抗内单盘（Rubber）状态。
+         *
+         *     A3 的 skeleton 只会生成 PENDING；PENDING → READY → PLAYING → FINISHED
+         *     的流转与 SKIPPED（提前结束比赛后未打的盘）由 A4 实现。
+         * @enum {string}
+         */
+        TeamRubberStatus: "PENDING" | "READY" | "PLAYING" | "FINISHED" | "SKIPPED";
+        /**
+         * TeamRubberType
+         * @description 单盘类型：只允许单打或双打盘（TEAM 不是盘类型）。
+         * @enum {string}
+         */
+        TeamRubberType: "SINGLES" | "DOUBLES";
+        /** TeamTieCreate */
+        TeamTieCreate: {
+            /** Entry A Id */
+            entry_a_id: number;
+            /** Entry B Id */
+            entry_b_id: number;
+            /** @default GROUP */
+            stage: components["schemas"]["MatchStage"];
+            /** Group Id */
+            group_id?: number | null;
+            /**
+             * Round
+             * @default 1
+             */
+            round: number;
+            /** Match Index */
+            match_index?: number | null;
+        };
+        /** TeamTieDetailOut */
+        TeamTieDetailOut: {
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            stage: components["schemas"]["MatchStage"];
+            /** Group Id */
+            group_id: number | null;
+            /** Round */
+            round: number;
+            /** Match Index */
+            match_index: number | null;
+            /** Entry A Id */
+            entry_a_id: number;
+            /** Entry B Id */
+            entry_b_id: number;
+            /** Team A Score */
+            team_a_score: number;
+            /** Team B Score */
+            team_b_score: number;
+            /** Winner Entry Id */
+            winner_entry_id: number | null;
+            status: components["schemas"]["TeamTieStatus"];
+            /** Format Code */
+            format_code: string | null;
+            /** Format Version */
+            format_version: number | null;
+            /** Format Snapshot */
+            format_snapshot: string | null;
+            /** Called At */
+            called_at: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Created At */
+            created_at: string;
+            /** Rubbers */
+            rubbers: components["schemas"]["TeamRubberOut"][];
+        };
+        /** TeamTieOut */
+        TeamTieOut: {
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            stage: components["schemas"]["MatchStage"];
+            /** Group Id */
+            group_id: number | null;
+            /** Round */
+            round: number;
+            /** Match Index */
+            match_index: number | null;
+            /** Entry A Id */
+            entry_a_id: number;
+            /** Entry B Id */
+            entry_b_id: number;
+            /** Team A Score */
+            team_a_score: number;
+            /** Team B Score */
+            team_b_score: number;
+            /** Winner Entry Id */
+            winner_entry_id: number | null;
+            status: components["schemas"]["TeamTieStatus"];
+            /** Format Code */
+            format_code: string | null;
+            /** Format Version */
+            format_version: number | null;
+            /** Format Snapshot */
+            format_snapshot: string | null;
+            /** Called At */
+            called_at: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Created At */
+            created_at: string;
+        };
+        /**
+         * TeamTieRecordOut
+         * @description team_ties 表的落库形态（A3 追加，单打/双打赛事恒为空列表）。
+         */
+        TeamTieRecordOut: {
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            /** Stage */
+            stage: string;
+            /** Group Id */
+            group_id?: number | null;
+            /** Round */
+            round: number;
+            /** Match Index */
+            match_index?: number | null;
+            /** Entry A Id */
+            entry_a_id: number;
+            /** Entry B Id */
+            entry_b_id: number;
+            /** Team A Score */
+            team_a_score: number;
+            /** Team B Score */
+            team_b_score: number;
+            /** Winner Entry Id */
+            winner_entry_id?: number | null;
+            /** Status */
+            status: string;
+            /** Format Code */
+            format_code?: string | null;
+            /** Format Version */
+            format_version?: number | null;
+            /** Format Snapshot */
+            format_snapshot?: string | null;
+            /** Called At */
+            called_at?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Created At */
+            created_at: string;
+        };
+        /**
+         * TeamTieStatus
+         * @description 团体对抗（TeamTie）状态。A3 只建立状态模型，状态机由 A4 实现。
+         * @enum {string}
+         */
+        TeamTieStatus: "WAITING" | "PLAYING" | "FINISHED";
         /** TournamentCreate */
         TournamentCreate: {
             /** Name */
@@ -1686,6 +2017,10 @@ export interface components {
             qualification_decisions: components["schemas"]["QualificationDecisionExport"][];
             /** Score Requests */
             score_requests: components["schemas"]["ScoreRequestOut"][];
+            /** Team Ties */
+            team_ties: components["schemas"]["TeamTieRecordOut"][];
+            /** Team Rubbers */
+            team_rubbers: components["schemas"]["TeamRubberRecordOut"][];
             derived: components["schemas"]["TournamentExportDerived"];
         };
         /**
@@ -3128,6 +3463,304 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KnockoutUndoResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_teams_api_tournaments__tournament_id__teams_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_team_api_tournaments__tournament_id__teams_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamEntryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_team_api_tournaments__tournament_id__teams__entry_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_team_api_tournaments__tournament_id__teams__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_team_api_tournaments__tournament_id__teams__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamEntryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_team_ties_api_tournaments__tournament_id__team_ties_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamTieOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_team_tie_api_tournaments__tournament_id__team_ties_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamTieCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamTieOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_team_tie_api_tournaments__tournament_id__team_ties__tie_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                tie_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamTieDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    build_rubber_skeleton_api_tournaments__tournament_id__team_ties__tie_id__rubber_skeleton_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                tie_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RubberSkeletonRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamTieDetailOut"];
                 };
             };
             /** @description Validation Error */

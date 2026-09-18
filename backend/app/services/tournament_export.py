@@ -4,10 +4,13 @@
 导出是纯读操作，不修改任何业务数据；结构里显式区分：
 
   - 落库数据：tournament / players / entries / entry_members / groups / tables /
-    matches / match_games / qualification_decisions / score_requests
+    matches / match_games / qualification_decisions / score_requests /
+    team_ties / team_rubbers
   - 运行期推导：derived.rankings / derived.champion / derived.runner_up / derived.placements
 
 `schema_version` 用于以后识别历史导出格式；新增字段属于向后兼容扩展。
+团体赛的 team_ties / team_rubbers 是 A3 追加的字段：单打/双打赛事导出时它们恒为空数组，
+结构版本仍是 "1.0"，不构成破坏性变更。
 """
 
 import json
@@ -89,6 +92,9 @@ def get_export(conn: sqlite3.Connection, tournament_id: int) -> dict:
             "match_games": repo.list_tournament_match_games(conn, tournament_id),
             "qualification_decisions": _decision_rows(conn, tournament_id),
             "score_requests": repo.list_tournament_score_requests(conn, tournament_id),
+            # 团体赛（A3）：非团体赛事这两个数组恒为空；rubbers 的 match_id 在 A3 恒为 None。
+            "team_ties": repo.list_team_ties(conn, tournament_id),
+            "team_rubbers": repo.list_tournament_team_rubbers(conn, tournament_id),
             "derived": {
                 "rankings": rankings_service.get_rankings(conn, tournament_id),
                 "champion": tree["champion"],

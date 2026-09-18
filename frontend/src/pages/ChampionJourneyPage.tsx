@@ -2,6 +2,7 @@ import { CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, KnockoutMatch, KnockoutTree } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
+import { eventTypeLabel } from '../format'
 
 type Placement = { rank: number; label: string; entry: { id: number; name: string | null } | null }
 type Connector = { key: string; from: string; to: string; d: string; active: boolean }
@@ -127,7 +128,7 @@ export default function ChampionJourneyPage() {
       <div>
         <span className="broadcast-kicker">TABLE TENNIS · ROAD TO CHAMPION</span>
         <h1>{tree?.tournament.name ?? '冠军之路'}</h1>
-        <p>{tree?.tournament.event_type === 'DOUBLES' ? '双打' : '单打'} · 从下往上查看每轮对阵与晋级结果</p>
+        <p>{tree ? `${eventTypeLabel(tree.tournament.event_type)} · 从下往上查看每轮对阵与晋级结果` : '从下往上查看每轮对阵与晋级结果'}</p>
       </div>
       <div className="journey-actions">
         <button onClick={() => window.print()}>导出画面</button>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, KnockoutMatch, Match, OrderBookSnapshot, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
-import { formatSummary } from '../format'
+import { eventTypeLabel, formatSummary } from '../format'
 
 function competitionRule(tournament: Tournament) {
   return formatSummary(tournament)
@@ -51,7 +51,7 @@ export default function OrderBookPage() {
     <div className="order-toolbar"><Link to={`/?tid=${tid}`}>返回赛事</Link><button onClick={() => window.print()}>打印 / 保存 PDF</button></div>
     <header className="order-cover">
       <span>TOURNAMENT ORDER BOOK · 赛事运行快照</span><h1>{data.tournament.name}</h1>
-      <p>{data.tournament.date} · {data.tournament.event_type === 'DOUBLES' ? '双打' : '单打'} · {competitionRule(data.tournament)}</p>
+      <p>{data.tournament.date} · {eventTypeLabel(data.tournament.event_type)} · {competitionRule(data.tournament)}</p>
       <div className="order-cover-stats" aria-label="赛事进度">
         <b>{data.entries.length}<small>参赛位</small></b>
         <b>{data.matches.length}<small>全部场次</small></b>

@@ -1,5 +1,7 @@
 // 赛制文案：局制（三局两胜 / 五局三胜 / 七局四胜）与每局目标分统一从这里读取，
 // 页面不得写死"三局两胜"或"11 分"。
+import type { EventType } from './api'
+
 const chineseNumber = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
 
 function numberLabel(value: number): string {
@@ -21,3 +23,20 @@ export const formatOptions: { value: number; label: string }[] = [2, 3, 4].map((
   value: games,
   label: formatName(games),
 }))
+
+/**
+ * 参赛项目文案。
+ *
+ * 显式覆盖三个分支：TEAM 不能被"非双打即单打"的旧写法显示成"单打"。
+ * （团体赛的队名单/对抗界面尚未提供，但赛事列表与详情必须显示正确的项目名。）
+ */
+export function eventTypeLabel(eventType: EventType): string {
+  switch (eventType) {
+    case 'SINGLES':
+      return '单打'
+    case 'DOUBLES':
+      return '双打'
+    case 'TEAM':
+      return '团体赛'
+  }
+}

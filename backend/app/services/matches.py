@@ -5,7 +5,7 @@ import sqlite3
 
 from .. import repository as repo
 from ..domain import round_robin
-from ..models import MatchStage, MatchStatus, TournamentStage
+from ..models import EventType, MatchStage, MatchStatus, TournamentStage
 from . import scores as scores_service
 
 
@@ -32,10 +32,14 @@ def generate_group_matches(
 
     返回 (总场数, {组名: 场数})。
     守卫：赛事必须存在、处于 REGISTRATION 阶段、已分组、且尚未生成过小组赛。
+    团体赛（TEAM）不走这条路径：一场对抗是 TeamTie + 多盘 TeamRubber，
+    不能展开成"Entry vs Entry"的普通比赛（见 services/team_ties.py 的说明）。
     """
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise TournamentNotFoundError("赛事不存在")
+    if tournament["event_type"] == EventType.TEAM.value:
+        raise TournamentStageError("团体赛不生成小组循环赛：请使用团体对抗（TeamTie）接口")
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise TournamentStageError("当前阶段不允许生成小组比赛")
     groups = repo.list_groups(conn, tournament_id)
@@ -106,6 +110,8 @@ def finish_group_stage(
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise TournamentNotFoundError("赛事不存在")
+    if tournament["event_type"] == EventType.TEAM.value:
+        raise TournamentStageError("团体赛没有单打式小组赛，暂不支持模拟推进")
     if tournament["stage"] != TournamentStage.GROUP_STAGE.value:
         raise TournamentStageError("仅小组赛阶段可模拟完成剩余小组赛")
 
