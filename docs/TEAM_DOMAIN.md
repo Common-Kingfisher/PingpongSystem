@@ -1,0 +1,146 @@
+# 团体赛（TEAM）领域基础与边界（A3）
+
+最近维护：A3 批次。本文只描述**已经落地**的团体赛领域基础，以及**刻意没做**的部分和原因。
+若与代码冲突，以 `backend/app/` 的 Pydantic 契约、SQLite DDL 与测试为准，并在同一 PR 修正本文。
+
+## 一句话结论
+
+A3 交付的是"团体赛领域地基 + 只读/骨架接口"：
+
+- `EventType.TEAM` 成为正式枚举值，旧库自动迁移；
+- **队伍就是 `entries(entry_type='TEAM')`**，队员就是 `entry_members`，不新建名单表；
+- 新增 `team_ties`（一场"A 队 vs B 队"对抗）与 `team_rubbers`（对抗中的一盘）；
+- 赛制规格 `TeamFormatSpec` + 校验 + 快照 + **空的生产注册表**；
+- 按已冻结赛制生成"盘骨架"（每盘需要几个出场位置），**不创建任何普通比赛**。
+
+它**不是**可用的团体赛赛事功能：没有队伍名单界面、没有任何一条赛制被冻结、没有对阵编排、
+没有比分与状态机、不参与排程与预计时间。真正的团体赛比赛能力属于后续 A4 批次。
+
+## 数据模型
+
+### 队伍：复用 `entries` + `entry_members`
+
+| 概念 | 落库位置 | 说明 |
+|---|---|---|
+| 队伍（TeamEntry） | `entries.entry_type = 'TEAM'` | 与单打 / 双打参赛位同一张表、同一套接口语义 |
+| 队员 | `entry_members(entry_id, player_id, member_order)` | 沿用既有唯一约束 `UNIQUE(player_id)` |
+| 队伍人数 | 无独立字段 | 只有下限"至少 1 人"；具体赛制要几人由赛制决定 |
+
+不新建 `teams` / `team_members`：种子、分组、导出、级联删除、成员冲突检测都已经是"围绕 Entry"实现的，
+再造一套名单表会立刻产生"两处名单谁是真实来源"的分裂。
+
+### `team_ties`（对抗）
+
+| 列 | 含义 |
+|---|---|
+| `tournament_id` | 所属赛事（`ON DELETE CASCADE`） |
+| `stage` | `GROUP` / `KNOCKOUT`（复用 `MatchStage` 的取值，不新增 `MatchStage.TEAM`） |
+| `group_id` / `round` / `match_index` | 小组、轮次、场序（A3 不强制场序唯一，编排属于 A4） |
+| `entry_a_id` / `entry_b_id` | 双方队伍，`NOT NULL`，**故意不带 CASCADE**：删队伍必须被业务层拦住 |
+| `team_a_score` / `team_b_score` / `winner_entry_id` | 对抗比分与胜者；A3 只读，恒为 0 / NULL |
+| `status` | `WAITING` / `PLAYING` / `FINISHED`（A3 只写入初值 `WAITING`） |
+| `format_code` / `format_version` / `format_snapshot` | 建盘时固化的赛制；未建盘时为 NULL |
+| `called_at` / `started_at` / `finished_at` | 预留的时间字段（与 A2 的比赛时间同口径），A3 不写入 |
+
+### `team_rubbers`（盘）
+
+| 列 | 含义 |
+|---|---|
+| `team_tie_id` | 所属对抗（`ON DELETE CASCADE`） |
+| `sequence` | 第几盘；同一对抗内 `UNIQUE (team_tie_id, sequence)`，从 1 连续 |
+| `rubber_type` | `SINGLES` / `DOUBLES`（**没有 TEAM**：TEAM 是赛事项目，不是盘类型） |
+| `home_slots_json` / `away_slots_json` | 每边需要的"位置代号"列表，例如 `["H3","H4"]` |
+| `status` | `PENDING` / `READY` / `PLAYING` / `FINISHED` / `SKIPPED`；A3 只产生 `PENDING` |
+| `match_id` | **A3 恒为 NULL**，预留给 A4 的"盘 → 比赛"适配器 |
+
+位置代号不是选手 id：把选手填进位置（出场名单 / 兼项校验）属于 A4。
+
+## 赛制：`backend/app/domain/team_formats.py`
+
+- `TeamFormatSpec(code, version, display_name, rubbers_to_win, rubbers[])`；
+- `RubberTemplate(sequence, rubber_type, home_slots, away_slots)`；
+- `validate_format_spec()` 只校验**规格自洽**：code 非空、version ≥ 1、盘数 ≥ 1、
+  盘序从 1 连续且唯一、单打 1 个位置 / 双打 2 个位置、位置代号非空且同侧不重复、
+  `1 ≤ rubbers_to_win ≤ 盘数`。它不假设任何一条真实赛事规则；
+- `snapshot_dict / dump_snapshot / load_snapshot`：把规格固化为 JSON（含 `snapshot_version`）。
+  赛事进行中即使注册表升级，历史对抗仍按创建时的 `format_code + format_version + format_snapshot` 解释；
+- `build_rubber_skeleton(spec)`：生成 `status=PENDING` 的盘骨架；
+- **`PRODUCTION_FORMATS = {}` 是故意的**。团体赛赛制差异极大（几单几双、是否必须打满、
+  双打能否兼项、决胜盘规则……），必须由赛事组织方确认冻结后才能登记。A3 不臆造
+  "奥运赛制 / ITTF 经典赛制"之类的规则，也不在代码里放一个"默认赛制"。
+  因此当前生产环境下调用建盘接口一律返回 **422 未知的团体赛赛制**。
+
+测试中使用的赛制 code 形如 `TEST_ONLY_*`，只存在于测试进程内（fixture 注册后自动移除），
+不通过任何接口暴露，也不代表任何官方规则。
+
+## 接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/tournaments/{id}/teams` | 队伍列表（返回 `EntryOut`，`entry_type='TEAM'`） |
+| POST | `/api/tournaments/{id}/teams` | 新建队伍（`display_name`、`member_ids`、可选 `rating_points`） |
+| GET | `/api/tournaments/{id}/teams/{entry_id}` | 单支队伍 |
+| PATCH | `/api/tournaments/{id}/teams/{entry_id}` | 改名 / 全量替换队员 / 改积分 |
+| DELETE | `/api/tournaments/{id}/teams/{entry_id}` | 删除队伍（已被对抗引用时 409） |
+| GET | `/api/tournaments/{id}/team-ties` | 对抗列表 |
+| POST | `/api/tournaments/{id}/team-ties` | 建立对抗（双方必须是同一赛事的 TEAM 队伍） |
+| GET | `/api/tournaments/{id}/team-ties/{tie_id}` | 对抗详情（含盘骨架） |
+| POST | `/api/tournaments/{id}/team-ties/{tie_id}/rubber-skeleton` | 按已登记赛制建盘；已存在时 409，`replace=true` 且全部盘仍为 PENDING 时可重建 |
+
+队伍接口的业务守卫：赛事不存在 → 404；不是 TEAM 项目 → 409；不在 `REGISTRATION` 阶段 → 409；
+队员为空 / 重复 → 422；队员不属于本赛事 → 404；队员已在别处 → 409；队伍重名 → 409；
+已被对抗引用 → 409。全部是业务错误，不会漏成 500。
+
+## 明确未实现（A4+ 待办清单）
+
+1. **队伍名单界面**：前端只有"项目名标签 + 契约薄封装"，没有队伍增删改界面。
+2. **赛制冻结**：需要组织者确认后写入 `PRODUCTION_FORMATS` 并定 version；当前注册表为空。
+3. **对抗编排**：小组内/淘汰结构的对阵生成（抽签、循环编排、场序唯一）未实现，A3 只允许手工建立对抗。
+4. **盘 → 比赛适配器**：`team_rubbers.match_id` 未启用（原因见下节）。
+5. **比分与状态机**：对抗比分、盘比分、`PENDING → READY → PLAYING → FINISHED / SKIPPED` 流转未实现。
+6. **排程 / 球台 / 预计时间**：团体赛不进入调度器与 ETA。一场对抗是否占一张球台、各盘能否并行、
+   兼项选手如何避免撞台——这些问题**尚未冻结**，`services/scheduling.py` 与 `services/eta.py` 未改动。
+7. **团体排名与晋级**：`domain/ranking.py` 是单打/双打口径的胜场-净胜局-积分算法，没有团体赛排名。
+8. **队伍种子**：团体赛种子规则未冻结；`entries.rating_points` 默认 0，只接受显式传入，
+   绝不按队员积分求和或推导；打分赛的「按积分生成种子」对 TEAM / DOUBLES 都返回 409。
+9. **Demo 模拟**：`demo/finish-group-stage` 与小组赛/淘汰赛生成接口对 TEAM 一律 409，不伪造团体赛结果。
+10. **删除与审计**：删赛事会级联清掉 `team_ties` / `team_rubbers`（有测试）；
+    但团体赛的归档与操作审计仍沿用 A1.1 的待办（尚未实现）。
+
+## 关键决策记录：为什么一盘不是一场 Match
+
+A3 刻意**不**为任何一盘创建 `matches` 行：
+
+1. `entry_members` 对 `player_id` 有全局 `UNIQUE` 约束，一名选手最多属于一个参赛实体。
+   一场双打盘需要两名选手同时上场；若把"盘"做成普通 Match，就必须为每一盘再建 Entry、
+   把选手从队伍 Entry 里挪出来 → 直接违反唯一约束。
+2. `services/scheduling.py::_match_member_ids()` 会把 Entry 的**全部**成员标记为占用。
+   若把队伍 Entry 当作比赛一方，排台会把整队人一次性标记为"正在比赛"，明显错误。
+3. 比分展示、冲突检测、ETA、名次推导都建立在"一场比赛 = 两个参赛位、最多两名选手"的假设上。
+
+因此 A3 只落"骨架"（第几盘、单打/双打、每边几个位置），把"盘 ↔ 比赛"的映射连同球台占用与
+兼项校验一起留给 A4 —— 那需要独立的适配器与新表，而不是把团体赛塞进现有 Match。
+
+## 阶段门禁现状（为什么对抗创建不校验 stage）
+
+TEAM 赛事目前**没有任何接口**能把 `stage` 从 `REGISTRATION` 推进到 `GROUP_STAGE`：
+`generate_group_matches()` 与 `generate_knockout()` 对 TEAM 显式 409，`confirm-roster` 只写
+`roster_confirmed`，不改 stage。如果 TeamTie 创建要求"必须已开赛"，就等于永久禁止创建对抗。
+所以 A3 的对抗创建只校验"赛事是 TEAM 项目 + 双方合法"，阶段门禁与 A4 的团体赛排程一起设计。
+队伍编辑仍按既有规则锁定在 `REGISTRATION`（与选手/名单一致）。
+
+## 验证
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests -q -p no:cacheprovider
+.\backend\.venv\Scripts\python.exe backend/export_openapi.py --check
+pnpm -C frontend run build
+```
+
+- `backend/tests/test_team_migration.py`：旧库（CHECK 无 TEAM）迁移、数据与 id 保留、
+  子表外键仍指向 `tournaments`、`PRAGMA foreign_key_check` 为空、重复执行幂等。
+- `backend/tests/test_team_entries.py`：队伍增删改查与全部业务守卫、名单确认三分支、
+  "1 人队伍不被当成单打实体播种"等二元假设回归、TEAM 赛事自动分组。
+- `backend/tests/test_team_domain.py`：赛制校验/快照、生产注册表为空、建盘不创建 Match、
+  重建守卫、单打引擎拒绝 TEAM、导出与级联、API 全流程。
+- `backend/tests/test_tournament_delete_reliability.py`：新增团体赛级联删除用例。
