@@ -450,28 +450,38 @@ def list_tournament_team_rubbers(conn: sqlite3.Connection, tournament_id: int) -
 
 
 # ---------------------------------------- 团体赛运行态（A4.1：lineup 绑定 / 盘比分 / 生命周期）
+#
+# 这些写入一律是"带预期旧状态的条件更新"，并返回是否真的命中了目标状态（rowcount == 1）：
+# 调用方必须先 SELECT 做业务校验，但**判断结论必须由条件更新兜底**，
+# 否则两个并发请求（各自独立 SQLite 连接）可以同时通过校验、再依次无条件写入，
+# 从而绕过"最多一盘 PLAYING""PLAYING 不能被写回 READY""FINISHED 不能改分"等状态机约束。
 
 def set_team_rubber_lineup(
     conn: sqlite3.Connection,
     rubber_id: int,
     home_player_ids_json: str,
     away_player_ids_json: str,
-) -> Optional[dict]:
-    """写入本盘实际参赛人，并把 PENDING → READY（合法阵容就绪即可开始）。"""
-    conn.execute(
+) -> bool:
+    """写入本盘实际参赛人，并把 PENDING → READY。
+
+    只允许 PENDING/READY → READY：盘一旦进入 PLAYING/FINISHED/SKIPPED，这次更新不会命中，
+    因此并发下"先通过校验的 lineup 更新"不可能把 PLAYING 反向写回 READY。
+    """
+    cur = conn.execute(
         "UPDATE team_rubbers SET home_player_ids_json = ?, away_player_ids_json = ?, "
-        "status = 'READY' WHERE id = ?",
+        "status = 'READY' WHERE id = ? AND status IN ('PENDING','READY')",
         (home_player_ids_json, away_player_ids_json, rubber_id),
     )
-    return get_team_rubber(conn, rubber_id)
+    return cur.rowcount == 1
 
 
-def mark_team_rubber_playing(conn: sqlite3.Connection, rubber_id: int) -> None:
-    """READY → PLAYING，记录开始时间。"""
-    conn.execute(
-        "UPDATE team_rubbers SET status = 'PLAYING', started_at = ? WHERE id = ?",
+def mark_team_rubber_playing(conn: sqlite3.Connection, rubber_id: int) -> bool:
+    """READY → PLAYING（原子）：只有当前仍是 READY 的盘才会被写成 PLAYING。"""
+    cur = conn.execute(
+        "UPDATE team_rubbers SET status = 'PLAYING', started_at = ? WHERE id = ? AND status = 'READY'",
         (utc_now(conn), rubber_id),
     )
+    return cur.rowcount == 1
 
 
 def mark_team_rubber_finished(
@@ -480,17 +490,32 @@ def mark_team_rubber_finished(
     home_score: int,
     away_score: int,
     winner_entry_id: int,
-) -> None:
-    """PLAYING → FINISHED，写入盘比分、胜者与结束时间。"""
-    conn.execute(
+) -> bool:
+    """PLAYING → FINISHED（原子）：只有当前仍是 PLAYING 的盘才会被结算。
+
+    并发重复录分时，第二个请求命中 0 行，调用方据此返回 409——本版"不支持改分"
+    因此在数据库层成立，而不是只靠接口层的读后判断。
+    """
+    cur = conn.execute(
         "UPDATE team_rubbers SET status = 'FINISHED', home_score = ?, away_score = ?, "
-        "winner_entry_id = ?, finished_at = ? WHERE id = ?",
+        "winner_entry_id = ?, finished_at = ? WHERE id = ? AND status = 'PLAYING'",
         (home_score, away_score, winner_entry_id, utc_now(conn), rubber_id),
     )
+    return cur.rowcount == 1
+
+
+def list_playing_team_rubbers(conn: sqlite3.Connection, tie_id: int) -> list[dict]:
+    """该对抗当前进行中的盘（含盘 id/序号），用于"同时最多一盘 PLAYING"的校验。"""
+    rows = conn.execute(
+        f"SELECT {_RUBBER_COLS} FROM team_rubbers "
+        f"WHERE team_tie_id = ? AND status = 'PLAYING' ORDER BY sequence",
+        (tie_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def skip_open_team_rubbers(conn: sqlite3.Connection, tie_id: int) -> int:
-    """对抗提前结束后，把还没打的盘（PENDING/READY）标成 SKIPPED；FINISHED 不动。"""
+    """对抗提前结束后，把还没打的盘（PENDING/READY）标成 SKIPPED；FINISHED/PLAYING 不动。"""
     cur = conn.execute(
         "UPDATE team_rubbers SET status = 'SKIPPED' "
         "WHERE team_tie_id = ? AND status IN ('PENDING','READY')",
@@ -509,23 +534,25 @@ def set_team_tie_scores(
     )
 
 
-def mark_team_tie_playing(conn: sqlite3.Connection, tie_id: int) -> None:
+def mark_team_tie_playing(conn: sqlite3.Connection, tie_id: int) -> bool:
     """对抗首次有盘开始：WAITING → PLAYING（called_at 与 started_at 同源记录，只写一次）。"""
     now = utc_now(conn)
-    conn.execute(
+    cur = conn.execute(
         "UPDATE team_ties SET status = 'PLAYING', called_at = COALESCE(called_at, ?), "
-        "started_at = COALESCE(started_at, ?) WHERE id = ?",
+        "started_at = COALESCE(started_at, ?) WHERE id = ? AND status = 'WAITING'",
         (now, now, tie_id),
     )
+    return cur.rowcount == 1
 
 
-def mark_team_tie_finished(conn: sqlite3.Connection, tie_id: int, winner_entry_id: int) -> None:
-    """对抗达到获胜盘数：FINISHED + 胜者 + 结束时间。"""
-    conn.execute(
+def mark_team_tie_finished(conn: sqlite3.Connection, tie_id: int, winner_entry_id: int) -> bool:
+    """对抗达到获胜盘数：FINISHED + 胜者 + 结束时间（只从非 FINISHED 状态迁移一次）。"""
+    cur = conn.execute(
         "UPDATE team_ties SET status = 'FINISHED', winner_entry_id = ?, finished_at = ? "
-        "WHERE id = ?",
+        "WHERE id = ? AND status != 'FINISHED'",
         (winner_entry_id, utc_now(conn), tie_id),
     )
+    return cur.rowcount == 1
 
 
 def delete_team_rubbers_for_tie(conn: sqlite3.Connection, tie_id: int) -> None:
@@ -537,6 +564,20 @@ def find_tie_referencing_entry(conn: sqlite3.Connection, entry_id: int) -> Optio
     row = conn.execute(
         "SELECT id, tournament_id FROM team_ties WHERE entry_a_id = ? OR entry_b_id = ? "
         "ORDER BY id LIMIT 1",
+        (entry_id, entry_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def find_started_tie_for_entry(conn: sqlite3.Connection, entry_id: int) -> Optional[dict]:
+    """查该队伍是否已有"已经开始或已结束"的对抗（PLAYING/FINISHED）。
+
+    这是名单冻结的依据：一旦队伍进入 Runtime（有盘开始），队员名单就不允许再改，
+    否则已提交的 lineup 可能在开赛后指向"已经不属于该队"的选手。
+    """
+    row = conn.execute(
+        "SELECT id, status FROM team_ties WHERE (entry_a_id = ? OR entry_b_id = ?) "
+        "AND status IN ('PLAYING','FINISHED') ORDER BY id LIMIT 1",
         (entry_id, entry_id),
     ).fetchone()
     return dict(row) if row else None

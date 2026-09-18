@@ -3,8 +3,12 @@
 测试用的赛制叫 `TEST_ONLY_*`，只在测试进程内注册，**不代表任何正式团体赛赛制**，
 盘序也没有产品含义：它只是用来验证"与赛制无关"的通用状态机。
 生产注册表始终为空（`PRODUCTION_FORMATS == {}`），赛制冻结后只需注册一个 TeamFormatSpec。
+
+PR #20 复审后补充：名单冻结 / lineup 失效重校验（P1-1）、并发下的原子状态迁移（P1-2）、
+"多盘 PLAYING"不变量必须在写入之前校验（P2）。
 """
 
+import concurrent.futures
 import json
 import sqlite3
 
@@ -342,18 +346,35 @@ def test_lineup_can_be_replaced_while_ready(conn, runtime_format):
 
 
 def test_domain_conflict_when_two_rubbers_playing(conn, runtime_format):
-    """绕过接口把两盘写成 PLAYING 时，结算必须拒绝而不是留下脏状态。"""
+    """绕过接口把两盘写成 PLAYING 时，结算必须在**任何写入之前**拒绝。
+
+    Reviewer P2：旧实现先 mark_finished 再检查，抛出 409 时当前盘已经被改成 FINISHED
+    （未提交的脏状态），与注释"拒绝继续而不是留脏状态"不一致。
+    """
     s = _setup(conn, runtime_format)
     view = _play(conn, s, 0, 2, 0)
     second = view["rubbers"][1]["id"]
     runtime.set_lineup(conn, s.tournament_id, s.tie_id, second, s.home_ids[:1], s.away_ids[:1])
     runtime.start_rubber(conn, s.tournament_id, s.tie_id, second)
-    conn.execute("UPDATE team_rubbers SET status = 'PLAYING' WHERE id = ?", (s.rubbers[0],))
+    # 绕过接口把第一盘也写成 PLAYING（模拟旧数据/直连写入造成的非法状态）
+    conn.execute(
+        "UPDATE team_rubbers SET status = 'PLAYING', started_at = datetime('now') WHERE id = ?",
+        (s.rubbers[0],),
+    )
     conn.commit()
+    tie_before = repo.get_team_tie(conn, s.tie_id)
+
     with pytest.raises(runtime.TeamRuntimeError) as excinfo:
         runtime.record_rubber_score(conn, s.tournament_id, s.tie_id, second, 2, 0)
     assert excinfo.value.code == 409
-    assert "多盘同时进行" in str(excinfo.value)
+    assert "拒绝自动结算" in str(excinfo.value)
+
+    # 关键断言：失败后没有任何半成品写入
+    current = repo.get_team_rubber(conn, second)
+    assert current["status"] == "PLAYING"
+    assert current["home_score"] is None and current["away_score"] is None
+    assert current["finished_at"] is None
+    assert repo.get_team_tie(conn, s.tie_id) == tie_before
 
 
 # --------------------------------------------------------------- 阵容校验
@@ -739,3 +760,247 @@ def test_export_includes_runtime_fields_and_stays_read_only(conn, runtime_format
     tie_row = next(t for t in exported["team_ties"] if t["id"] == s.tie_id)
     assert (tie_row["team_a_score"], tie_row["team_b_score"]) == (1, 0)
     assert tie_row["status"] == "PLAYING"
+
+
+# ================================================================ PR #20 复审返工
+# P1-1：名单冻结与 lineup 失效重校验
+# P1-2：并发下的原子状态迁移
+# P2  ：多盘 PLAYING 不变量必须在任何写入之前校验
+
+
+def _run_in_parallel(*calls):
+    """在两个独立 SQLite 连接（两个线程）上并发执行，返回 (结果 or 异常) 列表。"""
+
+    def run(fn):
+        worker_conn = db_module.connect()
+        try:
+            return ("ok", fn(worker_conn))
+        except Exception as exc:  # noqa: BLE001 - 测试需要同时收集成功与业务错误
+            return ("err", exc)
+        finally:
+            worker_conn.close()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(calls)) as pool:
+        futures = [pool.submit(run, fn) for fn in calls]
+        return [f.result() for f in futures]
+
+
+# ---------------------------------------------------------------- P1-1 名单冻结
+
+def test_ready_lineup_invalidated_when_member_removed(conn, runtime_format):
+    """READY 之后把队员移出队伍：旧 lineup 不得再无条件 start（Reviewer P1-1 复现路径）。"""
+    s = _setup(conn, runtime_format)
+    rubber = s.rubbers[0]
+    removed = s.home_ids[0]
+    runtime.set_lineup(conn, s.tournament_id, s.tie_id, rubber, [removed], s.away_ids[:1])
+
+    # 对抗还没开始（WAITING），因此名单修正本身仍允许
+    teams_service.update_team_entry(
+        conn, s.tournament_id, s.team_a, member_ids=s.home_ids[1:]
+    )
+    assert removed not in [m["player_id"] for m in repo.get_entry(conn, s.team_a)["members"]]
+
+    view = runtime.runtime_view(conn, s.tournament_id, s.tie_id)
+    first = view["rubbers"][0]
+    assert first["status"] == "READY"  # 盘状态没有被偷偷改掉
+    assert first["home_player_ids"] == [removed]  # 保存的阵容也还在
+    assert first["lineup_valid"] is False
+    assert "失效" in first["lineup_invalid_reason"]
+    # 权限必须与服务端守卫一致：不能开始
+    assert first["permissions"]["can_start"] is False
+    assert view["permissions"]["can_start"] is False
+
+    with pytest.raises(runtime.TeamRuntimeError) as excinfo:
+        runtime.start_rubber(conn, s.tournament_id, s.tie_id, rubber)
+    assert excinfo.value.code == 409
+    assert "阵容" in str(excinfo.value)
+    assert repo.get_team_rubber(conn, rubber)["status"] == "READY"  # 没有半成品写入
+
+    # 重新提交合法阵容后即可开始
+    fixed = runtime.set_lineup(
+        conn, s.tournament_id, s.tie_id, rubber, s.home_ids[1:2], s.away_ids[:1]
+    )
+    assert fixed["rubbers"][0]["lineup_valid"] is True
+    assert fixed["rubbers"][0]["permissions"]["can_start"] is True
+    started = runtime.start_rubber(conn, s.tournament_id, s.tie_id, rubber)
+    assert started["rubbers"][0]["status"] == "PLAYING"
+
+
+def test_ready_lineup_invalidated_when_team_withdraws(conn, runtime_format):
+    """READY 之后整队退赛：start 必须拒绝（Reviewer P1-1 提到的第二条路径）。"""
+    s = _setup(conn, runtime_format)
+    rubber = s.rubbers[0]
+    runtime.set_lineup(conn, s.tournament_id, s.tie_id, rubber, s.home_ids[:1], s.away_ids[:1])
+    entries_service.withdraw_from_tournament(conn, s.tournament_id, s.team_b, "主裁", "整队退赛")
+
+    view = runtime.runtime_view(conn, s.tournament_id, s.tie_id)
+    assert view["rubbers"][0]["lineup_valid"] is False
+    assert "已退出赛事" in view["rubbers"][0]["lineup_invalid_reason"]
+    assert view["rubbers"][0]["permissions"]["can_start"] is False
+
+    with pytest.raises(runtime.TeamRuntimeError) as excinfo:
+        runtime.start_rubber(conn, s.tournament_id, s.tie_id, rubber)
+    assert excinfo.value.code == 409
+    assert "已退出赛事" in str(excinfo.value)
+
+
+def test_roster_frozen_after_tie_starts(conn, runtime_format):
+    """对抗一旦进入 PLAYING，队员名单冻结；改名与积分不受影响。"""
+    s = _setup(conn, runtime_format)
+    _play(conn, s, 0, 2, 0)  # 第一盘打完 → 对抗 PLAYING
+
+    with pytest.raises(teams_service.TeamError) as excinfo:
+        teams_service.update_team_entry(
+            conn, s.tournament_id, s.team_a, member_ids=s.home_ids[:1]
+        )
+    assert excinfo.value.code == 409
+    assert "锁定" in str(excinfo.value)
+    # 名单没有被改动
+    assert [m["player_id"] for m in repo.get_entry(conn, s.team_a)["members"]] == s.home_ids
+
+    renamed = teams_service.update_team_entry(
+        conn, s.tournament_id, s.team_a, display_name="A队（改名）"
+    )
+    assert renamed["display_name"] == "A队（改名）"
+    assert [m["player_id"] for m in renamed["members"]] == s.home_ids
+
+
+def test_roster_stays_frozen_after_tie_finished(conn, short_format):
+    """对抗结束后名单仍然冻结（历史 lineup 必须一直可解释）。"""
+    s = _setup(conn, short_format)
+    _play(conn, s, 0, 2, 0)
+    view = _play(conn, s, 1, 2, 0)
+    assert view["status"] == "FINISHED"
+
+    with pytest.raises(teams_service.TeamError) as excinfo:
+        teams_service.update_team_entry(
+            conn, s.tournament_id, s.team_b, member_ids=s.away_ids[:1]
+        )
+    assert excinfo.value.code == 409
+
+
+def test_delete_team_still_blocked_after_tie(conn, runtime_format):
+    """删除队伍在对抗存在时始终被拒（P1-1 的另一条面：队伍级操作不能绕过）。"""
+    s = _setup(conn, runtime_format)
+    with pytest.raises(teams_service.TeamError) as excinfo:
+        teams_service.delete_team_entry(conn, s.tournament_id, s.team_a)
+    assert excinfo.value.code == 409
+
+
+# ---------------------------------------------------------------- P1-2 原子状态迁移
+
+def test_conditional_updates_cannot_resurrect_or_rescore(conn, runtime_format):
+    """条件更新（带预期旧状态 + rowcount）在数据库层保证状态机。
+
+    即使有人绕过服务层直接调用仓储函数：PLAYING 不能被写回 READY，FINISHED 不能被二次结算。
+    """
+    s = _setup(conn, runtime_format)
+    rubber = s.rubbers[0]
+    runtime.set_lineup(conn, s.tournament_id, s.tie_id, rubber, s.home_ids[:1], s.away_ids[:1])
+    runtime.start_rubber(conn, s.tournament_id, s.tie_id, rubber)
+    saved = repo.get_team_rubber(conn, rubber)
+    assert saved["status"] == "PLAYING"
+
+    # ① 直接改阵容：不命中 → 不会把 PLAYING 反向写回 READY
+    assert repo.set_team_rubber_lineup(conn, rubber, "[]", "[]") is False
+    conn.commit()
+    after = repo.get_team_rubber(conn, rubber)
+    assert (after["status"], after["home_player_ids_json"]) == (
+        "PLAYING", saved["home_player_ids_json"],
+    )
+
+    # ② 直接重复 start：不命中
+    assert repo.mark_team_rubber_playing(conn, rubber) is False
+    conn.commit()
+
+    # ③ 结算一次成功，第二次不命中（本版不支持改分）
+    assert repo.mark_team_rubber_finished(conn, rubber, 2, 0, s.team_a) is True
+    conn.commit()
+    assert repo.mark_team_rubber_finished(conn, rubber, 0, 2, s.team_b) is False
+    conn.commit()
+    final = repo.get_team_rubber(conn, rubber)
+    assert final["status"] == "FINISHED"
+    assert (final["home_score"], final["away_score"], final["winner_entry_id"]) == (2, 0, s.team_a)
+
+
+def test_concurrent_double_start_allows_only_one(conn, runtime_format):
+    """两个并发 start（不同盘、同一对抗）：只能有一盘进入 PLAYING。"""
+    s = _setup(conn, runtime_format)
+    for index in (0, 1):
+        runtime.set_lineup(
+            conn, s.tournament_id, s.tie_id, s.rubbers[index], s.home_ids[:1], s.away_ids[:1]
+        )
+
+    results = _run_in_parallel(
+        lambda c: runtime.start_rubber(c, s.tournament_id, s.tie_id, s.rubbers[0]),
+        lambda c: runtime.start_rubber(c, s.tournament_id, s.tie_id, s.rubbers[1]),
+    )
+    ok = [r for status, r in results if status == "ok"]
+    err = [r for status, r in results if status == "err"]
+    assert len(ok) == 1, [str(e) for e in err]
+    assert len(err) == 1
+    assert isinstance(err[0], runtime.TeamRuntimeError) and err[0].code == 409
+
+    # 数据库层不变量：同一对抗最多一盘 PLAYING
+    playing = repo.list_playing_team_rubbers(conn, s.tie_id)
+    assert len(playing) == 1
+    view = runtime.runtime_view(conn, s.tournament_id, s.tie_id)
+    assert [r["status"] for r in view["rubbers"]].count("PLAYING") == 1
+    assert [r["id"] for r in view["rubbers"] if r["status"] == "PLAYING"] == [playing[0]["id"]]
+    assert view["status"] == "PLAYING"
+
+
+def test_write_lock_contention_returns_readable_conflict(conn, runtime_format):
+    """另一个连接持有写锁时返回可读的 409，而不是把 SQLite 锁错误漏成 500。"""
+    s = _setup(conn, runtime_format)
+    runtime.set_lineup(
+        conn, s.tournament_id, s.tie_id, s.rubbers[0], s.home_ids[:1], s.away_ids[:1]
+    )
+    blocker = db_module.connect()
+    other = sqlite3.connect(str(db_module._db_path()), timeout=0.2, check_same_thread=False)
+    other.row_factory = sqlite3.Row
+    other.execute("PRAGMA foreign_keys = ON")
+    try:
+        blocker.execute("BEGIN IMMEDIATE")
+        blocker.execute("UPDATE team_rubbers SET sequence = sequence WHERE id = ?", (s.rubbers[0],))
+        with pytest.raises(runtime.TeamRuntimeError) as excinfo:
+            runtime.start_rubber(other, s.tournament_id, s.tie_id, s.rubbers[0])
+        assert excinfo.value.code == 409
+        assert "正在被另一个请求处理" in str(excinfo.value)
+    finally:
+        blocker.rollback()
+        blocker.close()
+        other.close()
+
+    # 锁释放后照常可以开始
+    view = runtime.start_rubber(conn, s.tournament_id, s.tie_id, s.rubbers[0])
+    assert view["rubbers"][0]["status"] == "PLAYING"
+
+
+def test_concurrent_double_score_keeps_first_result(conn, runtime_format):
+    """同一 PLAYING 盘并发录两次分：只保留第一笔（P1-2 的"不允许改分"）。"""
+    s = _setup(conn, runtime_format)
+    rubber = s.rubbers[0]
+    runtime.set_lineup(conn, s.tournament_id, s.tie_id, rubber, s.home_ids[:1], s.away_ids[:1])
+    runtime.start_rubber(conn, s.tournament_id, s.tie_id, rubber)
+
+    results = _run_in_parallel(
+        lambda c: runtime.record_rubber_score(c, s.tournament_id, s.tie_id, rubber, 2, 0),
+        lambda c: runtime.record_rubber_score(c, s.tournament_id, s.tie_id, rubber, 0, 2),
+    )
+    ok_indexes = [i for i, (status, _) in enumerate(results) if status == "ok"]
+    errors = [r for status, r in results if status == "err"]
+    assert len(ok_indexes) == 1, [str(e) for e in errors]
+    assert isinstance(errors[0], runtime.TeamRuntimeError) and errors[0].code == 409
+
+    # 落库结果必须**整笔**来自胜出的那一次请求，不能出现比分与胜者来自不同请求的混合
+    stored = repo.get_team_rubber(conn, rubber)
+    expected = (2, 0, s.team_a) if ok_indexes[0] == 0 else (0, 2, s.team_b)
+    assert stored["status"] == "FINISHED"
+    assert (stored["home_score"], stored["away_score"], stored["winner_entry_id"]) == expected
+    # 对抗分只累计一次（没有被第二笔覆盖成 1:1 或两次累加）
+    tie = repo.get_team_tie(conn, s.tie_id)
+    assert (tie["team_a_score"], tie["team_b_score"]) == (
+        (1, 0) if ok_indexes[0] == 0 else (0, 1)
+    )
+

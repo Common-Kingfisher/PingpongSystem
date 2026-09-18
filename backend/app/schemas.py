@@ -224,6 +224,9 @@ class TeamRubberRuntimeOut(BaseModel):
     winner_entry_id: int | None = None
     # 预留给以后的 Match 适配器；A4.1 仍然恒为 None（一盘不是一场普通比赛）。
     match_id: int | None = None
+    # 已保存阵容是否仍满足"选手属于本队 + 队伍在赛"；失效时 start 会 409（可重新提交阵容）。
+    lineup_valid: bool = True
+    lineup_invalid_reason: str | None = None
     permissions: TeamPermissionOut
     lineup_options: TeamLineupOptionsOut
     created_at: str

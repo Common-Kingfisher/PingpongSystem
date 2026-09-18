@@ -1,16 +1,19 @@
 """团体队伍（TeamEntry）服务：复用 entries(entry_type='TEAM') + entry_members。
 
-A3 的边界（读代码前请先读这段）：
+边界（读代码前请先读这段）：
 - 队伍不是新表：一支队伍就是一个 Entry（entry_type='TEAM'），队员就是 entry_members。
   这样种子、分组、导出、级联删除等既有机制不用为团体赛再写一套。
 - 队伍人数规则只有下限"至少 1 名队员"。具体赛制要求几人（几单几双、能否兼项）
-  由赛制（domain/team_formats.py）决定，A3 不臆造任何人数上限或"必须 3 人"之类规则。
+  由赛制（domain/team_formats.py）决定，不臆造任何人数上限或"必须 3 人"之类规则。
 - 队伍积分（entries.rating_points）默认 0：团体赛种子规则尚未冻结，
   这里不会用队员积分自动求和或推导种子，只接受调用方显式传入的值。
-- 名单锁定只认 stage：进入 GROUP_STAGE 及以后禁止增删改队伍，与选手/名单服务一致。
-  roster_confirmed 只表示"名单已确认"，A3 不额外用它做队伍编辑锁
-  （系统目前没有"取消确认"能力，加了锁就没有退路）；A4 引入出场名单后必须
-  重新设计这条冻结规则。
+- 名单锁定分两层：
+  1. **阶段锁**：进入 GROUP_STAGE 及以后禁止增删改队伍（与选手/名单服务一致）；
+     `roster_confirmed` 只表示"名单已确认"，不作为编辑锁（系统没有"取消确认"能力）。
+  2. **Runtime 锁（A4.1）**：队伍一旦有对抗进入 PLAYING/FINISHED，**队员名单冻结**——
+     已开赛的对抗不能因为中途换人而让"已经不属于本队"的选手继续上场。
+     改名与积分不受影响；对抗尚未开始时仍可修正名单，但已提交的 lineup 会在 start 时
+     被原子重校验（见 services/team_runtime.py）。
 """
 
 import sqlite3
@@ -171,6 +174,15 @@ def update_team_entry(
         raise TeamError(f"已存在同名队伍「{name}」", 409)
 
     if member_ids is not None:
+        # Runtime 锁：队伍已有对抗进入 PLAYING/FINISHED 时不允许再动队员名单，
+        # 否则已经提交/正在进行的 lineup 可能指向"已经不属于该队"的选手。
+        started_tie = repo.find_started_tie_for_entry(conn, entry_id)
+        if started_tie is not None:
+            raise TeamError(
+                f"该队伍已进入比赛（对抗 #{started_tie['id']}，状态 {started_tie['status']}），"
+                f"队员名单已锁定：团体赛名单在对抗开始后不可更改",
+                409,
+            )
         members = _dedup_member_ids(member_ids)
         _check_members(conn, tournament_id, members, exclude_entry_id=entry_id)
         repo.replace_entry_members(conn, entry_id, members)
