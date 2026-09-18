@@ -100,6 +100,43 @@ def test_zero_match_group_stage_is_not_reported_as_ungenerated(client, qualify):
     assert qualification["level"] == ("READY" if qualify == 1 else "BLOCK")
 
 
+def test_zero_match_group_can_regenerate_knockout_after_undo(client):
+    tournament_id = client.post(
+        "/api/tournaments",
+        json={
+            "name": "零场小组撤销往返测试",
+            "date": "2026-09-09",
+            "table_count": 2,
+            "group_count": 4,
+            "qualify_per_group": 1,
+        },
+    ).json()["id"]
+    for index in range(4):
+        client.post(
+            f"/api/tournaments/{tournament_id}/players",
+            json={"name": f"选手{index + 1}"},
+        )
+    client.post(f"/api/tournaments/{tournament_id}/auto-group")
+    generated = client.post(f"/api/tournaments/{tournament_id}/generate-group-matches")
+    assert generated.status_code == 200
+    assert generated.json()["matches_generated"] == 0
+
+    first_knockout = client.post(f"/api/tournaments/{tournament_id}/generate-knockout")
+    assert first_knockout.status_code == 200
+
+    undone = client.post(f"/api/tournaments/{tournament_id}/knockout/undo")
+    assert undone.status_code == 200
+    assert undone.json()["tournament"]["stage"] == "GROUP_STAGE"
+
+    report = client.get(f"/api/tournaments/{tournament_id}/preflight").json()
+    schedule = next(item for item in report["checks"] if item["code"] == "group_schedule")
+    assert schedule["level"] == "READY"
+    assert "无需产生" in schedule["detail"]
+
+    regenerated = client.post(f"/api/tournaments/{tournament_id}/generate-knockout")
+    assert regenerated.status_code == 200
+
+
 @pytest.mark.parametrize("damage", ["missing", "duplicate", "null", "empty"])
 def test_invalid_round_robin_blocks_qualification(client, conn, damage):
     tid = _create(client)
