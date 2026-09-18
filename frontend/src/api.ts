@@ -17,6 +17,9 @@ export type TableStatus = Schemas['TableStatus']
 export type TournamentStage = Schemas['TournamentStage']
 export type MatchStage = Schemas['MatchStage']
 export type EventType = Schemas['EventType']
+export type TeamTieStatus = Schemas['TeamTieStatus']
+export type TeamRubberStatus = Schemas['TeamRubberStatus']
+export type TeamRubberType = Schemas['TeamRubberType']
 export type TournamentMode = Schemas['TournamentMode']
 export type BronzeMode = Schemas['BronzeMode']
 export type PlacementMode = Schemas['PlacementMode']
@@ -31,6 +34,10 @@ export type EntryMember = Schemas['EntryMemberOut']
 export type Entry = Schemas['EntryOut']
 export type PairingResult = Schemas['PairingResult']
 export type ConfirmRosterResult = Schemas['ConfirmRosterResult']
+// 团体赛（A3）：队伍就是 entry_type='TEAM' 的 Entry，所以复用 Entry 类型，不复制字段。
+export type TeamTie = Schemas['TeamTieOut']
+export type TeamTieDetail = Schemas['TeamTieDetailOut']
+export type TeamRubber = Schemas['TeamRubberOut']
 export type GroupPlayer = Schemas['GroupPlayerOut']
 export type GroupInfo = Schemas['GroupOut']
 export type GroupingResult = Schemas['GroupingResult']
@@ -218,6 +225,47 @@ export const api = {
   confirmRoster: (tournamentId: number) =>
     request<ConfirmRosterResult>(`/api/tournaments/${tournamentId}/confirm-roster`, {
       method: 'POST',
+    }),
+
+  // 团体赛（A3）：队伍即 Entry（entry_type='TEAM'），队员即 entry_members。
+  // 这些接口暂时没有对应界面（队伍名单/团体对抗编排不在本版本范围内），先按契约收口，
+  // 便于后续直接接入；所有业务错误（非团体赛事、名单已锁定、队员重复等）由后端返回可读 detail。
+  listTeams: (tournamentId: number) =>
+    request<Entry[]>(`/api/tournaments/${tournamentId}/teams`),
+  createTeam: (tournamentId: number, body: Schemas['TeamEntryCreate']) =>
+    request<Entry>(`/api/tournaments/${tournamentId}/teams`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getTeam: (tournamentId: number, entryId: number) =>
+    request<Entry>(`/api/tournaments/${tournamentId}/teams/${entryId}`),
+  updateTeam: (tournamentId: number, entryId: number, body: Schemas['TeamEntryUpdate']) =>
+    request<Entry>(`/api/tournaments/${tournamentId}/teams/${entryId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteTeam: (tournamentId: number, entryId: number) =>
+    request<void>(`/api/tournaments/${tournamentId}/teams/${entryId}`, { method: 'DELETE' }),
+
+  // 团体对抗与盘骨架：A3 只能建"骨架"（每盘需要几个出场位置），不创建任何普通比赛。
+  // 赛制必须来自后端已冻结的注册表，未登记的赛制会返回 422，前端不做任何本地兜底规则。
+  listTeamTies: (tournamentId: number) =>
+    request<TeamTie[]>(`/api/tournaments/${tournamentId}/team-ties`),
+  createTeamTie: (tournamentId: number, body: Schemas['TeamTieCreate']) =>
+    request<TeamTie>(`/api/tournaments/${tournamentId}/team-ties`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getTeamTie: (tournamentId: number, tieId: number) =>
+    request<TeamTieDetail>(`/api/tournaments/${tournamentId}/team-ties/${tieId}`),
+  buildRubberSkeleton: (
+    tournamentId: number,
+    tieId: number,
+    body: Schemas['RubberSkeletonRequest'],
+  ) =>
+    request<TeamTieDetail>(`/api/tournaments/${tournamentId}/team-ties/${tieId}/rubber-skeleton`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     }),
 
   getGroups: (tournamentId: number) =>

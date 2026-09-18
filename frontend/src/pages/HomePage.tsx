@@ -2,7 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, BronzeMode, Dashboard, EventType, PlacementMode, Tournament, TournamentMode } from '../api'
 import { getActiveTournamentId, setActiveTournamentId } from '../activeTournament'
-import { formatName, formatOptions } from '../format'
+import { eventTypeLabel, formatName, formatOptions } from '../format'
 
 interface FormState {
   name: string
@@ -169,7 +169,7 @@ export default function HomePage() {
           <p className="muted">
             日期 {current.date} · 球台 {current.table_count} 张 · 小组 {current.group_count} 个 ·
             每组晋级 {current.qualify_per_group} 人
-            {` · ${current.event_type === 'DOUBLES' ? '双打' : '单打'}`}
+            {` · ${eventTypeLabel(current.event_type)}`}
             {dash && ` · 比赛 ${dash.stats.finished}/${dash.stats.total} 场`}
           </p>
           {dash && (
@@ -378,7 +378,7 @@ export default function HomePage() {
                 <td>{t.table_count}</td>
                 <td>{t.group_count}</td>
                 <td>{t.qualify_per_group}</td>
-                <td>{t.event_type === 'DOUBLES' ? '双打' : '单打'}</td>
+                <td>{eventTypeLabel(t.event_type)}</td>
                 <td>
                   <span className="badge">{t.stage}</span>
                 </td>

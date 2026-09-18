@@ -495,7 +495,7 @@ export default function PlayersPage() {
             按积分生成种子
           </button>
           {tournament?.event_type !== 'SINGLES' && (
-            <span className="muted">双打赛事的种子规则尚未确定，暂不支持自动生成。</span>
+            <span className="muted">当前仅支持单打按积分自动生成种子；双打与团体赛的种子规则尚未冻结。</span>
           )}
           {locked && <span className="muted">赛事已进入比赛阶段，种子已锁定。</span>}
         </div>
