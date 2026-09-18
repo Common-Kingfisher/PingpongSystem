@@ -1,8 +1,10 @@
 """A3：团体赛领域核心 —— TeamFormatSpec 校验/快照、TeamTie/TeamRubber 骨架、与 Match 的边界。
 
 三条必须锁死的边界：
-1. 生产赛制注册表为空：A3 不臆造任何"经典赛制"（OLYMPIC / ITTF_CLASSIC 之类一律不存在），
-   未登记的赛制调用建盘一律 422。测试里用的赛制叫 TEST_ONLY_*，只存在于测试进程内。
+1. 生产赛制注册表**只允许出现组织者确认过的版本化模板**：A3 当时为空，A5 起只有
+   `LOCAL_CLASSIC_5_V1`。臆造的赛制（OLYMPIC / ITTF_CLASSIC 之类）一律不存在，
+   未登记的赛制调用建盘一律 422。测试里用的赛制叫 `TEST_ONLY_*`，只存在于测试进程内、
+   不得出现在生产注册表里。
 2. 骨架只记录"这一盘需要几个出场位置"，绝不创建 Match：team_rubbers.match_id 恒为 NULL。
 3. 团体赛不进入单打引擎：小组赛/淘汰赛生成器必须显式拒绝 TEAM，而不是悄悄生成一堆
    "队伍 vs 队伍"的普通比赛。
@@ -84,11 +86,14 @@ def test_event_type_is_three_way_and_has_no_team_match_stage():
     assert {s.value for s in TeamRubberStatus} == {"PENDING", "READY", "PLAYING", "FINISHED", "SKIPPED"}
 
 
-# --------------------------------------------------------------- 生产注册表为空
+# --------------------------------------------------------- 生产注册表只放确认过的模板
 
-def test_production_format_registry_is_empty():
-    assert team_formats.PRODUCTION_FORMATS == {}
-    for invented in ("OLYMPIC", "ITTF_CLASSIC", "BESTOF5"):
+def test_production_format_registry_only_holds_confirmed_templates():
+    """生产注册表 = 已确认冻结的平台模板清单；臆造的"官方赛制"一律不存在。"""
+    assert set(team_formats.PRODUCTION_FORMATS) == {"LOCAL_CLASSIC_5_V1"}
+    # 测试用赛制绝不能漏进生产注册表（否则真实 API 会暴露测试赛制）
+    assert not [code for code in team_formats.PRODUCTION_FORMATS if code.startswith("TEST_ONLY")]
+    for invented in ("OLYMPIC", "ITTF_CLASSIC", "BESTOF5", "TEST_ONLY_SKELETON"):
         with pytest.raises(team_formats.TeamFormatError) as excinfo:
             team_formats.get_format_spec(invented)
         assert "未知的团体赛赛制" in str(excinfo.value)
@@ -388,7 +393,7 @@ def test_get_and_list_team_tie_errors(conn):
 # ------------------------------------------------------------------ 骨架构建
 
 def test_skeleton_requires_a_registered_format(conn):
-    """生产注册表为空：任何建盘请求都必须 422，而且不留下半个骨架。"""
+    """未登记的赛制：建盘必须 422，而且不留下半个骨架。"""
     tid = _team_tournament(conn)
     a, b = _two_teams(conn, tid)
     tie = tie_service.create_team_tie(conn, tid, a["id"], b["id"])
