@@ -11,6 +11,8 @@ PR #20 复审后补充：名单冻结 / lineup 失效重校验（P1-1）、并�
 import concurrent.futures
 import json
 import sqlite3
+import threading
+import time
 
 import pytest
 
@@ -1003,4 +1005,203 @@ def test_concurrent_double_score_keeps_first_result(conn, runtime_format):
     assert (tie["team_a_score"], tie["team_b_score"]) == (
         (1, 0) if ok_indexes[0] == 0 else (0, 1)
     )
+
+
+# ------------------------------------------------ P1（最新）：名单变更与 start 的写锁协议
+
+class _BackgroundCall:
+    """在独立连接/线程上跑一次服务调用，主线程可以继续推进（用于确定性的锁顺序测试）。"""
+
+    def __init__(self, fn):
+        self.result = None
+        self._fn = fn
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self):
+        worker_conn = db_module.connect()
+        try:
+            self.result = ("ok", self._fn(worker_conn))
+        except Exception as exc:  # noqa: BLE001 - 测试需要业务错误本身
+            self.result = ("err", exc)
+        finally:
+            worker_conn.close()
+
+    def start(self):
+        self._thread.start()
+        return self
+
+    def join(self, timeout: float = 15.0):
+        self._thread.join(timeout)
+        assert self.result is not None, "后台调用没有在超时内结束"
+        return self.result
+
+
+def _roster_of(conn, entry_id) -> list[int]:
+    return [m["player_id"] for m in repo.get_entry(conn, entry_id)["members"]]
+
+
+def _assert_no_broken_lineup(conn, s, rubber_id: int, removed_player: int) -> None:
+    """本次 blocker 的核心不变量：绝不出现「盘 PLAYING 且阵容里的选手已不属于该队」。"""
+    broken = (
+        repo.get_team_rubber(conn, rubber_id)["status"] == "PLAYING"
+        and removed_player not in _roster_of(conn, s.team_a)
+    )
+    assert not broken, "出现坏状态：盘已 PLAYING，但阵容里的选手已经不在队伍名单中"
+
+
+def test_concurrent_roster_update_and_start_are_serialized(conn, runtime_format):
+    """真实并发：改队员名单（移出 p1）与 start 同一盘，两者必须被写锁串行化。
+
+    允许的两种结果：
+      - PATCH 赢：成员已替换、盘仍 READY（start 409 阵容失效）；
+      - start 赢：盘 PLAYING、成员未变（PATCH 409 名单锁定）。
+    绝不允许两件都成功。
+    """
+    s = _setup(conn, runtime_format)
+    rubber = s.rubbers[0]
+    removed = s.home_ids[0]
+    runtime.set_lineup(conn, s.tournament_id, s.tie_id, rubber, [removed], s.away_ids[:1])
+
+    results = _run_in_parallel(
+        lambda c: teams_service.update_team_entry(
+            c, s.tournament_id, s.team_a, member_ids=s.home_ids[1:]
+        ),
+        lambda c: runtime.start_rubber(c, s.tournament_id, s.tie_id, rubber),
+    )
+    ok_indexes = [i for i, (status, _) in enumerate(results) if status == "ok"]
+    errors = [r for status, r in results if status == "err"]
+    assert len(ok_indexes) == 1, [str(e) for e in errors]
+    assert len(errors) == 1
+    assert errors[0].code == 409
+
+    _assert_no_broken_lineup(conn, s, rubber, removed)
+    if ok_indexes[0] == 1:  # start 赢
+        assert repo.get_team_rubber(conn, rubber)["status"] == "PLAYING"
+        assert removed in _roster_of(conn, s.team_a)  # PATCH 没有生效
+        assert isinstance(errors[0], teams_service.TeamError)
+        assert "锁定" in str(errors[0])
+    else:  # PATCH 赢
+        assert removed not in _roster_of(conn, s.team_a)
+        assert repo.get_team_rubber(conn, rubber)["status"] == "READY"  # start 没有生效
+        assert repo.get_team_tie(conn, s.tie_id)["status"] == "WAITING"
+        assert isinstance(errors[0], runtime.TeamRuntimeError)
+        assert "阵容" in str(errors[0])
+
+
+def test_roster_update_first_then_start_is_rejected(conn, runtime_format, monkeypatch):
+    """确定性锁顺序 A：PATCH 先持写锁（在替换成员时暂停），start 只能排队 → 409。"""
+    s = _setup(conn, runtime_format)
+    rubber = s.rubbers[0]
+    removed = s.home_ids[0]
+    runtime.set_lineup(conn, s.tournament_id, s.tie_id, rubber, [removed], s.away_ids[:1])
+
+    locked = threading.Event()
+    release = threading.Event()
+    original_replace = repo.replace_entry_members
+
+    def slow_replace(c, entry_id, member_ids):
+        result = original_replace(c, entry_id, member_ids)  # 已取写锁且替换完成（未提交）
+        locked.set()
+        assert release.wait(15), "测试没有释放名单写事务"
+        return result
+
+    monkeypatch.setattr(repo, "replace_entry_members", slow_replace)
+    patch_call = _BackgroundCall(
+        lambda c: teams_service.update_team_entry(
+            c, s.tournament_id, s.team_a, member_ids=s.home_ids[1:]
+        )
+    ).start()
+    assert locked.wait(15), "名单写事务没有开始"
+
+    # PATCH 持有写锁期间 start 只能等待；释放后它读到的是 PATCH 已提交的名单
+    start_call = _BackgroundCall(
+        lambda c: runtime.start_rubber(c, s.tournament_id, s.tie_id, rubber)
+    ).start()
+    time.sleep(0.25)  # 给 start 真正去抢写锁的时间
+    assert start_call.result is None, "start 没有被名单写事务的写锁挡住（说明两者没上同一把锁）"
+    release.set()
+
+    patch_status, patch_value = patch_call.join()
+    start_status, start_value = start_call.join()
+    assert patch_status == "ok", str(patch_value)
+    assert start_status == "err"
+    assert isinstance(start_value, runtime.TeamRuntimeError) and start_value.code == 409
+    assert "阵容" in str(start_value)
+
+    # 最终状态：PATCH 成功 + START 失败，盘仍是 READY，p1 已离队
+    assert removed not in _roster_of(conn, s.team_a)
+    assert repo.get_team_rubber(conn, rubber)["status"] == "READY"
+    assert repo.get_team_tie(conn, s.tie_id)["status"] == "WAITING"
+    _assert_no_broken_lineup(conn, s, rubber, removed)
+
+
+def test_start_first_then_roster_update_is_rejected(conn, runtime_format, monkeypatch):
+    """确定性锁顺序 B：start 先持写锁（写入 PLAYING 时暂停），PATCH 只能排队 → 409 名单锁定。"""
+    s = _setup(conn, runtime_format)
+    rubber = s.rubbers[0]
+    removed = s.home_ids[0]
+    runtime.set_lineup(conn, s.tournament_id, s.tie_id, rubber, [removed], s.away_ids[:1])
+
+    locked = threading.Event()
+    release = threading.Event()
+    original_playing = repo.mark_team_rubber_playing
+
+    def slow_playing(c, rubber_id):
+        result = original_playing(c, rubber_id)  # 已取写锁且写入 PLAYING（未提交）
+        locked.set()
+        assert release.wait(15), "测试没有释放 Runtime 写事务"
+        return result
+
+    monkeypatch.setattr(repo, "mark_team_rubber_playing", slow_playing)
+    start_call = _BackgroundCall(
+        lambda c: runtime.start_rubber(c, s.tournament_id, s.tie_id, rubber)
+    ).start()
+    assert locked.wait(15), "Runtime 写事务没有开始"
+
+    patch_call = _BackgroundCall(
+        lambda c: teams_service.update_team_entry(
+            c, s.tournament_id, s.team_a, member_ids=s.home_ids[1:]
+        )
+    ).start()
+    time.sleep(0.3)  # 给 PATCH 真正进入执行、并停在 Runtime 的写锁上的时间
+    assert patch_call.result is None, "PATCH 没有被 Runtime 写锁挡住（说明两者没上同一把锁）"
+    release.set()
+
+    start_status, start_value = start_call.join()
+    patch_status, patch_value = patch_call.join()
+    assert start_status == "ok", str(start_value)
+    assert patch_status == "err"
+    assert isinstance(patch_value, teams_service.TeamError) and patch_value.code == 409
+    # 有可能是"名单已锁定"，也有可能是在锁等待超时后返回的"正在被另一个请求处理"——
+    # 两者都是正确的拒绝；关键是不变量：PLAYING 的盘阵容仍然合法。
+    assert ("锁定" in str(patch_value)) or ("正在被另一个请求处理" in str(patch_value))
+
+    # 最终状态：START 成功 + PATCH 失败，p1 仍在队，盘 PLAYING
+    assert repo.get_team_rubber(conn, rubber)["status"] == "PLAYING"
+    assert repo.get_team_tie(conn, s.tie_id)["status"] == "PLAYING"
+    assert removed in _roster_of(conn, s.team_a)
+    _assert_no_broken_lineup(conn, s, rubber, removed)
+
+
+def test_roster_write_lock_is_only_taken_when_members_change(conn, runtime_format, monkeypatch):
+    """只改队名/积分时不该进入 Runtime 的写事务协议（避免无意义的串行化）。"""
+    s = _setup(conn, runtime_format)
+    entered: list[int] = []
+    original_tx = teams_service._roster_write_tx
+
+    def counting_tx(c):
+        entered.append(1)
+        return original_tx(c)
+
+    monkeypatch.setattr(teams_service, "_roster_write_tx", counting_tx)
+
+    renamed = teams_service.update_team_entry(
+        conn, s.tournament_id, s.team_a, display_name="A队（改名）"
+    )
+    assert renamed["display_name"] == "A队（改名）"
+    assert entered == []  # 改名走普通路径
+
+    teams_service.update_team_entry(conn, s.tournament_id, s.team_a, member_ids=s.home_ids[:2])
+    assert len(entered) == 1  # 改队员才进入写事务
+
 
