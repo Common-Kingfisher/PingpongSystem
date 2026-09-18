@@ -131,6 +131,44 @@ def inspect_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
     else:
         checks.append(_check("tables", "球台状态", "球台配置、占用状态与进行中比赛不一致，需要先修复。", PreflightLevel.BLOCK, "检查比赛现场", f"/console?tid={tid}"))
 
+    entries_by_id = {entry["id"]: entry for entry in entries}
+    playing_member_ids: list[int] = []
+    for match in playing:
+        for side in ("a", "b"):
+            entry_id = match.get(f"entry_{side}_id")
+            if entry_id is not None and entry_id in entries_by_id:
+                playing_member_ids.extend(
+                    member["player_id"] for member in entries_by_id[entry_id]["members"]
+                )
+            else:
+                # 兼容旧数据中还没有 Entry 的单打比赛。
+                player_id = match.get(f"player_{side}_id")
+                if player_id is not None:
+                    playing_member_ids.append(player_id)
+    conflicting_players = [
+        player_id
+        for player_id, count in Counter(playing_member_ids).items()
+        if count > 1
+    ]
+    if conflicting_players:
+        checks.append(_check(
+            "playing_participants",
+            "在场运动员",
+            f"发现 {len(conflicting_players)} 名运动员同时出现在多场进行中比赛，请先修复排台状态。",
+            PreflightLevel.BLOCK,
+            "检查比赛现场",
+            f"/console?tid={tid}",
+        ))
+    else:
+        checks.append(_check(
+            "playing_participants",
+            "在场运动员",
+            "当前没有运动员同时参加多场进行中比赛。",
+            PreflightLevel.READY,
+            "查看现场",
+            f"/console?tid={tid}",
+        ))
+
     ambiguous_groups = 0
     needs_scores = 0
     if group_schedule_generated:

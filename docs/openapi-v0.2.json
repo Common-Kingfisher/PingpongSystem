@@ -1393,6 +1393,49 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/schedule-estimates": {
+      "get": {
+        "tags": [
+          "scheduling"
+        ],
+        "summary": "Schedule Estimates",
+        "description": "预计上场时间（只读模拟）：与自动排台同一套规则，不修改任何业务数据。\n\n签位尚未确定或超出模拟范围时返回 null，不返回假精确时间。",
+        "operationId": "schedule_estimates_api_tournaments__tournament_id__schedule_estimates_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEstimates"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/matches/{match_id}/score": {
       "post": {
         "tags": [
@@ -2820,6 +2863,39 @@
                 "type": "null"
               }
             ]
+          },
+          "called_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
           }
         },
         "type": "object",
@@ -3278,6 +3354,17 @@
               }
             ],
             "title": "Placement Max"
+          },
+          "called_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called At"
           },
           "started_at": {
             "anyOf": [
@@ -4060,6 +4147,152 @@
           "DISQUALIFIED"
         ],
         "title": "ResultType"
+      },
+      "ScheduleEstimateMatch": {
+        "properties": {
+          "match_id": {
+            "type": "integer",
+            "title": "Match Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/MatchStage"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "estimated_start_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Start At"
+          },
+          "estimated_wait_minutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Wait Minutes"
+          },
+          "queue_ahead": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Ahead"
+          },
+          "estimate_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Basis"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_id",
+          "stage",
+          "round"
+        ],
+        "title": "ScheduleEstimateMatch",
+        "description": "单场 WAITING 比赛的预计上场时间（无法估算时字段为 null）。"
+      },
+      "ScheduleEstimates": {
+        "properties": {
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "estimated_match_duration_seconds": {
+            "type": "integer",
+            "title": "Estimated Match Duration Seconds"
+          },
+          "estimate_basis": {
+            "type": "string",
+            "title": "Estimate Basis"
+          },
+          "sample_count": {
+            "type": "integer",
+            "title": "Sample Count"
+          },
+          "initial_playing_matches": {
+            "type": "integer",
+            "title": "Initial Playing Matches",
+            "default": 0
+          },
+          "simulated_batches": {
+            "type": "integer",
+            "title": "Simulated Batches",
+            "default": 0
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "default": false
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleEstimateMatch"
+            },
+            "type": "array",
+            "title": "Matches",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament_id",
+          "generated_at",
+          "estimated_match_duration_seconds",
+          "estimate_basis",
+          "sample_count"
+        ],
+        "title": "ScheduleEstimates",
+        "description": "赛事预计上场时间（只读模拟结果）。"
       },
       "ScheduleNextResult": {
         "properties": {

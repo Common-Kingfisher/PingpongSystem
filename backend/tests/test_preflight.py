@@ -148,3 +148,66 @@ def test_duplicate_playing_table_assignment_is_a_blocker(client, conn):
 
     table_check = next(item for item in report["checks"] if item["code"] == "tables")
     assert table_check["level"] == "BLOCK"
+
+
+@pytest.mark.parametrize(("event_type", "player_count"), [("SINGLES", 4), ("DOUBLES", 8)])
+def test_player_cannot_be_in_two_playing_matches(client, conn, event_type, player_count):
+    tournament_id = client.post(
+        "/api/tournaments",
+        json={
+            "name": f"{event_type} 重复上场检查",
+            "date": "2026-09-09",
+            "table_count": 2,
+            "group_count": 1,
+            "qualify_per_group": 2,
+            "event_type": event_type,
+        },
+    ).json()["id"]
+    for index in range(player_count):
+        client.post(
+            f"/api/tournaments/{tournament_id}/players",
+            json={"name": f"运动员{index + 1}", "rating_points": 1000 + index},
+        )
+    if event_type == "DOUBLES":
+        paired = client.post(
+            f"/api/tournaments/{tournament_id}/pair-doubles",
+            json={"pairing_seed": 42},
+        )
+        assert paired.status_code == 200
+    confirmed = client.post(f"/api/tournaments/{tournament_id}/confirm-roster")
+    assert confirmed.status_code == 200
+    client.post(f"/api/tournaments/{tournament_id}/auto-group")
+    client.post(f"/api/tournaments/{tournament_id}/generate-group-matches")
+
+    entries = {entry["id"]: entry for entry in repo.list_entries(conn, tournament_id)}
+    matches = repo.list_matches(conn, tournament_id)
+
+    def members(match):
+        return {
+            member["player_id"]
+            for entry_id in (match["entry_a_id"], match["entry_b_id"])
+            for member in entries[entry_id]["members"]
+        }
+
+    first = matches[0]
+    second = next(match for match in matches[1:] if members(first) & members(match))
+    tables = repo.list_tables(conn, tournament_id)
+    conn.execute(
+        "UPDATE matches SET status = 'PLAYING', table_id = ? WHERE id = ?",
+        (tables[0]["id"], first["id"]),
+    )
+    conn.execute(
+        "UPDATE matches SET status = 'PLAYING', table_id = ? WHERE id = ?",
+        (tables[1]["id"], second["id"]),
+    )
+    conn.execute(
+        "UPDATE tables SET status = 'OCCUPIED' WHERE id IN (?, ?)",
+        (tables[0]["id"], tables[1]["id"]),
+    )
+    conn.commit()
+
+    report = client.get(f"/api/tournaments/{tournament_id}/preflight").json()
+    checks = {item["code"]: item for item in report["checks"]}
+    assert checks["tables"]["level"] == "READY"
+    assert checks["playing_participants"]["level"] == "BLOCK"
+    assert report["overall"] == "BLOCK"

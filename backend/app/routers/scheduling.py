@@ -5,6 +5,7 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
+from ..services import eta as eta_service
 from ..services import scheduling as scheduling_service
 
 router = APIRouter(tags=["scheduling"])
@@ -69,4 +70,30 @@ def dashboard(tournament_id: int, conn: Connection = Depends(get_db)):
             for t in data["tables"]
         ],
         next_playable=[schemas.MatchOut(**m) for m in data["next_playable"]],
+    )
+
+
+@router.get(
+    "/api/tournaments/{tournament_id}/schedule-estimates",
+    response_model=schemas.ScheduleEstimates,
+)
+def schedule_estimates(tournament_id: int, conn: Connection = Depends(get_db)):
+    """预计上场时间（只读模拟）：与自动排台同一套规则，不修改任何业务数据。
+
+    签位尚未确定或超出模拟范围时返回 null，不返回假精确时间。
+    """
+    try:
+        data = eta_service.estimate_schedule(conn, tournament_id)
+    except eta_service.ScheduleEstimateError as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc))
+    return schemas.ScheduleEstimates(
+        tournament_id=data["tournament_id"],
+        generated_at=data["generated_at"],
+        estimated_match_duration_seconds=data["estimated_match_duration_seconds"],
+        estimate_basis=data["estimate_basis"],
+        sample_count=data["sample_count"],
+        initial_playing_matches=data["initial_playing_matches"],
+        simulated_batches=data["simulated_batches"],
+        truncated=data["truncated"],
+        matches=[schemas.ScheduleEstimateMatch(**row) for row in data["matches"]],
     )

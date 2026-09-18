@@ -21,6 +21,8 @@ export default function PreflightPage() {
     if (tid === null) return
     setLoading(true)
     setError(null)
+    // 新一轮检查开始后，旧结论不再代表当前现场状态；请求失败时不得继续展示旧 READY。
+    setReport(null)
     try {
       setReport(await api.getPreflight(tid))
     } catch (reason) {

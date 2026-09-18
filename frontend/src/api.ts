@@ -316,6 +316,11 @@ export const api = {
   // 赛事结构化导出（只读）：可用于删除前的人工备份。
   exportTournament: (tournamentId: number) =>
     request<Schemas['TournamentExport']>(`/api/tournaments/${tournamentId}/export`),
+  // 预计上场时间（只读模拟，与自动排台同一套规则）；签位未定的场次为 null。
+  getScheduleEstimates: (tournamentId: number) =>
+    request<Schemas['ScheduleEstimates']>(
+      `/api/tournaments/${tournamentId}/schedule-estimates`,
+    ),
   getOrderBookSnapshot: (tournamentId: number) =>
     request<OrderBookSnapshot>(`/api/tournaments/${tournamentId}/order-book-snapshot`),
   getPreflight: (tournamentId: number) =>

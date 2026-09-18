@@ -473,6 +473,59 @@ def get_match(conn: sqlite3.Connection, match_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
+# ------------------------------------------------------- 比赛时间（A2 时间基础）
+
+# 统一时间约定：UTC SQLite 时间戳，格式 'YYYY-MM-DD HH:MM:SS'（与 created_at 等既有字段一致）。
+# 所有比赛生命周期时间只能通过下面三个 helper 写入，避免时间语义散落在各 service 里。
+# 语义：
+#   called_at   最近一次正式把该比赛安排到球台的时间（release 后保留，重新安排时刷新）
+#   started_at  当前有效"进行中"比赛的实际开始时间（release 后置空，重新安排时重写）
+#   finished_at 当前有效比赛产生最终结果的时间（revise_score 纠错时不改变）
+
+
+def utc_now(conn: sqlite3.Connection) -> str:
+    """当前 UTC 时间（SQLite 时钟，与其它 datetime('now') 字段同源）。"""
+    return conn.execute("SELECT datetime('now')").fetchone()[0]
+
+
+def mark_match_playing(conn: sqlite3.Connection, match_id: int, table_id: int) -> None:
+    """WAITING → PLAYING：写入/刷新 called_at 与 started_at（同一时刻）。"""
+    now = utc_now(conn)
+    conn.execute(
+        "UPDATE matches SET status = 'PLAYING', table_id = ?, called_at = ?, started_at = ? "
+        "WHERE id = ?",
+        (table_id, now, now, match_id),
+    )
+
+
+def mark_match_waiting(conn: sqlite3.Connection, match_id: int) -> None:
+    """PLAYING → WAITING（下球台）：本次上台不构成有效进行中比赛，started_at 置空。
+
+    called_at 保留"最近一次叫号"的事实，重新安排时会被刷新。
+    """
+    conn.execute(
+        "UPDATE matches SET status = 'WAITING', table_id = NULL, started_at = NULL WHERE id = ?",
+        (match_id,),
+    )
+
+
+def mark_match_finished(conn: sqlite3.Connection, match_id: int, **fields: Any) -> dict:
+    """把比赛置为 FINISHED 并写入 finished_at（UTC）。
+
+    既覆盖 PLAYING → FINISHED，也覆盖 WAITING 直接录分（此时 started_at 保持为空，
+    不伪造开始时间，避免产生 0 秒样本）；系统轮空不经过本函数。
+    """
+    unknown = set(fields) - _MATCH_UPDATEABLE
+    if unknown:
+        raise ValueError(f"不允许更新的字段: {sorted(unknown)}")
+    fields["status"] = "FINISHED"
+    fields["finished_at"] = utc_now(conn)
+    sets = [f"{key} = ?" for key in fields]
+    params: list[Any] = list(fields.values()) + [match_id]
+    conn.execute(f"UPDATE matches SET {', '.join(sets)} WHERE id = ?", params)
+    return get_match(conn, match_id)
+
+
 _MATCH_UPDATEABLE = {
     "status",
     "table_id",
@@ -506,33 +559,6 @@ def update_match(conn: sqlite3.Connection, match_id: int, **fields) -> dict:
         conn.execute(
             f"UPDATE matches SET {', '.join(sets)} WHERE id = ?", params
         )
-    return get_match(conn, match_id)
-
-
-def mark_match_playing(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict:
-    """首次上台记录开赛时间；下台重排不会覆盖第一次开赛时间。"""
-    conn.execute(
-        "UPDATE matches SET status = 'PLAYING', table_id = ?, "
-        "started_at = COALESCE(started_at, datetime('now')) WHERE id = ?",
-        (table_id, match_id),
-    )
-    return get_match(conn, match_id)
-
-
-def mark_match_finished(conn: sqlite3.Connection, match_id: int, **fields) -> dict:
-    """首次完赛固定开始/结束时间，后续改分不覆盖。"""
-    unknown = set(fields) - _MATCH_UPDATEABLE
-    if unknown:
-        raise ValueError(f"不允许更新的字段: {sorted(unknown)}")
-    sets = [f"{key} = ?" for key in fields]
-    params: list[Any] = list(fields.values())
-    sets.extend([
-        "status = 'FINISHED'",
-        "started_at = COALESCE(started_at, datetime('now'))",
-        "finished_at = COALESCE(finished_at, datetime('now'))",
-    ])
-    params.append(match_id)
-    conn.execute(f"UPDATE matches SET {', '.join(sets)} WHERE id = ?", params)
     return get_match(conn, match_id)
 
 
