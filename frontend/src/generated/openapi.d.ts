@@ -766,6 +766,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/lineup-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Lineup Options */
+        get: operations["get_lineup_options_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__lineup_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/lineup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Lineup */
+        put: operations["set_lineup_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__lineup_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Rubber */
+        post: operations["start_rubber_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/score": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record Rubber Score */
+        post: operations["record_rubber_score_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__score_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -1749,28 +1817,73 @@ export interface components {
             /** Rating Points */
             rating_points?: number | null;
         };
-        /** TeamRubberOut */
-        TeamRubberOut: {
-            /** Id */
-            id: number;
-            /** Team Tie Id */
-            team_tie_id: number;
-            /** Sequence */
-            sequence: number;
-            rubber_type: components["schemas"]["TeamRubberType"];
-            /** Home Slots */
-            home_slots: string[];
-            /** Away Slots */
-            away_slots: string[];
-            status: components["schemas"]["TeamRubberStatus"];
-            /** Match Id */
-            match_id: number | null;
-            /** Created At */
-            created_at: string;
+        /**
+         * TeamFormatRuntimeOut
+         * @description 对抗当前使用的赛制（未建盘/未登记时全部为 null，前端不得据此推算盘序）。
+         */
+        TeamFormatRuntimeOut: {
+            /** Code */
+            code?: string | null;
+            /** Version */
+            version?: number | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Rubbers To Win */
+            rubbers_to_win?: number | null;
+        };
+        /**
+         * TeamLineupOptionOut
+         * @description 某一边的候选上场队员（B 直接渲染成可点选列表）。
+         */
+        TeamLineupOptionOut: {
+            /** Player Id */
+            player_id: number;
+            /** Name */
+            name: string;
+            /** Available */
+            available: boolean;
+            /** Unavailable Reason */
+            unavailable_reason?: string | null;
+        };
+        /**
+         * TeamLineupOptionsOut
+         * @description 候选阵容按边分组：每边的候选只来自本队，不做跨边混合。
+         */
+        TeamLineupOptionsOut: {
+            /** Home */
+            home: components["schemas"]["TeamLineupOptionOut"][];
+            /** Away */
+            away: components["schemas"]["TeamLineupOptionOut"][];
+        };
+        /**
+         * TeamLineupRequest
+         * @description 提交一盘的实际参赛人（覆盖式写入）。
+         */
+        TeamLineupRequest: {
+            /** Home Player Ids */
+            home_player_ids: number[];
+            /** Away Player Ids */
+            away_player_ids: number[];
+        };
+        /**
+         * TeamPermissionOut
+         * @description 后端计算的操作权限；前端按钮直接消费这些字段，不得自行推导状态机。
+         */
+        TeamPermissionOut: {
+            /** Can Edit Lineup */
+            can_edit_lineup: boolean;
+            /** Can Confirm Lineup */
+            can_confirm_lineup: boolean;
+            /** Can Start */
+            can_start: boolean;
+            /** Can Record Score */
+            can_record_score: boolean;
+            /** Can Revise Score */
+            can_revise_score: boolean;
         };
         /**
          * TeamRubberRecordOut
-         * @description team_rubbers 表的落库形态：位置需求保持存储时的 JSON 文本。
+         * @description team_rubbers 表的落库形态：位置需求保持存储时的 JSON 文本，运行态字段一并导出。
          */
         TeamRubberRecordOut: {
             /** Id */
@@ -1791,13 +1904,81 @@ export interface components {
             match_id?: number | null;
             /** Created At */
             created_at: string;
+            /** Home Player Ids Json */
+            home_player_ids_json?: string | null;
+            /** Away Player Ids Json */
+            away_player_ids_json?: string | null;
+            /** Home Score */
+            home_score?: number | null;
+            /** Away Score */
+            away_score?: number | null;
+            /** Winner Entry Id */
+            winner_entry_id?: number | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+        };
+        /**
+         * TeamRubberRuntimeOut
+         * @description 一盘的完整运行态：位置需求 + 实际阵容 + 比分 + 权限 + 候选阵容。
+         */
+        TeamRubberRuntimeOut: {
+            /** Id */
+            id: number;
+            /** Team Tie Id */
+            team_tie_id: number;
+            /** Sequence */
+            sequence: number;
+            rubber_type: components["schemas"]["TeamRubberType"];
+            status: components["schemas"]["TeamRubberStatus"];
+            /** Home Slots */
+            home_slots: string[];
+            /** Away Slots */
+            away_slots: string[];
+            /** Home Player Ids */
+            home_player_ids: number[];
+            /** Away Player Ids */
+            away_player_ids: number[];
+            /** Home Players */
+            home_players: string[];
+            /** Away Players */
+            away_players: string[];
+            /** Home Score */
+            home_score?: number | null;
+            /** Away Score */
+            away_score?: number | null;
+            winner_side?: components["schemas"]["TeamSide"] | null;
+            /** Winner Entry Id */
+            winner_entry_id?: number | null;
+            /** Match Id */
+            match_id?: number | null;
+            permissions: components["schemas"]["TeamPermissionOut"];
+            lineup_options: components["schemas"]["TeamLineupOptionsOut"];
+            /** Created At */
+            created_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+        };
+        /**
+         * TeamRubberScoreRequest
+         * @description 盘比分（胜局数）。合法性由后端按赛事 games_to_win 校验，前端不得自行放宽。
+         */
+        TeamRubberScoreRequest: {
+            /** Home Score */
+            home_score: number;
+            /** Away Score */
+            away_score: number;
         };
         /**
          * TeamRubberStatus
          * @description 团体对抗内单盘（Rubber）状态。
          *
-         *     A3 的 skeleton 只会生成 PENDING；PENDING → READY → PLAYING → FINISHED
-         *     的流转与 SKIPPED（提前结束比赛后未打的盘）由 A4 实现。
+         *     A3 的 skeleton 只会生成 PENDING；A4.1 起真正使用状态机：
+         *     PENDING（未绑定阵容）→ READY（阵容合法）→ PLAYING（已开始）→ FINISHED（已录比分）；
+         *     对抗被一方提前结束时，未打的 PENDING/READY 盘 → SKIPPED。
          * @enum {string}
          */
         TeamRubberStatus: "PENDING" | "READY" | "PLAYING" | "FINISHED" | "SKIPPED";
@@ -1807,6 +1988,26 @@ export interface components {
          * @enum {string}
          */
         TeamRubberType: "SINGLES" | "DOUBLES";
+        /**
+         * TeamSide
+         * @description 团体对抗的两边（主队 / 客队）；用于盘结果与权限表达，不是球队身份。
+         * @enum {string}
+         */
+        TeamSide: "HOME" | "AWAY";
+        /**
+         * TeamSummaryOut
+         * @description 对抗的一边；成员内嵌，避免前端为显示队伍再发多次请求。
+         */
+        TeamSummaryOut: {
+            /** Entry Id */
+            entry_id: number;
+            /** Display Name */
+            display_name: string;
+            /** Status */
+            status: string;
+            /** Members */
+            members: components["schemas"]["EntryMemberOut"][];
+        };
         /** TeamTieCreate */
         TeamTieCreate: {
             /** Entry A Id */
@@ -1824,47 +2025,6 @@ export interface components {
             round: number;
             /** Match Index */
             match_index?: number | null;
-        };
-        /** TeamTieDetailOut */
-        TeamTieDetailOut: {
-            /** Id */
-            id: number;
-            /** Tournament Id */
-            tournament_id: number;
-            stage: components["schemas"]["MatchStage"];
-            /** Group Id */
-            group_id: number | null;
-            /** Round */
-            round: number;
-            /** Match Index */
-            match_index: number | null;
-            /** Entry A Id */
-            entry_a_id: number;
-            /** Entry B Id */
-            entry_b_id: number;
-            /** Team A Score */
-            team_a_score: number;
-            /** Team B Score */
-            team_b_score: number;
-            /** Winner Entry Id */
-            winner_entry_id: number | null;
-            status: components["schemas"]["TeamTieStatus"];
-            /** Format Code */
-            format_code: string | null;
-            /** Format Version */
-            format_version: number | null;
-            /** Format Snapshot */
-            format_snapshot: string | null;
-            /** Called At */
-            called_at: string | null;
-            /** Started At */
-            started_at: string | null;
-            /** Finished At */
-            finished_at: string | null;
-            /** Created At */
-            created_at: string;
-            /** Rubbers */
-            rubbers: components["schemas"]["TeamRubberOut"][];
         };
         /** TeamTieOut */
         TeamTieOut: {
@@ -1948,6 +2108,64 @@ export interface components {
             finished_at?: string | null;
             /** Created At */
             created_at: string;
+        };
+        /**
+         * TeamTieRuntimeOut
+         * @description 对抗的统一运行态契约（A4.1）。
+         *
+         *     它是 A3 详情响应（TeamTieOut + rubbers）的**超集**：原有字段与命名全部保留，
+         *     只追加 B 需要的运行态字段，因此升级是向后兼容的（旧消费方不会因为改名而断裂）。
+         *     所有修改运行态的写接口都直接返回这个结构，前端整体替换即可，无需二次拉取。
+         */
+        TeamTieRuntimeOut: {
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            stage: components["schemas"]["MatchStage"];
+            /** Group Id */
+            group_id: number | null;
+            /** Round */
+            round: number;
+            /** Match Index */
+            match_index: number | null;
+            /** Entry A Id */
+            entry_a_id: number;
+            /** Entry B Id */
+            entry_b_id: number;
+            /** Team A Score */
+            team_a_score: number;
+            /** Team B Score */
+            team_b_score: number;
+            /** Winner Entry Id */
+            winner_entry_id: number | null;
+            status: components["schemas"]["TeamTieStatus"];
+            /** Format Code */
+            format_code: string | null;
+            /** Format Version */
+            format_version: number | null;
+            /** Format Snapshot */
+            format_snapshot: string | null;
+            /** Called At */
+            called_at: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Created At */
+            created_at: string;
+            home_team: components["schemas"]["TeamSummaryOut"];
+            away_team: components["schemas"]["TeamSummaryOut"];
+            /** Home Score */
+            home_score: number;
+            /** Away Score */
+            away_score: number;
+            /** Target Wins */
+            target_wins?: number | null;
+            format: components["schemas"]["TeamFormatRuntimeOut"];
+            /** Rubbers */
+            rubbers: components["schemas"]["TeamRubberRuntimeOut"][];
+            permissions: components["schemas"]["TeamPermissionOut"];
         };
         /**
          * TeamTieStatus
@@ -3724,7 +3942,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TeamTieDetailOut"];
+                    "application/json": components["schemas"]["TeamTieRuntimeOut"];
                 };
             };
             /** @description Validation Error */
@@ -3760,7 +3978,147 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TeamTieDetailOut"];
+                    "application/json": components["schemas"]["TeamTieRuntimeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_lineup_options_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__lineup_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                tie_id: number;
+                rubber_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamLineupOptionsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_lineup_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__lineup_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                tie_id: number;
+                rubber_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamLineupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamTieRuntimeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_rubber_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                tie_id: number;
+                rubber_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamTieRuntimeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_rubber_score_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__score_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                tie_id: number;
+                rubber_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamRubberScoreRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamTieRuntimeOut"];
                 };
             };
             /** @description Validation Error */
