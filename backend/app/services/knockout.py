@@ -66,6 +66,7 @@ def _create_bracket(
 ) -> None:
     rounds_spec = knockout.build_bracket([participant_ids], allow_extended=True)
     id_by_position: dict[tuple[int, int], int] = {}
+    created_match_ids: list[int] = []
     for round_spec in rounds_spec:
         for spec in round_spec:
             round_no, index = spec["round"], spec["match_index"]
@@ -98,6 +99,16 @@ def _create_bracket(
                 placement_max=placement_max,
             )
             id_by_position[(round_no, index)] = match["id"]
+            created_match_ids.append(match["id"])
+
+    # 名次赛/季军赛是在源比赛结束后动态创建的。退赛者可能在新场次创建前
+    # 已经退出，因而不会被 withdraw_from_tournament() 当时的扫描命中。
+    # 必须等整棵依赖签位建立完成后统一补判，确保自动晋级还能沿下游传播。
+    from . import entries as entry_service
+    for match_id in created_match_ids:
+        entry_service.resolve_withdrawn_participants(
+            conn, repo.get_match(conn, match_id)
+        )
 
 
 def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
@@ -271,6 +282,11 @@ def advance_winner(conn: sqlite3.Connection, match: dict) -> None:
         elif next_match["prev_match_b_id"] == match["id"]:
             participant = loser if next_match.get("prev_match_b_outcome", "WINNER") == "LOSER" else winner
             repo.update_match(conn, next_match["id"], entry_b_id=participant, player_b_id=_entry_player_id(conn, participant))
+        # 对手可能早已退赛且此前另一侧仍待定；签位刚补齐时必须立即补判。
+        from . import entries as entry_service
+        entry_service.resolve_withdrawn_participants(
+            conn, repo.get_match(conn, next_match["id"])
+        )
 
 
 def _create_loser_bracket(

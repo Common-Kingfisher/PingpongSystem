@@ -807,9 +807,67 @@ body {
 }
 
 .group-card li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 14px;
   line-height: 1.8;
 }
+
+.group-card li.entry-withdrawn {
+  color: #98a2b3;
+  background: repeating-linear-gradient(-45deg, transparent, transparent 8px, rgba(152,162,179,.06) 8px, rgba(152,162,179,.06) 16px);
+}
+
+.withdrawn-badge {
+  display: inline-flex;
+  margin-left: 7px;
+  padding: 2px 7px;
+  border: 1px solid #fda29b;
+  color: #b42318;
+  background: #fff1f0;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.withdrawal-dialog {
+  position: relative;
+  width: min(540px, 96vw);
+  padding: 28px;
+  border-top: 5px solid #d92d20;
+  background: #fff;
+  box-shadow: 0 30px 80px rgba(0,0,0,.38);
+}
+
+.withdrawal-dialog > label {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.withdrawal-dialog input,
+.withdrawal-dialog textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  font: inherit;
+}
+
+.withdrawal-dialog textarea { min-height: 88px; resize: vertical; }
+
+.withdrawal-warning {
+  margin: 18px 0;
+  padding: 16px;
+  border-left: 4px solid #d92d20;
+  background: #fff6f5;
+}
+
+.withdrawal-warning strong { font-size: 18px; }
+.withdrawal-warning p { margin-bottom: 0; color: #7a271a; }
 
 /* ---------------- 淘汰赛 Bracket ---------------- */
 

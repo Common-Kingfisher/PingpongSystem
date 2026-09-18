@@ -5,7 +5,8 @@ import sqlite3
 import time
 
 from .. import repository as repo
-from ..models import EventType, TournamentStage
+from ..models import EventType, MatchStage, MatchStatus, ResultType, TableStatus, TournamentStage
+from . import knockout as knockout_service
 
 
 class EntryError(Exception):
@@ -108,3 +109,134 @@ def confirm_roster(conn: sqlite3.Connection, tournament_id: int) -> tuple[dict, 
     repo.confirm_tournament_roster(conn, tournament_id)
     conn.commit()
     return repo.get_tournament(conn, tournament_id), repo.list_entries(conn, tournament_id)
+
+
+def _entry_player_id(conn: sqlite3.Connection, entry_id: int | None) -> int | None:
+    if entry_id is None:
+        return None
+    entry = repo.get_entry(conn, entry_id)
+    if entry and entry["entry_type"] == EventType.SINGLES.value and entry["members"]:
+        return entry["members"][0]["player_id"]
+    return None
+
+
+def _forfeit_unfinished_match(
+    conn: sqlite3.Connection, match: dict, withdrawn_entry_id: int, reason: str
+) -> bool:
+    a, b = match.get("entry_a_id"), match.get("entry_b_id")
+    if match["status"] == MatchStatus.FINISHED.value or withdrawn_entry_id not in (a, b):
+        return False
+    opponent = b if withdrawn_entry_id == a else a
+    if opponent is None:
+        return False
+    opponent_entry = repo.get_entry(conn, opponent)
+    if opponent_entry is None or opponent_entry["status"] == "WITHDRAWN":
+        # 双方均退赛没有竞技意义上的胜者，保留给主裁判特殊处理。
+        return False
+
+    tournament = repo.get_tournament(conn, match["tournament_id"])
+    if match["stage"] == MatchStage.GROUP.value:
+        score_a = 0 if withdrawn_entry_id == a else tournament["games_to_win"]
+        score_b = 0 if withdrawn_entry_id == b else tournament["games_to_win"]
+    else:
+        score_a = score_b = 0
+    if match.get("table_id") is not None:
+        repo.update_table_status(conn, match["table_id"], TableStatus.FREE.value)
+    repo.replace_match_games(conn, match["id"], [], a, b)
+    repo.mark_match_finished(
+        conn,
+        match["id"],
+        table_id=None,
+        player_a_score=score_a,
+        player_b_score=score_b,
+        winner_id=_entry_player_id(conn, opponent),
+        winner_entry_id=opponent,
+        result_type=ResultType.FORFEIT.value,
+        forfeit_entry_id=withdrawn_entry_id,
+        result_note=f"整项退赛：{reason}",
+    )
+    if match["group_id"] is not None:
+        repo.invalidate_qualification_decision(conn, match["group_id"], "参赛位已退出赛事")
+    if match["stage"] == MatchStage.KNOCKOUT.value:
+        knockout_service.advance_winner(conn, repo.get_match(conn, match["id"]))
+    return True
+
+
+def resolve_withdrawn_participants(conn: sqlite3.Connection, match: dict) -> bool:
+    """签位双方到齐后，自动处理其中恰有一方已整项退赛的比赛。"""
+    if match["status"] == MatchStatus.FINISHED.value:
+        return False
+    a, b = match.get("entry_a_id"), match.get("entry_b_id")
+    if a is None or b is None:
+        return False
+    withdrawn = [
+        entry for entry_id in (a, b)
+        if (entry := repo.get_entry(conn, entry_id)) is not None
+        and entry["status"] == "WITHDRAWN"
+    ]
+    if len(withdrawn) != 1:
+        # 双方退赛没有竞技胜者，继续交由主裁特殊处理。
+        return False
+    entry = withdrawn[0]
+    return _forfeit_unfinished_match(
+        conn,
+        match,
+        entry["id"],
+        entry.get("withdrawal_reason") or "已退出赛事",
+    )
+
+
+def withdraw_from_tournament(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    entry_id: int,
+    operator_name: str,
+    reason: str,
+) -> tuple[dict, list[int], int]:
+    tournament = repo.get_tournament(conn, tournament_id)
+    if tournament is None:
+        raise EntryError("赛事不存在", 404)
+    if tournament["stage"] == TournamentStage.FINISHED.value:
+        raise EntryError("赛事已经结束，不能再办理退赛")
+    entry = repo.get_entry(conn, entry_id)
+    if entry is None or entry["tournament_id"] != tournament_id:
+        raise EntryError("参赛位不存在", 404)
+    if entry["status"] == "WITHDRAWN":
+        raise EntryError("该参赛位已经退出赛事")
+
+    operator = operator_name.strip()
+    cleaned_reason = reason.strip()
+    if not operator:
+        raise EntryError("请输入主裁判姓名", 422)
+    if len(cleaned_reason) < 2:
+        raise EntryError("请填写至少 2 个字的退赛原因", 422)
+
+    repo.withdraw_entry(conn, entry_id, operator, cleaned_reason)
+    if entry["group_id"] is not None:
+        repo.invalidate_qualification_decision(
+            conn, entry["group_id"], "参赛位已退出赛事"
+        )
+    finished_before = sum(
+        1 for match in repo.list_matches(conn, tournament_id)
+        if match["status"] == MatchStatus.FINISHED.value
+        and entry_id in (match.get("entry_a_id"), match.get("entry_b_id"))
+    )
+    affected: list[int] = []
+    # 淘汰晋级会在循环中填充下一场签位，因此每轮重新读取，直到没有新场次可判。
+    while True:
+        changed = False
+        for match in repo.list_matches(conn, tournament_id):
+            if match["id"] in affected:
+                continue
+            if _forfeit_unfinished_match(conn, match, entry_id, cleaned_reason):
+                affected.append(match["id"])
+                changed = True
+        if not changed:
+            break
+    if any(
+        match["stage"] == MatchStage.KNOCKOUT.value
+        for match in repo.list_matches(conn, tournament_id)
+    ):
+        knockout_service.sync_stage(conn, tournament_id)
+    conn.commit()
+    return repo.get_entry(conn, entry_id), affected, finished_before
