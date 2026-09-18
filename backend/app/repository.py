@@ -254,6 +254,10 @@ def list_entries(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
     return result
 
 
+def set_entry_seed(conn: sqlite3.Connection, entry_id: int, seed_no: int | None) -> None:
+    conn.execute("UPDATE entries SET seed_no = ? WHERE id = ?", (seed_no, entry_id))
+
+
 def clear_entry_groups(conn: sqlite3.Connection, tournament_id: int) -> None:
     conn.execute("UPDATE entries SET group_id = NULL WHERE tournament_id = ?", (tournament_id,))
 
@@ -616,6 +620,15 @@ def list_matches_by_prev(conn: sqlite3.Connection, match_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def delete_match(conn: sqlite3.Connection, match_id: int) -> bool:
+    """删除一场比赛（match_games / score_requests 由外键级联清理）。
+
+    调用方必须保证没有其它比赛通过 prev_match_a_id / prev_match_b_id 引用它。
+    """
+    cur = conn.execute("DELETE FROM matches WHERE id = ?", (match_id,))
+    return cur.rowcount > 0
+
+
 def replace_match_games(
     conn: sqlite3.Connection,
     match_id: int,
@@ -639,6 +652,28 @@ def list_match_games(conn: sqlite3.Connection, match_id: int) -> list[dict]:
         "SELECT id, match_id, game_no, side_a_score, side_b_score, winner_entry_id "
         "FROM match_games WHERE match_id = ? ORDER BY game_no",
         (match_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_tournament_match_games(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    """某赛事全部逐局比分（导出用，一次查询避免逐场查询）。"""
+    rows = conn.execute(
+        "SELECT g.id, g.match_id, g.game_no, g.side_a_score, g.side_b_score, g.winner_entry_id "
+        "FROM match_games g JOIN matches m ON m.id = g.match_id "
+        "WHERE m.tournament_id = ? ORDER BY g.match_id, g.game_no",
+        (tournament_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_tournament_score_requests(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    """某赛事的比分写入审计账本（幂等编号 / 动作 / 指纹 / 时间）。"""
+    rows = conn.execute(
+        "SELECT s.request_id, s.match_id, s.action, s.payload_fingerprint, s.created_at "
+        "FROM score_requests s JOIN matches m ON m.id = s.match_id "
+        "WHERE m.tournament_id = ? ORDER BY s.created_at, s.request_id",
+        (tournament_id,),
     ).fetchall()
     return [dict(r) for r in rows]
 

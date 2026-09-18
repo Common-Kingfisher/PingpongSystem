@@ -53,12 +53,10 @@ def test_withdrawal_preserves_finished_and_forfeits_unfinished(conn):
         assert match["status"] == MatchStatus.FINISHED.value
         assert match["result_type"] == ResultType.FORFEIT.value
         assert match["forfeit_entry_id"] == withdrawn_id
-        assert match["started_at"]
         assert match["finished_at"]
         if match_id == involving[1]["id"]:
             assert match["started_at"] == "2026-09-01 10:00:00"
-        else:
-            assert match["started_at"] == match["finished_at"]
+        # WAITING 直接因退赛完赛不要求伪造 started_at；A2 时间语义合入后应保持为空。
     assert repo.get_match(conn, first["id"])["finished_at"] == first_before["finished_at"]
 
     ranking = rankings_service.get_rankings(conn, tournament_id)[0]
@@ -195,4 +193,4 @@ def test_withdrawn_waiting_slot_forfeits_when_opponent_arrives(conn):
     assert final["forfeit_entry_id"] == withdrawn_id
     assert final["winner_entry_id"] != withdrawn_id
     assert final["finished_at"]
-    assert final["started_at"] == final["finished_at"]
+    # 对手后来进入空槽触发自动完赛时，finished_at 是事实；started_at 不应成为前置条件。

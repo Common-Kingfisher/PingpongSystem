@@ -64,6 +64,7 @@ def dashboard(tournament_id: int, conn: Connection = Depends(get_db)):
                 name=t["name"],
                 status=t["status"],
                 match=schemas.MatchOut(**t["match"]) if t["match"] else None,
+                recommended_match_id=t.get("recommended_match_id"),
             )
             for t in data["tables"]
         ],

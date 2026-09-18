@@ -2,11 +2,14 @@
 
 from collections import Counter
 
+import pytest
+
 from app import repository as repo
-from app.models import MatchStatus, TableStatus
+from app.models import MatchStage, MatchStatus, TableStatus
 from app.services import groups as groups_service
 from app.services import matches as matches_service
 from app.services import scheduling as scheduling_service
+from app.services import scores as scores_service
 
 
 def _tournament_with_matches(client, n_players=24, group_count=4, table_count=6):
@@ -28,9 +31,14 @@ def _tournament_with_matches(client, n_players=24, group_count=4, table_count=6)
     return tid
 
 
-def _service_tournament(conn, n_players=24, table_count=6, group_count=4) -> int:
+def _service_tournament(
+    conn, n_players=24, table_count=6, group_count=4, operation_mode="LIVE"
+) -> int:
     """服务级测试用：建赛事（含球台）→ 加选手 → 分组 → 生成小组赛。"""
-    t = repo.create_tournament(conn, "T", "2025-06-01", table_count, group_count, 2)
+    t = repo.create_tournament(
+        conn, "T", "2025-06-01", table_count, group_count, 2,
+        operation_mode=operation_mode,
+    )
     repo.create_tables_for_tournament(conn, t["id"], table_count)
     for i in range(1, n_players + 1):
         repo.add_player(conn, t["id"], f"P{i}", None)
@@ -132,6 +140,237 @@ def test_schedule_next_batch(conn):
     assert scheduling_service.schedule_next(conn, tid) == []
 
 
+# ------------------------------------------------- 亲和 + 公平（调度优先级）
+
+def _finish_playing(conn, tid):
+    """把当前 PLAYING 的比赛全部按 2:0 结束。"""
+    for m in repo.list_matches(conn, tid, status="PLAYING"):
+        scores_service.record_score(conn, m["id"], 2, 0)
+
+
+def test_group_table_affinity_holds_over_many_batches(conn):
+    """4 组 4 台：多批次保持"一组一台"，且各组进度同步。"""
+    tid = _service_tournament(conn, n_players=24, group_count=4, table_count=4)
+    affinity = scheduling_service.group_table_affinity(conn, tid)
+
+    for _ in range(3):
+        assignments = scheduling_service.schedule_next(conn, tid)
+        assert len(assignments) == 4
+        for match_id, table_id in assignments:
+            assert affinity[repo.get_match(conn, match_id)["group_id"]] == table_id
+        assert len({repo.get_match(conn, m)["group_id"] for m, _ in assignments}) == 4
+        _finish_playing(conn, tid)
+
+    finished_per_group = Counter(
+        repo.get_match(conn, m["id"])["group_id"]
+        for m in repo.list_matches(conn, tid, status="FINISHED")
+    )
+    assert len(set(finished_per_group.values())) == 1  # 各组进度完全同步
+
+
+def test_no_group_starvation_when_tables_fewer_than_groups(conn):
+    """2 台 4 组：前两批内四个小组都必须拿到比赛机会，不能只打 A/B。"""
+    tid = _service_tournament(conn, n_players=24, group_count=4, table_count=2)
+    seen: set[int] = set()
+    for _ in range(2):
+        assignments = scheduling_service.schedule_next(conn, tid)
+        seen.update(repo.get_match(conn, m)["group_id"] for m, _ in assignments)
+        _finish_playing(conn, tid)
+
+    assert seen == {g["id"] for g in repo.list_groups(conn, tid)}
+
+
+def test_extra_tables_serve_lagging_groups(conn):
+    """6 台 4 组：多余球台不能全部给同一个组。"""
+    tid = _service_tournament(conn, n_players=24, group_count=4, table_count=6)
+
+    assignments = scheduling_service.schedule_next(conn, tid)
+
+    assert len(assignments) == 6
+    counts = Counter(repo.get_match(conn, m)["group_id"] for m, _ in assignments)
+    assert len(counts) == 4          # 四个组都拿到球台
+    assert max(counts.values()) == 2  # 最多只多排一场，不会长期独占多余球台
+
+
+def test_recently_played_players_are_pushed_back(conn):
+    """A-B 刚结束：同组另有 A-C 与 D-E 可排时，优先排 D-E（软惩罚）。"""
+    tournament = repo.create_tournament(conn, "T", "2025-06-01", 1, 1, 2)
+    tid = tournament["id"]
+    repo.create_tables_for_tournament(conn, tid, 1)
+    players = [repo.add_player(conn, tid, f"P{i}", None) for i in range(1, 6)]
+    groups = groups_service.auto_group_tournament(conn, tid)
+    group_id = groups[0]["id"]
+    entry_of = {
+        entry["members"][0]["player_id"]: entry["id"]
+        for entry in repo.list_entries(conn, tid)
+    }
+
+    def create(player_a, player_b):
+        return repo.create_match(
+            conn, tid, MatchStage.GROUP.value, group_id, 1, None,
+            players[player_a]["id"], players[player_b]["id"],
+            entry_a_id=entry_of[players[player_a]["id"]],
+            entry_b_id=entry_of[players[player_b]["id"]],
+        )
+
+    just_finished = create(0, 1)
+    a_vs_c = create(0, 2)
+    d_vs_e = create(3, 4)
+    scores_service.record_score(conn, just_finished["id"], 2, 0)
+
+    table = repo.list_tables(conn, tid)[0]
+    assert scheduling_service.schedule_next(conn, tid) == [(d_vs_e["id"], table["id"])]
+
+    # 软惩罚不能变成硬门禁：只剩"刚打完"的选手可排时仍必须安排
+    _finish_playing(conn, tid)
+    assert scheduling_service.schedule_next(conn, tid) == [(a_vs_c["id"], table["id"])]
+
+
+def test_free_table_never_idle_while_match_playable(conn):
+    """尾段不变量：只要还有真正可执行的 WAITING 比赛，空闲球台必须安排。"""
+    tid = _service_tournament(conn, n_players=24, group_count=4, table_count=4)
+
+    for _ in range(40):
+        scheduling_service.schedule_next(conn, tid)
+        dash = scheduling_service.get_dashboard(conn, tid)
+        free = [t for t in dash["tables"] if t["status"] == "FREE"]
+        assert not (free and dash["next_playable"]), "有空闲球台却仍有可执行比赛"
+        if not repo.list_matches(conn, tid, status="PLAYING"):
+            break
+        _finish_playing(conn, tid)
+
+    assert repo.list_matches(conn, tid, status="WAITING") == []
+
+
+def test_dashboard_recommends_match_for_free_table(conn):
+    """控制台建议由服务端调度器给出：空闲球台带 recommended_match_id。"""
+    tid = _service_tournament(conn, n_players=24, group_count=4, table_count=4)
+    affinity = scheduling_service.group_table_affinity(conn, tid)
+
+    dash = scheduling_service.get_dashboard(conn, tid)
+
+    for table in dash["tables"]:
+        assert table["status"] == "FREE"
+        match = next(m for m in dash["next_playable"] if m["id"] == table["recommended_match_id"])
+        assert affinity[match["group_id"]] == table["id"]
+
+    scheduling_service.schedule_next(conn, tid)
+    dash = scheduling_service.get_dashboard(conn, tid)
+    assert all(t["recommended_match_id"] is None for t in dash["tables"])
+
+
+# ------------------------------------------------ 小组-球台优先（软约束）
+
+def test_group_table_affinity_maps_groups_to_tables_in_order(conn):
+    tid = _service_tournament(conn, n_players=24, group_count=4, table_count=4)
+    groups = repo.list_groups(conn, tid)
+    tables = repo.list_tables(conn, tid)
+    affinity = scheduling_service.group_table_affinity(conn, tid)
+    assert [affinity[g["id"]] for g in groups] == [t["id"] for t in tables]
+
+
+def test_group_table_affinity_wraps_when_more_groups_than_tables(conn):
+    tid = _service_tournament(conn, n_players=12, group_count=6, table_count=2)
+    groups = repo.list_groups(conn, tid)
+    tables = repo.list_tables(conn, tid)
+    affinity = scheduling_service.group_table_affinity(conn, tid)
+    assert len(affinity) == 6
+    assert [affinity[g["id"]] for g in groups] == [
+        tables[i % 2]["id"] for i in range(6)
+    ]
+
+
+def test_group_table_affinity_empty_without_tables(conn):
+    tid = _service_tournament(conn, n_players=6, group_count=2, table_count=1)
+    conn.execute("DELETE FROM tables WHERE tournament_id = ?", (tid,))
+    conn.commit()
+    assert repo.list_tables(conn, tid) == []
+    assert scheduling_service.group_table_affinity(conn, tid) == {}
+    assert scheduling_service.schedule_next(conn, tid) == []
+
+
+def test_schedule_next_puts_each_group_on_its_own_table(conn):
+    tid = _service_tournament(conn, n_players=24, group_count=4, table_count=4)
+    affinity = scheduling_service.group_table_affinity(conn, tid)
+    group_of = {m["id"]: m["group_id"] for m in repo.list_matches(conn, tid)}
+
+    assignments = scheduling_service.schedule_next(conn, tid)
+
+    assert len(assignments) == 4
+    for match_id, table_id in assignments:
+        assert affinity[group_of[match_id]] == table_id
+    _assert_invariants(conn, tid)
+
+
+def test_schedule_next_falls_back_when_preferred_group_has_no_match(conn):
+    tid = _service_tournament(conn, n_players=24, group_count=4, table_count=4)
+    affinity = scheduling_service.group_table_affinity(conn, tid)
+    group_of = {m["id"]: m["group_id"] for m in repo.list_matches(conn, tid)}
+    first_group = repo.list_groups(conn, tid)[0]
+    for m in repo.list_matches(conn, tid, group_id=first_group["id"]):
+        repo.update_match(
+            conn,
+            m["id"],
+            status=MatchStatus.FINISHED.value,
+            player_a_score=3,
+            player_b_score=0,
+            winner_id=m["player_a_id"],
+        )
+
+    assignments = scheduling_service.schedule_next(conn, tid)
+
+    # 软约束：专属小组没比赛时球台不空转，回退安排其他小组的比赛
+    assert len(assignments) == 4
+    preferred_table = affinity[first_group["id"]]
+    fallback_match = next(mid for mid, table_id in assignments if table_id == preferred_table)
+    assert group_of[fallback_match] != first_group["id"]
+    _assert_invariants(conn, tid)
+
+
+@pytest.mark.parametrize("operation_mode", ["LIVE", "DEMO"])
+def test_group_table_affinity_applies_to_live_and_demo(conn, operation_mode):
+    """球台亲和与赛事运行模式无关：正式赛事与演示赛事结果一致。"""
+    tid = _service_tournament(
+        conn, n_players=24, group_count=4, table_count=4,
+        operation_mode=operation_mode,
+    )
+    assert repo.get_tournament(conn, tid)["operation_mode"] == operation_mode
+    affinity = scheduling_service.group_table_affinity(conn, tid)
+    group_of = {m["id"]: m["group_id"] for m in repo.list_matches(conn, tid)}
+
+    assignments = scheduling_service.schedule_next(conn, tid)
+
+    assert len(assignments) == 4
+    for match_id, table_id in assignments:
+        assert affinity[group_of[match_id]] == table_id
+    _assert_invariants(conn, tid)
+
+
+def test_schedule_next_affinity_beats_match_id_order(conn):
+    """group_id 为 None 的淘汰赛比赛没有偏好球台，即使 id 更小也排在小组赛之后。"""
+    t = repo.create_tournament(conn, "T", "2025-06-01", 2, 1, 2)
+    repo.create_tables_for_tournament(conn, t["id"], 2)
+    players = [repo.add_player(conn, t["id"], f"P{i}", None) for i in range(1, 5)]
+    knockout = repo.create_match(
+        conn, t["id"], MatchStage.KNOCKOUT.value, None, 1, 1,
+        players[0]["id"], players[1]["id"],
+    )
+    groups_service.auto_group_tournament(conn, t["id"])
+    matches_service.generate_group_matches(conn, t["id"])
+
+    affinity = scheduling_service.group_table_affinity(conn, t["id"])
+    assert None not in affinity
+    group = repo.list_groups(conn, t["id"])[0]
+    preferred_table = affinity[group["id"]]
+
+    assignments = scheduling_service.schedule_next(conn, t["id"])
+
+    chosen = dict((table_id, match_id) for match_id, table_id in assignments)
+    assert chosen[preferred_table] != knockout["id"]
+    assert repo.get_match(conn, chosen[preferred_table])["group_id"] == group["id"]
+    _assert_invariants(conn, t["id"])
+
+
 def test_release_match_frees_table(conn):
     tid = _service_tournament(conn, n_players=6)
     match = repo.list_matches(conn, tid)[0]
@@ -212,6 +451,21 @@ def test_api_schedule_next(client):
     dash = client.get(f"/api/tournaments/{tid}/dashboard").json()
     assert dash["stats"]["playing"] == 6
     assert dash["stats"]["waiting"] == 54
+
+
+def test_api_schedule_next_prefers_group_tables(client):
+    tid = _tournament_with_matches(client, n_players=24, group_count=4, table_count=4)
+    resp = client.post(f"/api/tournaments/{tid}/schedule-next")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["assigned"] == 4
+
+    groups = client.get(f"/api/tournaments/{tid}/groups").json()["groups"]
+    tables = client.get(f"/api/tournaments/{tid}/dashboard").json()["tables"]
+    matches = {m["id"]: m for m in client.get(f"/api/tournaments/{tid}/matches").json()}
+    expected = {g["id"]: tables[i % len(tables)]["id"] for i, g in enumerate(groups)}
+    for item in data["assignments"]:
+        assert expected[matches[item["match_id"]]["group_id"]] == item["table_id"]
 
 
 def test_api_dashboard(client):

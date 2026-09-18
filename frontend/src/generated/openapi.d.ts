@@ -39,6 +39,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Tournament
+         * @description 导出赛事结构化数据（只读）：落库数据 + 运行期推导结果，含 schema_version。
+         *
+         *     建议在删除赛事前先调用本接口留存备份；导出不修改任何业务数据。
+         */
+        get: operations["export_tournament_api_tournaments__tournament_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}": {
         parameters: {
             query?: never;
@@ -53,6 +75,8 @@ export interface paths {
         /**
          * Delete Tournament
          * @description 删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。
+         *
+         *     不可恢复：删除前建议先调用 `GET /api/tournaments/{id}/export` 留存结构化备份。
          */
         delete: operations["delete_tournament_api_tournaments__tournament_id__delete"];
         options?: never;
@@ -277,6 +301,26 @@ export interface paths {
         /** Set Seeds */
         put: operations["set_seeds_api_tournaments__tournament_id__seeds_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/seeds/auto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Auto Seeds
+         * @description 按赛事积分自动生成种子（单打）：积分高者 S1…SN，同分按选手 id。
+         */
+        post: operations["auto_seeds_api_tournaments__tournament_id__seeds_auto_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -572,6 +616,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/knockout/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Knockout
+         * @description 撤销淘汰签表（主签 + 名次排位），恢复到可修正小组结果的状态。
+         *
+         *     淘汰赛已经开始（有 PLAYING 或已录比分）时返回 409，不静默删除真实结果。
+         */
+        post: operations["undo_knockout_api_tournaments__tournament_id__knockout_undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -654,6 +720,18 @@ export interface components {
             college: string | null;
             /** Rating Points */
             rating_points: number;
+            /** Member Order */
+            member_order: number;
+        };
+        /**
+         * EntryMemberRecordOut
+         * @description entry_members 表的落库形态。
+         */
+        EntryMemberRecordOut: {
+            /** Entry Id */
+            entry_id: number;
+            /** Player Id */
+            player_id: number;
             /** Member Order */
             member_order: number;
         };
@@ -799,6 +877,22 @@ export interface components {
             /** Entries */
             entries: components["schemas"]["RankingEntryOut"][];
         };
+        /**
+         * GroupRecordOut
+         * @description groups 表的落库形态（与运行期分组视图 GroupOut 区分）。
+         */
+        GroupRecordOut: {
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            /** Name */
+            name: string;
+            /** Sort Order */
+            sort_order: number;
+            /** Qualify Count */
+            qualify_count?: number | null;
+        };
         /** GroupingResult */
         GroupingResult: {
             /** Groups */
@@ -923,6 +1017,19 @@ export interface components {
              * @default []
              */
             champion_path_match_ids: number[];
+        };
+        /**
+         * KnockoutUndoResult
+         * @description 撤销淘汰签表的结果：只报告删除了哪些淘汰阶段派生数据。
+         */
+        KnockoutUndoResult: {
+            tournament: components["schemas"]["TournamentOut"];
+            /** Deleted Main Matches */
+            deleted_main_matches: number;
+            /** Deleted Placement Matches */
+            deleted_placement_matches: number;
+            /** Deleted Matches */
+            deleted_matches: number;
         };
         /**
          * MatchBracket
@@ -1121,6 +1228,40 @@ export interface components {
             /** Operator Name */
             operator_name: string;
         };
+        /**
+         * QualificationDecisionExport
+         * @description 人工晋级裁定的导出形态：额外带上冻结的排名快照证据。
+         *
+         *     ranking_snapshot 由 rankings.qualification_snapshot() 写入，是 JSON 对象
+         *     （group_id / qualify_count / 各组进度 / 参赛位名次明细）。
+         */
+        QualificationDecisionExport: {
+            /** Id */
+            id: number;
+            /** Group Id */
+            group_id: number;
+            /** Selected Entry Ids */
+            selected_entry_ids: number[];
+            /**
+             * Ranking Snapshot
+             * @default {}
+             */
+            ranking_snapshot: {
+                [key: string]: unknown;
+            };
+            /** Reason */
+            reason: string;
+            /** Operator Name */
+            operator_name: string;
+            /** Created At */
+            created_at: string;
+            /** Invalidated At */
+            invalidated_at?: string | null;
+            /** Invalidation Reason */
+            invalidation_reason?: string | null;
+            /** Active */
+            active: boolean;
+        };
         /** QualificationDecisionOut */
         QualificationDecisionOut: {
             /** Id */
@@ -1270,6 +1411,22 @@ export interface components {
             change_reason?: string | null;
         };
         /**
+         * ScoreRequestOut
+         * @description 比分写入审计账本（幂等编号）。
+         */
+        ScoreRequestOut: {
+            /** Request Id */
+            request_id: string;
+            /** Match Id */
+            match_id: number;
+            /** Action */
+            action: string;
+            /** Payload Fingerprint */
+            payload_fingerprint: string;
+            /** Created At */
+            created_at: string;
+        };
+        /**
          * ScoreRevisionRequest
          * @description 改分请求必须在机器可读契约中明确携带操作人和原因。
          */
@@ -1298,6 +1455,16 @@ export interface components {
             /** Player Ids */
             player_ids: number[];
         };
+        /** TableOut */
+        TableOut: {
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            /** Name */
+            name: string;
+            status: components["schemas"]["TableStatus"];
+        };
         /**
          * TableStatus
          * @description 球台状态。
@@ -1312,6 +1479,8 @@ export interface components {
             name: string;
             status: components["schemas"]["TableStatus"];
             match: components["schemas"]["MatchOut"] | null;
+            /** Recommended Match Id */
+            recommended_match_id?: number | null;
         };
         /** TournamentCreate */
         TournamentCreate: {
@@ -1346,6 +1515,53 @@ export interface components {
             points_to_win: number;
             /** @default LIVE */
             operation_mode: components["schemas"]["TournamentMode"];
+        };
+        /**
+         * TournamentExport
+         * @description 赛事结构化导出：schema_version + 落库数据 + 推导结果。
+         */
+        TournamentExport: {
+            /** Schema Version */
+            schema_version: string;
+            /** Exported At */
+            exported_at: string;
+            tournament: components["schemas"]["TournamentOut"];
+            /** Players */
+            players: components["schemas"]["PlayerOut"][];
+            /** Entries */
+            entries: components["schemas"]["EntryOut"][];
+            /** Entry Members */
+            entry_members: components["schemas"]["EntryMemberRecordOut"][];
+            /** Groups */
+            groups: components["schemas"]["GroupRecordOut"][];
+            /** Tables */
+            tables: components["schemas"]["TableOut"][];
+            /** Matches */
+            matches: components["schemas"]["MatchOut"][];
+            /** Match Games */
+            match_games: components["schemas"]["MatchGameOut"][];
+            /** Qualification Decisions */
+            qualification_decisions: components["schemas"]["QualificationDecisionExport"][];
+            /** Score Requests */
+            score_requests: components["schemas"]["ScoreRequestOut"][];
+            derived: components["schemas"]["TournamentExportDerived"];
+        };
+        /**
+         * TournamentExportDerived
+         * @description 运行期推导结果，不属于落库数据。
+         */
+        TournamentExportDerived: {
+            /** Rankings */
+            rankings: components["schemas"]["GroupRankingOut"][];
+            champion?: components["schemas"]["PlayerBrief"] | null;
+            runner_up?: components["schemas"]["PlayerBrief"] | null;
+            /**
+             * Placements
+             * @default []
+             */
+            placements: {
+                [key: string]: unknown;
+            }[];
         };
         /**
          * TournamentMode
@@ -1498,6 +1714,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrderBookSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_tournament_api_tournaments__tournament_id__export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TournamentExport"];
                 };
             };
             /** @description Validation Error */
@@ -2070,6 +2317,37 @@ export interface operations {
             };
         };
     };
+    auto_seeds_api_tournaments__tournament_id__seeds_auto_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayerOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     generate_players_api_tournaments__tournament_id__demo_generate_players_post: {
         parameters: {
             query?: never;
@@ -2615,6 +2893,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KnockoutTree"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_knockout_api_tournaments__tournament_id__knockout_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnockoutUndoResult"];
                 };
             };
             /** @description Validation Error */

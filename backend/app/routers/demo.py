@@ -10,6 +10,7 @@ from .. import repository as repo, schemas
 from ..db import get_db
 from ..services import matches as matches_service
 from ..services import players as players_service
+from ..services import scores as scores_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}/demo", tags=["demo"])
 
@@ -47,4 +48,7 @@ def finish_group_stage(tournament_id: int, conn: Connection = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(exc))
     except matches_service.TournamentStageError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except scores_service.ScoreError as exc:
+        # 业务校验失败必须是可读错误，不能裸 500
+        raise HTTPException(status_code=exc.code, detail=str(exc))
     return schemas.DemoFinishGroupStageResult(finished=finished)

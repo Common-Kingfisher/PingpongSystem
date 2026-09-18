@@ -9,7 +9,7 @@
 import sqlite3
 
 from .. import repository as repo
-from ..models import TournamentStage
+from ..models import EventType, TournamentStage
 
 
 class PlayerError(Exception):
@@ -36,6 +36,30 @@ def delete_player(conn: sqlite3.Connection, tournament_id: int, player_id: int) 
         raise PlayerError("选手已分组，请先解除分组后再删除", 409)
     repo.delete_player(conn, player_id)
     conn.commit()
+
+
+def _sync_singles_entry_seeds(
+    conn: sqlite3.Connection, tournament_id: int, ranked_player_ids: list[int]
+) -> None:
+    """把选手种子镜像到单打 Entry，保证"选手种子"与"Entry 种子"只有一个真实来源。
+
+    分组分散与淘汰赛徽标读的是 entries.seed_no，而编辑入口写的是 players.seed_no；
+    这里在每次修改种子后同步一次，避免"UI 改了种子但分组仍按旧种子"。
+    双打 Entry（两名成员）的种子规则尚未冻结，这里不触碰。
+    """
+    singles = [
+        entry for entry in repo.list_entries(conn, tournament_id)
+        if len(entry["members"]) == 1
+    ]
+    if not singles:
+        return
+    entry_of = {entry["members"][0]["player_id"]: entry["id"] for entry in singles}
+    for entry in singles:
+        repo.set_entry_seed(conn, entry["id"], None)
+    for seed_no, player_id in enumerate(ranked_player_ids, start=1):
+        entry_id = entry_of.get(player_id)
+        if entry_id is not None:
+            repo.set_entry_seed(conn, entry_id, seed_no)
 
 
 def set_seeds(
@@ -65,8 +89,32 @@ def set_seeds(
     repo.clear_tournament_seeds(conn, tournament_id)
     for i, pid in enumerate(player_ids):
         repo.set_player_seed(conn, pid, i + 1)
+    _sync_singles_entry_seeds(conn, tournament_id, player_ids)
     conn.commit()
     return repo.list_players(conn, tournament_id)
+
+
+def auto_seed_by_rating(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    """按赛事积分自动设置种子（单打）：积分高者 S1…SN。
+
+    排序稳定：rating_points 降序，同分按选手 id 升序（不使用随机）。
+    默认取前 group_count 名（不超过参赛人数）；只是在用户点击时执行一次，
+    不会在分组时偷偷覆盖手工种子，生成后仍可手工调整。
+    """
+    tournament = repo.get_tournament(conn, tournament_id)
+    if tournament is None:
+        raise PlayerError("赛事不存在", 404)
+    if tournament["stage"] != TournamentStage.REGISTRATION.value:
+        raise PlayerError("赛事已进入比赛阶段，种子设置已锁定", 409)
+    if tournament["event_type"] != EventType.SINGLES.value:
+        raise PlayerError("双打赛事的种子规则尚未确定，暂不支持按积分自动生成种子", 409)
+    players = repo.list_players(conn, tournament_id)
+    if not players:
+        raise PlayerError("请先添加或导入选手", 409)
+
+    limit = min(tournament["group_count"], len(players))
+    ranked = sorted(players, key=lambda p: (-p["rating_points"], p["id"]))[:limit]
+    return set_seeds(conn, tournament_id, [p["id"] for p in ranked])
 
 
 DEMO_COLLEGES = ["计算机学院", "自动化学院", "机械学院", "电子信息学院"]
@@ -101,9 +149,12 @@ def generate_demo_players(
 
     if with_seeds and count > 0:
         seed_count = min(4, tournament["group_count"], count)
+        seeded = added[:seed_count]
         repo.clear_tournament_seeds(conn, tournament_id)
-        for i, p in enumerate(added[:seed_count]):
+        for i, p in enumerate(seeded):
             repo.set_player_seed(conn, p["id"], i + 1)
+        # 名单已确认时，Entry 种子必须跟着选手种子走（复用同一套同步逻辑，不新增实现）。
+        _sync_singles_entry_seeds(conn, tournament_id, [p["id"] for p in seeded])
 
     conn.commit()
     return repo.list_players(conn, tournament_id)

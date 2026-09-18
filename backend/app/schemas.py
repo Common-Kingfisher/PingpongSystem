@@ -1,6 +1,7 @@
 """Pydantic 请求/响应模型。"""
 
 from datetime import date
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -255,6 +256,8 @@ class TableWithMatch(BaseModel):
     name: str
     status: TableStatus
     match: MatchOut | None
+    # 空闲球台的调度建议（服务端调度器算出，前端只展示不重算优先级）。
+    recommended_match_id: int | None = None
 
 
 class Dashboard(BaseModel):
@@ -432,3 +435,86 @@ class TournamentResults(BaseModel):
     placements: list[dict]
     total_matches: int
     finished_matches: int
+
+
+class KnockoutUndoResult(BaseModel):
+    """撤销淘汰签表的结果：只报告删除了哪些淘汰阶段派生数据。"""
+
+    tournament: TournamentOut
+    deleted_main_matches: int
+    deleted_placement_matches: int
+    deleted_matches: int
+
+
+class GroupRecordOut(BaseModel):
+    """groups 表的落库形态（与运行期分组视图 GroupOut 区分）。"""
+
+    id: int
+    tournament_id: int
+    name: str
+    sort_order: int
+    qualify_count: int | None = None
+
+
+class EntryMemberRecordOut(BaseModel):
+    """entry_members 表的落库形态。"""
+
+    entry_id: int
+    player_id: int
+    member_order: int
+
+
+class ScoreRequestOut(BaseModel):
+    """比分写入审计账本（幂等编号）。"""
+
+    request_id: str
+    match_id: int
+    action: str
+    payload_fingerprint: str
+    created_at: str
+
+
+class QualificationDecisionExport(BaseModel):
+    """人工晋级裁定的导出形态：额外带上冻结的排名快照证据。
+
+    ranking_snapshot 由 rankings.qualification_snapshot() 写入，是 JSON 对象
+    （group_id / qualify_count / 各组进度 / 参赛位名次明细）。
+    """
+
+    id: int
+    group_id: int
+    selected_entry_ids: list[int]
+    ranking_snapshot: dict[str, Any] = {}
+    reason: str
+    operator_name: str
+    created_at: str
+    invalidated_at: str | None = None
+    invalidation_reason: str | None = None
+    active: bool
+
+
+class TournamentExportDerived(BaseModel):
+    """运行期推导结果，不属于落库数据。"""
+
+    rankings: list[GroupRankingOut]
+    champion: PlayerBrief | None = None
+    runner_up: PlayerBrief | None = None
+    placements: list[dict] = []
+
+
+class TournamentExport(BaseModel):
+    """赛事结构化导出：schema_version + 落库数据 + 推导结果。"""
+
+    schema_version: str
+    exported_at: str
+    tournament: TournamentOut
+    players: list[PlayerOut]
+    entries: list[EntryOut]
+    entry_members: list[EntryMemberRecordOut]
+    groups: list[GroupRecordOut]
+    tables: list[TableOut]
+    matches: list[MatchOut]
+    match_games: list[MatchGameOut]
+    qualification_decisions: list[QualificationDecisionExport]
+    score_requests: list[ScoreRequestOut]
+    derived: TournamentExportDerived

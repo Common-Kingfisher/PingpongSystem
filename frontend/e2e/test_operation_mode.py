@@ -33,6 +33,7 @@ def test_operation_mode_boundaries() -> None:
         demo_id = _open_players(page)
         expect(page.get_by_text("演示赛事", exact=True)).to_be_visible()
         expect(page.get_by_role("button", name="Demo 生成演示选手")).to_be_visible()
+        expect(page.get_by_role("button", name="Excel / CSV 导入")).to_be_visible()
 
         page.goto(base_url)
         page.wait_for_load_state("networkidle")
@@ -40,6 +41,8 @@ def test_operation_mode_boundaries() -> None:
         live_id = _open_players(page)
         expect(page.get_by_text("正式赛事", exact=True)).to_be_visible()
         expect(page.get_by_role("button", name="Demo 生成演示选手")).to_have_count(0)
+        # 名单导入是正式能力：LIVE 赛事必须能看到导入入口
+        expect(page.get_by_role("button", name="Excel / CSV 导入")).to_be_visible()
 
         rejected = page.request.post(
             f"{base_url}/api/tournaments/{live_id}/demo/generate-players",
