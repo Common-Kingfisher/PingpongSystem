@@ -543,6 +543,8 @@ _MATCH_UPDATEABLE = {
     "bracket",
     "placement_min",
     "placement_max",
+    "started_at",
+    "finished_at",
 }
 
 
@@ -558,6 +560,33 @@ def update_match(conn: sqlite3.Connection, match_id: int, **fields) -> dict:
             f"UPDATE matches SET {', '.join(sets)} WHERE id = ?", params
         )
     return get_match(conn, match_id)
+
+
+def create_score_audit(
+    conn: sqlite3.Connection,
+    match_id: int,
+    action: str,
+    before_snapshot: str,
+    after_snapshot: str,
+    operator_name: str | None,
+    change_reason: str | None,
+    request_id: str | None,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO score_audits "
+        "(match_id, action, before_snapshot, after_snapshot, operator_name, change_reason, request_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (match_id, action, before_snapshot, after_snapshot, operator_name, change_reason, request_id),
+    )
+    row = conn.execute("SELECT * FROM score_audits WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+def list_score_audits(conn: sqlite3.Connection, match_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM score_audits WHERE match_id = ? ORDER BY id DESC", (match_id,)
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def claim_score_request(

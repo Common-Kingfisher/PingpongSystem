@@ -25,6 +25,8 @@
 
 - 保留 React + TypeScript + Vite + FastAPI + SQLite，不搬回 Next.js 原型。
 - 单打和双打；双打按运动员积分相近进行随机配对，不等于“强弱搭配使各队实力均衡”。
+- 比赛第一次上台记录开赛时间，第一次完赛记录结束时间；赛后改分不覆盖这两个事实时间。
+- 比分修改必须填写操作人与修改理由，系统保存修改前后完整快照和不可覆盖的操作历史。
 - 默认三局两胜、每局 11 分；创建赛事时可在三局两胜 / 五局三胜 / 七局四胜与每局目标分之间选择；常规只录大比分，输入初值为 0。
 - 种子按赛事隔离：可在选手页手工排序，也可「按积分生成种子」（单打，积分降序、同分按选手编号）；选手种子与 Entry 种子在每次修改后同步，分组与签表按同一份种子执行。双打种子规则尚未冻结，不套用该规则。
 - 比赛时间（A2）：`matches.called_at` = 最近一次安排上球台的时间；`started_at` = 当前有效进行中比赛的开始时间（下球台后置空，重新安排时重写）；`finished_at` = 当前有效比赛产生结果的时间（改分不改动）。三者统一为 UTC SQLite 时间戳 `YYYY-MM-DD HH:MM:SS`，只由 `repository.mark_match_playing / mark_match_waiting / mark_match_finished` 写入；系统轮空不写时间（派生结果）；未排台直接录分只写 `finished_at`，不伪造开始时间。
@@ -52,8 +54,8 @@
 | 报名与导入 | 在线报名、增删改选手、积分/单位、种子；CSV/XLSX 预览后确认；预览全部行。导入是正式能力，LIVE 与 DEMO 赛事都可用；只有「生成演示选手」等 Demo 功能限 DEMO | `RegisterPage.tsx`、`PlayersPage.tsx`；`services/import_players.py` |
 | Entry 与双打 | 单打 1 人、双打 2 人；近积分候选随机配对；未配齐不能确认名单 | `services/entries.py`、`routers/entries.py` |
 | 分组 | 种子分散、人数均衡、同单位软回避；解除分组；配置各组出线数 | `services/groups.py`、`routers/groups.py` |
+| 录分与排名 | 大比分默认 0；小组小分补录；改分强制操作人/理由并保存前后快照；读取结果重算排名、提示出线歧义 | `ScoreSheet.tsx`、`RankingsPage.tsx`；`services/scores.py`、`domain/ranking.py` |
 | 现场控制台 | 真实 API 球台卡、批量/手动排台、下台、比分/弃权；待赛横向换行；已结束场次改分。自动排台优先级＝硬约束 → 组台亲和 → 组间进度公平 → 连续上场惩罚 → 稳定顺序（服务端给出每台建议，前端只展示），更完整的 V1 设计见 `docs/SCHEDULING_V1_DESIGN.md` | `ConsolePage.tsx`、`LiveTableCard.tsx`、`services/scheduling.py` |
-| 录分与排名 | 大比分默认 0；小组小分补录；读取结果重算排名、提示出线歧义 | `ScoreSheet.tsx`、`RankingsPage.tsx`；`services/scores.py`、`domain/ranking.py` |
 | 人工晋级裁定 | 只处理晋级线并列，记录选择、理由、主裁判和时间；相关数据变化后自动失效 | `services/qualification_decisions.py`、`qualification_decisions.py` |
 | 淘汰赛与结果 | 主签胜者晋级、轮空、季军或并列季军、4/8/16 人递归完整排位、最终名次；淘汰赛尚未开始时可用「撤销签表」（`POST /api/tournaments/{id}/knockout/undo`）删除主签与排位并回到 `GROUP_STAGE`，修正小组比分后重新生成，已开赛返回 409 | `KnockoutPage.tsx`；`services/knockout.py` |
 | 数据导出与删除保护 | `GET /api/tournaments/{id}/export` 导出结构化赛事数据（`schema_version` + 落库数据 + 排名/冠军/名次推导 + 小分 + 人工裁定快照 + 比分写入审计），只读；删除正式赛事须输入完整赛事名，建议删除前先导出备份 | `services/tournament_export.py`、`routers/tournaments.py` |
@@ -82,6 +84,8 @@
 | Match.entry_a_id / entry_b_id | 对阵双方 Entry | 不要与 Player ID 混用 |
 | player_a_score / player_b_score | 保留旧名称的大比分，即胜局数 | 2:0 表示赢两局，不是单局得分 |
 | MatchGame | `game_no`、双方单局得分、胜者 | 缺小分不等于实际得 0 分 |
+| started_at / finished_at | 首次上台与首次完赛的事实时间 | 释放重排、改分和补录小分均不覆盖 |
+| score_audits | RECORD/REVISE 前后快照、操作者、原因、时间、请求标识 | 历史只追加不覆盖；旧比分可能没有历史审计 |
 | winner_entry_id / winner_id | 新旧兼容字段 | 淘汰树 `player_a.id` 与排名 `player_id` 可能实际承载 Entry ID；见 service 映射 |
 | result_type | NORMAL、FORFEIT、WALKOVER、NO_SHOW、DISQUALIFIED | 没有完整 CANCELLED 流程 |
 | qualify_count | 组级覆盖值；否则用赛事 `qualify_per_group` | 能保存不代表签表支持所有组合 |

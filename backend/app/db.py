@@ -132,6 +132,18 @@ CREATE TABLE IF NOT EXISTS score_requests (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS score_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    action TEXT NOT NULL CHECK (action IN ('RECORD','REVISE')),
+    before_snapshot TEXT NOT NULL,
+    after_snapshot TEXT NOT NULL,
+    operator_name TEXT,
+    change_reason TEXT,
+    request_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS qualification_decisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
@@ -152,6 +164,9 @@ CREATE INDEX IF NOT EXISTS idx_entries_tournament ON entries(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_entry_members_player ON entry_members(player_id);
 CREATE INDEX IF NOT EXISTS idx_match_games_match ON match_games(match_id);
 CREATE INDEX IF NOT EXISTS idx_score_requests_match ON score_requests(match_id);
+CREATE INDEX IF NOT EXISTS idx_score_audits_match ON score_audits(match_id, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_score_audits_request
+    ON score_audits(request_id) WHERE request_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_qualification_decisions_group ON qualification_decisions(group_id, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_qualification_decision_active
     ON qualification_decisions(group_id) WHERE invalidated_at IS NULL;

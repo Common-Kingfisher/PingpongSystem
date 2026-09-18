@@ -307,6 +307,27 @@ class ScoreRequest(BaseModel):
     forfeit_entry_id: int | None = None
     note: str | None = Field(default=None, max_length=500)
     request_id: UUID | None = None
+    operator_name: str | None = Field(default=None, max_length=100)
+    change_reason: str | None = Field(default=None, max_length=500)
+
+
+class ScoreRevisionRequest(ScoreRequest):
+    """改分请求必须在机器可读契约中明确携带操作人和原因。"""
+
+    operator_name: str = Field(min_length=1, max_length=100)
+    change_reason: str = Field(min_length=2, max_length=500)
+
+
+class ScoreAuditOut(BaseModel):
+    id: int
+    match_id: int
+    action: str
+    before_snapshot: dict
+    after_snapshot: dict
+    operator_name: str | None
+    change_reason: str | None
+    request_id: str | None
+    created_at: str
 
 
 class RankingEntryOut(BaseModel):
