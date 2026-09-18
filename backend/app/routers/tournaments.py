@@ -6,6 +6,7 @@ from sqlite3 import Connection
 from .. import repository as repo, schemas
 from ..db import get_db
 from ..services import order_book as order_book_service
+from ..services import tournament_export as tournament_export_service
 from ..services import tournaments as tournament_service
 
 router = APIRouter(prefix="/api/tournaments", tags=["tournaments"])
@@ -44,6 +45,18 @@ def get_order_book_snapshot(tournament_id: int, conn: Connection = Depends(get_d
         raise HTTPException(status_code=exc.code, detail=str(exc))
 
 
+@router.get("/{tournament_id}/export", response_model=schemas.TournamentExport)
+def export_tournament(tournament_id: int, conn: Connection = Depends(get_db)):
+    """导出赛事结构化数据（只读）：落库数据 + 运行期推导结果，含 schema_version。
+
+    建议在删除赛事前先调用本接口留存备份；导出不修改任何业务数据。
+    """
+    try:
+        return tournament_export_service.get_export(conn, tournament_id)
+    except tournament_export_service.ExportError as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc))
+
+
 @router.get("/{tournament_id}", response_model=schemas.TournamentOut)
 def get_tournament(tournament_id: int, conn: Connection = Depends(get_db)):
     tournament = repo.get_tournament(conn, tournament_id)
@@ -58,11 +71,17 @@ def delete_tournament(
     confirm_name: str | None = Query(default=None),
     conn: Connection = Depends(get_db),
 ):
-    """删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。"""
+    """删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。
+
+    不可恢复：删除前建议先调用 `GET /api/tournaments/{id}/export` 留存结构化备份。
+    """
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise HTTPException(status_code=404, detail="赛事不存在")
     if tournament["operation_mode"] == "LIVE" and confirm_name != tournament["name"]:
-        raise HTTPException(status_code=409, detail="正式赛事删除前必须输入完整赛事名称确认")
+        raise HTTPException(
+            status_code=409,
+            detail="正式赛事删除前必须输入完整赛事名称确认；建议先导出备份（GET /api/tournaments/{id}/export）",
+        )
     repo.delete_tournament(conn, tournament_id)
     conn.commit()

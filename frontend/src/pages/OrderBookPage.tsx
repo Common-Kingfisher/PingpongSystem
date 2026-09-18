@@ -2,14 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, KnockoutMatch, Match, OrderBookSnapshot, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
-
-const chineseNumber = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
+import { formatSummary } from '../format'
 
 function competitionRule(tournament: Tournament) {
-  const totalGames = tournament.games_to_win * 2 - 1
-  const totalLabel = chineseNumber[totalGames] ?? String(totalGames)
-  const winLabel = chineseNumber[tournament.games_to_win] ?? String(tournament.games_to_win)
-  return `${totalLabel}局${winLabel}胜 · 每局 ${tournament.points_to_win} 分`
+  return formatSummary(tournament)
 }
 
 function statusLabel(status: Match['status']) {

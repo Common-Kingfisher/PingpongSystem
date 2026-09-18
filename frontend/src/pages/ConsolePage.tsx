@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, Dashboard, Match, Player, ScoreAudit, Tournament } from '../api'
+import { api, ApiError, Dashboard, Match, Player, ScoreAudit, TableWithMatch, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import ScoreSheet from '../components/ScoreSheet'
 import LiveTableCard from '../components/LiveTableCard'
@@ -16,6 +16,7 @@ export default function ConsolePage() {
   const [finished, setFinished] = useState<Match[]>([])
   const [waiting, setWaiting] = useState<Match[]>([])
   const [groupNames, setGroupNames] = useState<Record<number, string>>({})
+  const [groupOrder, setGroupOrder] = useState<number[]>([])
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -55,6 +56,7 @@ export default function ConsolePage() {
     const names: Record<number, string> = {}
     for (const g of gs.groups) names[g.id] = g.name
     setGroupNames(names)
+    setGroupOrder(gs.groups.map((g) => g.id))
     setLoaded(true)
   }, [tid])
 
@@ -139,8 +141,51 @@ export default function ConsolePage() {
     }
   }
 
+  // 与后端 group_table_affinity 一致（软约束）：第 i 个小组优先使用第 i 张球台，
+  // 小组多于球台时按球台数取模；没有对应小组的球台不做偏好。
+  const preferredGroupForTable = (tableId: number): number | undefined => {
+    const tables = dash?.tables ?? []
+    if (tables.length === 0) return undefined
+    return groupOrder.find((_, i) => tables[i % tables.length].id === tableId)
+  }
+
+  const preferredLabelForTable = (tableId: number): string | undefined => {
+    const gid = preferredGroupForTable(tableId)
+    if (gid === undefined) return undefined
+    return groupNames[gid] ?? `组${gid}`
+  }
+
+  /** 服务端调度建议（亲和 + 组间公平 + 连续上场惩罚由后端统一计算）。 */
+  const recommendedMatchForTable = (table: TableWithMatch): Match | undefined => {
+    const matchId = table.recommended_match_id
+    if (matchId === null || matchId === undefined) return undefined
+    return dash?.next_playable.find((m) => m.id === matchId)
+  }
+
+  /** 球台提示：优先显示服务端建议的对阵，其次显示该台的固定小组。 */
+  const tableHint = (table: TableWithMatch): string | undefined => {
+    const recommended = recommendedMatchForTable(table)
+    if (recommended) {
+      return `建议安排：${sideName(recommended, 'a')} vs ${sideName(recommended, 'b')}`
+    }
+    const label = preferredLabelForTable(table.id)
+    return label ? `本台优先：${label}` : undefined
+  }
+
+  /** 该球台要安排的比赛：服务端建议优先，其次本台对应小组，最后任意一场。 */
+  const nextMatchForTable = (table: TableWithMatch): Match | undefined => {
+    const playable = dash?.next_playable ?? []
+    if (playable.length === 0) return undefined
+    const recommended = recommendedMatchForTable(table)
+    if (recommended) return recommended
+    const gid = preferredGroupForTable(table.id)
+    if (gid === undefined) return playable[0]
+    return playable.find((m) => m.group_id === gid) ?? playable[0]
+  }
+
   const assignFreeTable = async (tableId: number) => {
-    const next = dash?.next_playable[0]
+    const table = dash?.tables.find((t) => t.id === tableId)
+    const next = table ? nextMatchForTable(table) : undefined
     if (!next) {
       setError('当前没有可安排的比赛')
       return
@@ -343,6 +388,7 @@ export default function ConsolePage() {
             stageLabel={stageLabel}
             busy={busy}
             groupFinished={showGroupCompleted}
+            hintLabel={tableHint(table)}
             onAssign={assignFreeTable}
             onScore={(match) => { setScoreDetailMode(false); setScoreMode('record'); setScoringMatch(match) }}
             onRelease={release}

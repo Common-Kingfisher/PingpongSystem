@@ -1,0 +1,23 @@
+// 赛制文案：局制（三局两胜 / 五局三胜 / 七局四胜）与每局目标分统一从这里读取，
+// 页面不得写死"三局两胜"或"11 分"。
+const chineseNumber = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
+
+function numberLabel(value: number): string {
+  return chineseNumber[value] ?? String(value)
+}
+
+/** 「三局两胜」「五局三胜」「七局四胜」等业务语言。 */
+export function formatName(gamesToWin: number): string {
+  return `${numberLabel(gamesToWin * 2 - 1)}局${numberLabel(gamesToWin)}胜`
+}
+
+/** 「三局两胜 · 每局 11 分」。 */
+export function formatSummary(tournament: { games_to_win: number; points_to_win: number }): string {
+  return `${formatName(tournament.games_to_win)} · 每局 ${tournament.points_to_win} 分`
+}
+
+/** 创建/编辑下拉选项：业务语言 ↔ games_to_win。 */
+export const formatOptions: { value: number; label: string }[] = [2, 3, 4].map((games) => ({
+  value: games,
+  label: formatName(games),
+}))

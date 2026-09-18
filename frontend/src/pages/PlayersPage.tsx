@@ -203,6 +203,18 @@ export default function PlayersPage() {
     await persistSeeds(arr)
   }
 
+  const autoSeeds = async () => {
+    setError(null)
+    setBusy(true)
+    try {
+      setPlayers(await api.autoSeeds(tid))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '按积分生成种子失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const confirmDemoPlayers = async () => {
     if (!demoModal) return
     setError(null)
@@ -371,14 +383,18 @@ export default function PlayersPage() {
             {busy ? '添加中…' : '添加'}
           </button>
         </form>
-        {!locked && tournament?.operation_mode === 'DEMO' && (
+        {!locked && (
           <div className="button-row" style={{ marginTop: 14 }}>
-            <button className="btn" onClick={() => setDemoModal({ count: 16, withSeeds: true })}>
-              <span className="demo-tag">Demo</span> 生成演示选手
-            </button>
+            {/* 名单导入是正式能力：LIVE 与 DEMO 赛事都显示 */}
             <button className="btn" onClick={openImport}>
               Excel / CSV 导入
             </button>
+            {/* 演示数据生成只属于 DEMO 赛事 */}
+            {tournament?.operation_mode === 'DEMO' && (
+              <button className="btn" onClick={() => setDemoModal({ count: 16, withSeeds: true })}>
+                <span className="demo-tag">Demo</span> 生成演示选手
+              </button>
+            )}
           </div>
         )}
 
@@ -466,6 +482,23 @@ export default function PlayersPage() {
 
       <div className="card">
         <h3>种子选手</h3>
+        <p className="muted">
+          种子按积分高低划分：点击「按积分生成种子」会取积分最高的前 {tournament?.group_count ?? 0} 名
+          （同分按选手编号），生成后仍可手工调整顺序。
+        </p>
+        <div className="button-row">
+          <button
+            className="btn"
+            onClick={autoSeeds}
+            disabled={locked || busy || players.length === 0 || tournament?.event_type !== 'SINGLES'}
+          >
+            按积分生成种子
+          </button>
+          {tournament?.event_type !== 'SINGLES' && (
+            <span className="muted">双打赛事的种子规则尚未确定，暂不支持自动生成。</span>
+          )}
+          {locked && <span className="muted">赛事已进入比赛阶段，种子已锁定。</span>}
+        </div>
         {seeds.length === 0 ? (
           <p className="muted">尚未设置种子选手。种子选手将在自动分组时被分散到不同小组。</p>
         ) : (
