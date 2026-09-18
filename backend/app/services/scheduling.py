@@ -51,7 +51,7 @@ def _match_member_ids(conn: sqlite3.Connection, match: dict) -> set[int]:
     return ids
 
 
-def _match_ready(match: dict) -> bool:
+def match_ready(match: dict) -> bool:
     return (
         match.get("entry_a_id") is not None and match.get("entry_b_id") is not None
     ) or (
@@ -90,14 +90,16 @@ def group_table_affinity(conn: sqlite3.Connection, tournament_id: int) -> dict[i
 RECENT_FINISHED_MATCH_CAP = 3
 
 
-def _group_progress(conn: sqlite3.Connection, tournament_id: int) -> dict[int, dict]:
+def _group_progress(
+    matches: list[dict], groups: list[dict]
+) -> dict[int, dict]:
     """每个小组的调度进度：progress = (finished + playing) / total。
 
     已完成与进行中同等计入，因为已经在台上的比赛同样代表该组正在推进。
+    真实排台与 ETA 模拟都通过状态快照复用本函数。
     """
-    matches = repo.list_matches(conn, tournament_id)
     stats: dict[int, dict] = {}
-    for group in repo.list_groups(conn, tournament_id):
+    for group in groups:
         group_id = group["id"]
         group_matches = [m for m in matches if m["group_id"] == group_id]
         total = len(group_matches)
@@ -122,25 +124,25 @@ def _bump_group_progress(stats: dict[int, dict], group_id: int | None) -> None:
     entry["progress"] = (entry["finished"] + entry["playing"]) / entry["total"]
 
 
-def _recently_played_player_ids(
-    conn: sqlite3.Connection, tournament_id: int, per_group: int
-) -> set[int]:
+def _recent_window_size(free_table_count: int, group_count: int) -> int:
+    """每组回看多少场"最近结束"的比赛（调度启发式参数，不是最短休息时间规则）。"""
+    return min(
+        RECENT_FINISHED_MATCH_CAP,
+        max(1, -(-free_table_count // max(1, group_count))),
+    )
+
+
+def _recently_played_player_ids(state: dict, window: int) -> set[int]:
     """"刚打完"的选手集合（软惩罚，用于避免同一选手连续上场）。
 
-    matches 表没有 finished_at，因此用"各小组最近结束的若干场比赛"作为代理；
-    真实计时需要 SCHEDULING_V1 的时间字段，本轮不迁移时间模型。
+    按各组最近完成的比赛排序，优先使用真实 finished_at（A2 时间基础），
+    finished_at 缺失（旧数据 / 系统轮空）时退回比赛 id 顺序。
+    窗口大小只是调度启发式参数，不代表已冻结的"最短休息时间"规则。
     """
-    finished = [
-        m for m in repo.list_matches(conn, tournament_id)
-        if m["status"] == MatchStatus.FINISHED.value
-    ]
-    by_group: dict[int | None, list[dict]] = {}
-    for match in finished:
-        by_group.setdefault(match["group_id"], []).append(match)
     recent: set[int] = set()
-    for group_matches in by_group.values():
-        for match in sorted(group_matches, key=lambda m: m["id"], reverse=True)[:per_group]:
-            recent.update(_match_member_ids(conn, match))
+    for bucket in state["recent_finished_by_group"].values():
+        for match in bucket[:window]:
+            recent.update(state["members_by_match"].get(match["id"], set()))
     return recent
 
 
@@ -151,7 +153,7 @@ def _fairness_key(
     members_by_match: dict[int, set[int]],
 ) -> tuple:
     """候选比赛的排序键（越小越优先）：组进度 → 已结束场次 → 连续上场 → 稳定顺序。"""
-    recent_penalty = 1 if members_by_match[match["id"]] & recently_played else 0
+    recent_penalty = 1 if members_by_match.get(match["id"], set()) & recently_played else 0
     group_stats = stats.get(match["group_id"]) if match["group_id"] is not None else None
     if group_stats is None:
         # 淘汰赛 / 排位赛没有小组进度：单独一档，按轮次与 id 稳定排序。
@@ -167,10 +169,54 @@ def _fairness_key(
     )
 
 
-def _plan_assignments(
-    conn: sqlite3.Connection, tournament_id: int
-) -> tuple[list[tuple[int, int]], dict[int, int]]:
-    """只读规划：返回 ([(match_id, table_id)], {table_id: recommended_match_id})。
+def build_plan_state(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    *,
+    matches: list[dict] | None = None,
+    tables: list[dict] | None = None,
+) -> dict:
+    """排台状态快照：真实排台与 ETA 模拟共用同一份规则输入。
+
+    快照内的 matches / tables 是可写副本，`plan_batch()` 只修改内存快照，
+    绝不写数据库；因此 ETA 可以安全地反复模拟。
+    """
+    if matches is None:
+        matches = repo.list_matches(conn, tournament_id)
+    if tables is None:
+        tables = repo.list_tables(conn, tournament_id)
+    groups = repo.list_groups(conn, tournament_id)
+
+    snapshot_matches = [dict(m) for m in matches]
+    snapshot_tables = [dict(t) for t in tables]
+    members_by_match: dict[int, set[int]] = {}
+    for match in snapshot_matches:
+        if match["status"] in (MatchStatus.WAITING.value, MatchStatus.PLAYING.value):
+            members_by_match[match["id"]] = _match_member_ids(conn, match)
+
+    recent_finished_by_group: dict[int | None, list[dict]] = {}
+    for match in snapshot_matches:
+        if match["status"] == MatchStatus.FINISHED.value:
+            recent_finished_by_group.setdefault(match["group_id"], []).append(match)
+    for bucket in recent_finished_by_group.values():
+        # 真实 finished_at 优先；旧数据没有时间时按 id 兜底，保证确定性。
+        bucket.sort(key=lambda m: (m.get("finished_at") or "", m["id"]), reverse=True)
+        for match in bucket[:RECENT_FINISHED_MATCH_CAP]:
+            members_by_match.setdefault(match["id"], _match_member_ids(conn, match))
+
+    return {
+        "matches": snapshot_matches,
+        "tables": snapshot_tables,
+        "groups": groups,
+        "affinity": group_table_affinity(conn, tournament_id),
+        "stats": _group_progress(snapshot_matches, groups),
+        "members_by_match": members_by_match,
+        "recent_finished_by_group": recent_finished_by_group,
+    }
+
+
+def plan_batch(state: dict) -> list[tuple[int, int]]:
+    """按状态快照给当前空闲球台各排一场（纯内存，不写数据库）。
 
     优先级：
       1. 硬约束：只排 WAITING 且双方就绪、选手不在其他场次、球台空闲且不重复；
@@ -178,48 +224,49 @@ def _plan_assignments(
       3. 组间进度公平：亲和组已经领先时，把球台让给最落后的小组；
       4. 连续上场惩罚：双方刚打完的比赛排在后面；
       5. 稳定顺序：小组顺序 → 轮次 → 比赛 id（全程无随机）。
+
+    真实排台、dashboard 建议与 ETA 模拟都走本函数，避免两套规则漂移。
     """
-    _ensure_tournament(conn, tournament_id)
-    free_tables = [
-        t for t in repo.list_tables(conn, tournament_id)
-        if t["status"] == TableStatus.FREE.value
+    free_table_ids = [
+        table["id"] for table in state["tables"]
+        if table["status"] == TableStatus.FREE.value
     ]
-    if not free_tables:
-        return [], {}
+    if not free_table_ids:
+        return []
 
-    busy = _busy_player_ids(conn, tournament_id)
-    waiting = [
-        m for m in repo.list_matches(conn, tournament_id)
-        if m["status"] == MatchStatus.WAITING.value and _match_ready(m)
+    matches = state["matches"]
+    members_by_match = state["members_by_match"]
+    stats = state["stats"]
+    affinity = state["affinity"]
+    busy: set[int] = set()
+    for match in matches:
+        if match["status"] == MatchStatus.PLAYING.value:
+            busy.update(members_by_match.get(match["id"], set()))
+    window = _recent_window_size(len(free_table_ids), len(stats))
+    recently_played = _recently_played_player_ids(state, window)
+    candidates = [
+        match for match in matches
+        if match["status"] == MatchStatus.WAITING.value
+        and match_ready(match)
+        and not (members_by_match.get(match["id"], set()) & busy)
     ]
-    members_by_match = {m["id"]: _match_member_ids(conn, m) for m in waiting}
-    candidates = [m for m in waiting if not (members_by_match[m["id"]] & busy)]
 
-    affinity = group_table_affinity(conn, tournament_id)
-    stats = _group_progress(conn, tournament_id)
-    group_count = max(1, len(stats))
-    per_group_recent = min(
-        RECENT_FINISHED_MATCH_CAP,
-        max(1, -(-len(free_tables) // group_count)),
-    )
-    recently_played = _recently_played_player_ids(conn, tournament_id, per_group_recent)
-
+    tables_by_id = {table["id"]: table for table in state["tables"]}
     assignments: list[tuple[int, int]] = []
-    recommendations: dict[int, int] = {}
     batch_busy = set(busy)
     used: set[int] = set()
-    for table in free_tables:
+    for table_id in free_table_ids:
         best_key: tuple | None = None
         best_match: dict | None = None
         affinity_key: tuple | None = None
         affinity_match: dict | None = None
         for match in candidates:
-            if match["id"] in used or members_by_match[match["id"]] & batch_busy:
+            if match["id"] in used or members_by_match.get(match["id"], set()) & batch_busy:
                 continue
             key = _fairness_key(match, stats, recently_played, members_by_match)
             if best_key is None or key < best_key:
                 best_key, best_match = key, match
-            if affinity.get(match["group_id"]) == table["id"]:
+            if affinity.get(match["group_id"]) == table_id:
                 if affinity_key is None or key < affinity_key:
                     affinity_key, affinity_match = key, match
         if best_match is None or best_key is None:
@@ -229,11 +276,55 @@ def _plan_assignments(
             chosen = affinity_match
         else:
             chosen = best_match
-        assignments.append((chosen["id"], table["id"]))
-        recommendations[table["id"]] = chosen["id"]
+        assignments.append((chosen["id"], table_id))
         used.add(chosen["id"])
-        batch_busy.update(members_by_match[chosen["id"]])
+        batch_busy.update(members_by_match.get(chosen["id"], set()))
         _bump_group_progress(stats, chosen["group_id"])
+        # 同步内存快照，供下一批（ETA 模拟）看到"已上台"的状态
+        chosen["status"] = MatchStatus.PLAYING.value
+        chosen["table_id"] = table_id
+        tables_by_id[table_id]["status"] = TableStatus.OCCUPIED.value
+    return assignments
+
+
+def finish_match_in_state(state: dict, match_id: int) -> bool:
+    """ETA 模拟专用：把状态快照里的一场比赛标记为已结束（不写数据库）。
+
+    同时释放球台、更新小组进度，并把该场计入"最近完成"，使后续模拟批次的
+    连续上场惩罚与进度公平与真实排台一致。
+    """
+    match = next((m for m in state["matches"] if m["id"] == match_id), None)
+    if match is None or match["status"] != MatchStatus.PLAYING.value:
+        return False
+    match["status"] = MatchStatus.FINISHED.value
+    table_id = match.get("table_id")
+    for table in state["tables"]:
+        if table["id"] == table_id:
+            table["status"] = TableStatus.FREE.value
+            break
+    match["table_id"] = None
+    stats = state["stats"].get(match["group_id"]) if match["group_id"] is not None else None
+    if stats is not None and stats["total"]:
+        stats["playing"] = max(0, stats["playing"] - 1)
+        stats["finished"] += 1
+        stats["progress"] = (stats["finished"] + stats["playing"]) / stats["total"]
+    bucket = state["recent_finished_by_group"].setdefault(match["group_id"], [])
+    bucket.insert(0, match)
+    del bucket[RECENT_FINISHED_MATCH_CAP:]
+    return True
+
+
+def _plan_assignments(
+    conn: sqlite3.Connection, tournament_id: int
+) -> tuple[list[tuple[int, int]], dict[int, int]]:
+    """只读规划：返回 ([(match_id, table_id)], {table_id: recommended_match_id})。
+
+    优先级与 `plan_batch` 一致；本函数只读库，不修改任何比赛或球台状态。
+    """
+    _ensure_tournament(conn, tournament_id)
+    state = build_plan_state(conn, tournament_id)
+    assignments = plan_batch(state)
+    recommendations = {table_id: match_id for match_id, table_id in assignments}
     return assignments, recommendations
 
 
@@ -247,7 +338,7 @@ def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict
         raise SchedulingError("球台不属于该赛事")
     if match["status"] != MatchStatus.WAITING.value:
         raise SchedulingError("只有待安排的比赛可以上球台")
-    if not _match_ready(match):
+    if not match_ready(match):
         raise SchedulingError("比赛双方选手尚未就绪，不能上球台")
     if table["status"] != TableStatus.FREE.value:
         raise SchedulingError("球台已被占用")
@@ -256,7 +347,8 @@ def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict
     if _match_member_ids(conn, match) & busy:
         raise SchedulingError("选手正在参加其他比赛，不能同时上场")
 
-    repo.update_match(conn, match_id, status=MatchStatus.PLAYING.value, table_id=table_id)
+    # 上台即写 called_at / started_at（UTC），手工排台与自动排台走同一 helper。
+    repo.mark_match_playing(conn, match_id, table_id)
     repo.update_table_status(conn, table_id, TableStatus.OCCUPIED.value)
     conn.commit()
     return repo.get_match(conn, match_id)
@@ -271,20 +363,25 @@ def schedule_next(conn: sqlite3.Connection, tournament_id: int) -> list[tuple[in
     """
     assignments, _ = _plan_assignments(conn, tournament_id)
     for match_id, table_id in assignments:
-        repo.update_match(conn, match_id, status=MatchStatus.PLAYING.value, table_id=table_id)
+        # 自动排台与手工排台共用同一 helper，保证 called_at / started_at 不会一边有一边没有。
+        repo.mark_match_playing(conn, match_id, table_id)
         repo.update_table_status(conn, table_id, TableStatus.OCCUPIED.value)
     conn.commit()
     return assignments
 
 
 def release_match(conn: sqlite3.Connection, match_id: int) -> dict:
-    """把一场 PLAYING 比赛下球台（回到 WAITING，释放球台）。"""
+    """把一场 PLAYING 比赛下球台（回到 WAITING，释放球台）。
+
+    时间语义：本次上台不构成有效的进行中比赛，started_at 置空；
+    called_at 保留"最近一次叫号"的事实，重新安排时刷新。
+    """
     match = _ensure_match(conn, match_id)
     if match["status"] != MatchStatus.PLAYING.value:
         raise SchedulingError("只有进行中的比赛可以下球台")
     if match["table_id"] is not None:
         repo.update_table_status(conn, match["table_id"], TableStatus.FREE.value)
-    repo.update_match(conn, match_id, status=MatchStatus.WAITING.value, table_id=None)
+    repo.mark_match_waiting(conn, match_id)
     conn.commit()
     return repo.get_match(conn, match_id)
 
@@ -328,7 +425,7 @@ def get_dashboard(conn: sqlite3.Connection, tournament_id: int) -> dict:
     next_playable = [
         m for m in matches
         if m["status"] == MatchStatus.WAITING.value
-        and _match_ready(m)
+        and match_ready(m)
         and not (_match_member_ids(conn, m) & busy)
     ]
 

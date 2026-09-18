@@ -108,6 +108,9 @@ CREATE TABLE IF NOT EXISTS matches (
     bracket TEXT NOT NULL DEFAULT 'GROUP' CHECK (bracket IN ('GROUP','MAIN','PLACEMENT')),
     placement_min INTEGER,
     placement_max INTEGER,
+    called_at TEXT,
+    started_at TEXT,
+    finished_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -247,6 +250,10 @@ def init_db() -> None:
             ("placement_max", "INTEGER"),
             ("prev_match_a_outcome", "TEXT NOT NULL DEFAULT 'WINNER'"),
             ("prev_match_b_outcome", "TEXT NOT NULL DEFAULT 'WINNER'"),
+            # A2 比赛时间基础：UTC SQLite 时间戳（datetime('now')，'YYYY-MM-DD HH:MM:SS'）。
+            ("called_at", "TEXT"),
+            ("started_at", "TEXT"),
+            ("finished_at", "TEXT"),
         ):
             _add_column_if_missing(conn, "matches", column, ddl)
         # New tables are created after legacy tables have been upgraded so their FKs target the final table.

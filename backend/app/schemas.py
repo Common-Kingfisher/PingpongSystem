@@ -210,6 +210,12 @@ class MatchOut(BaseModel):
     bracket: MatchBracket = MatchBracket.GROUP
     placement_min: int | None = None
     placement_max: int | None = None
+    # A2 比赛时间基础：UTC SQLite 时间戳 'YYYY-MM-DD HH:MM:SS'
+    # called_at 最近一次安排上球台；started_at 当前有效进行中比赛的开始时间（下球台后为空）；
+    # finished_at 当前有效比赛产生结果的时间（改分不改变）。
+    called_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
     games: list["MatchGameOut"] = []
 
 
@@ -361,6 +367,9 @@ class KnockoutMatchOut(BaseModel):
     placement_min: int | None = None
     placement_max: int | None = None
     result_type: ResultType | None = None
+    called_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
 
 
 class KnockoutRoundOut(BaseModel):
