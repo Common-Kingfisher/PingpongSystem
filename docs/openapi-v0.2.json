@@ -6115,6 +6115,22 @@
             ],
             "title": "Match Id"
           },
+          "lineup_valid": {
+            "type": "boolean",
+            "title": "Lineup Valid",
+            "default": true
+          },
+          "lineup_invalid_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lineup Invalid Reason"
+          },
           "permissions": {
             "$ref": "#/components/schemas/TeamPermissionOut"
           },

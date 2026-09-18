@@ -52,6 +52,10 @@
   - **串行执行**：同一对抗同时最多一盘 `PLAYING`；不接 scheduler / ETA，`team_rubbers.match_id` 仍恒为 NULL。
   - 旧库升级：`team_rubbers` 运行态列走 `_add_column_if_missing`，不需要删库重建。
   - 读取与写操作统一返回 `TeamTieRuntimeOut`（含 `permissions`）；前端按钮直接消费权限字段，不自行推断。
+  - **名单冻结与阵容失效（PR #20 复审补强）**：队伍有对抗进入 PLAYING/FINISHED 后禁止改队员（改名/积分不受影响）；
+    开始一盘时原子重校验已保存阵容（队员被移出名单 / 队伍退赛 → 409，可重新提交），运行态给出 `lineup_valid`。
+  - **并发安全（PR #20 复审补强）**：写操作 = `BEGIN IMMEDIATE` 写事务 + 带预期旧状态的条件更新 + rowcount 检查；
+    跨行不变量（最多一盘 PLAYING）在任何写入之前校验。并发双 start / 双 score 都有回归测试（两个独立连接）。
 - 淘汰赛交叉对阵的冻结范围（A1 复审确认）：
   - 正式冻结：2 组 × 每组前 2（A1-B2、B1-A2）；4 组 × 每组前 2（A1-D2、C1-B2、B1-C2、D1-A2）；偶数组 × 每组前 2 的"首尾交叉"原则（第 i 组第 1 名 ⇄ 倒数第 i 组第 2 名），同组两人与 1/2 号种子分处不同半区。
   - 未正式冻结：需要轮空时的具体轮空落位（例如 6 组 = 12 人进入 16 签）、3/5/7 等奇数组、每组出线人数 != 2 或各组出线人数不一致。
@@ -173,7 +177,7 @@ pnpm -C frontend dev
 | Git 发布前检查 | 21 个历史提交范围内，未发现已跟踪依赖目录/数据库/私钥文件或常见 Token 特征；这不是完整安全审计 |
 | 本轮未执行 | 浏览器完整 E2E、120 人/15 台闭环、并发录分、目标机器安装演练、完整规则符合性认证 |
 | A3 团体赛领域基础（PR #19 复审修正后） | 后端 432 项测试通过（含 #14 退赛、#17 赛前检查与本批次团体赛用例）；`pnpm exec tsc --noEmit` 与 `pnpm build` 通过；OpenAPI 快照与 `app.openapi()` 一致、`contract:check` 无漂移；旧库（`tournaments.event_type` + `entries.entry_type` 双表 CHECK）迁移后 `PRAGMA foreign_key_check` 为空且无 legacy 表残留；已合并最新 `develop/field-demo-v02`（8ccf627，含 #17）并重新生成契约；本轮未做浏览器端团体赛操作验证（界面仍为占位，`TeamTiePage` 明确标注未开放） |
-| A4.1 团体赛 Runtime | 后端 465 项测试通过（含本批次 33 项 runtime 用例）；完整闭环在服务层与 API 层各有一条 E2E（阵容 → 开始 → 录分 → 累计 → 达标结束 → 剩余 SKIPPED）；PR #19 旧库原地升级运行态列并可直接跑完一盘；导出含阵容/比分/胜者/时间且仍只读；`tsc --noEmit`、`pnpm build`、`export_openapi.py --check`、`contract:check` 全部 exit 0；本轮未做浏览器端操作验证（B 的团体赛界面仍在独立分支推进） |
+| A4.1 团体赛 Runtime | 后端 474 项测试通过（含本批次 42 项 runtime 用例：完整闭环、状态机失败场景、权限矩阵、并发双 start/双 score、名单冻结与阵容失效、PR #19 旧库升级、导出只读）；`tsc --noEmit`、`pnpm build`、`export_openapi.py --check`、`contract:check` 全部 exit 0；本轮未做浏览器端操作验证（B 的团体赛界面仍在独立分支推进） |
 | Word | 使用系统设计模板，完成结构校验；本机缺 LibreOffice，未完成逐页渲染视觉验收 |
 
 测试命令（配置好自己的后端环境后）：

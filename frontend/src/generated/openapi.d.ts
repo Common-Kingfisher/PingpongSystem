@@ -1953,6 +1953,13 @@ export interface components {
             winner_entry_id?: number | null;
             /** Match Id */
             match_id?: number | null;
+            /**
+             * Lineup Valid
+             * @default true
+             */
+            lineup_valid: boolean;
+            /** Lineup Invalid Reason */
+            lineup_invalid_reason?: string | null;
             permissions: components["schemas"]["TeamPermissionOut"];
             lineup_options: components["schemas"]["TeamLineupOptionsOut"];
             /** Created At */

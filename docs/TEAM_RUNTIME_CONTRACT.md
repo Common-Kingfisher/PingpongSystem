@@ -74,6 +74,8 @@ B 不需要为显示一支队伍再发额外请求。
 | `winner_side` | `HOME \| AWAY` | 是 | 本盘胜方；未结束/跳过为 null。 |
 | `winner_entry_id` | integer | 是 | 本盘胜方队伍 Entry id。 |
 | `match_id` | integer | 是 | **恒为 null**：一盘不创建普通比赛（架构边界，见 TEAM_DOMAIN）。 |
+| `lineup_valid` | boolean | 否 | 已保存阵容是否仍满足"选手属于本队 + 队伍在赛"；`false` 时不能开始。 |
+| `lineup_invalid_reason` | string | 是 | `lineup_valid=false` 时的可展示原因（例如队员已被移出名单、队伍已退赛）。 |
 | `permissions` | `TeamPermission` | 否 | 盘级权限。 |
 | `lineup_options` | `{ home, away }` | 否 | 两边的候选阵容（见 §5）。 |
 | `created_at` | string | 否 | 建盘时间。 |
@@ -101,7 +103,7 @@ B 不需要为显示一支队伍再发额外请求。
 | --- | --- |
 | `can_edit_lineup` | 对抗未结束 且 本盘处于 `PENDING`/`READY`。 |
 | `can_confirm_lineup` | 与 `can_edit_lineup` 同义：本版"提交合法阵容即确认"（`PENDING → READY`），没有单独的确认步骤。保留该字段供 UI 的"确认阵容"按钮使用。 |
-| `can_start` | 对抗未结束 且 本盘 `READY` 且**没有**其它盘处于 `PLAYING`。 |
+| `can_start` | 对抗未结束 且 本盘 `READY` 且**没有**其它盘处于 `PLAYING` 且 `lineup_valid = true`（队员已被移出名单 / 队伍已退赛时不允许开始）。 |
 | `can_record_score` | 本盘 `PLAYING`。 |
 | `can_revise_score` | 恒为 `false`（A4.1 不做改分）。 |
 
@@ -141,12 +143,37 @@ PENDING ──提交合法阵容──▶ READY ──start──▶ PLAYING ─
   `SKIPPED`（`FINISHED` 的盘不动）。**不存在**直接提交"对抗 3:1"的接口，避免两个真相源。
 - 已 `FINISHED` 或 `SKIPPED` 的盘不能改阵容、不能开始、不能录分；本版也不支持改分。
 
+### 名单冻结与阵容失效（PR #20 复审补强）
+
+- **提交阵容时**：校验"人数与盘型一致、选手属于本队、队伍在赛"。
+- **开始一盘时**：在写事务内**原子重新校验已保存的阵容**。若队员已被移出队伍、或队伍已退赛，
+  `start` 返回 409（盘仍是 `READY`，可以重新提交阵容后再开始），并且运行态里
+  `lineup_valid=false` + `can_start=false`，前端不需要自己判断原因。
+- **队伍一旦有对抗进入 `PLAYING`/`FINISHED`**：`PATCH /teams/{entry_id}` 改 `member_ids` 返回 409
+  （"团体赛名单在对抗开始后不可更改"）；改名与积分不受影响。这样已开赛的对抗不可能出现
+  "已经不属于本队"的选手继续上场。
+  **注意**：本版没有"撤销已开始的对抗"，因此名单冻结在赛事内是单向的（团体赛按固定名单进行）。
+- 对抗尚未开始时仍可修正名单（包括 `READY` 的盘），失效的阵容由上面第二条兜住。
+
+### 并发与原子性（PR #20 复审补强）
+
+Runtime 的每个写操作都满足：
+
+1. **read-check-write 在同一个 `BEGIN IMMEDIATE` 写事务里**：同一对抗的并发请求被写锁串行化，
+   后来者读到的是前一个请求已提交的状态；另一个连接正在处理该对抗时返回可读的 409
+   （"该对抗正在被另一个请求处理，请稍后重试"），不会把 SQLite 锁错误漏成 500。
+2. **写入是带预期旧状态的条件更新**（`WHERE id=? AND status='READY'` 等）并检查 rowcount：
+   并发下 PLAYING 不会被写回 READY，FINISHED 也不会被第二次录分覆盖——"本版不支持改分"
+   因此在数据库层成立，而不只是接口层的读后判断。
+3. **跨行不变量在任何写入之前校验**：例如"同一对抗同时最多一盘 PLAYING"在结算前先检查，
+   不满足时直接 409，不会留下"当前盘已被改成 FINISHED"的未提交脏状态。
+
 ## 8. 错误契约
 
 | 状态码 | 场景 |
 | --- | --- |
 | 404 | 赛事 / 团体对抗 / 盘 / 选手不存在（或盘不属于该对抗、对抗不属于该赛事）。 |
-| 409 | 业务状态冲突：对抗已结束、本盘未 READY、本盘已在其它状态、已有另一盘 PLAYING、阵容已锁定、队员不属于该队伍、队伍已退赛、缺少可用赛制快照。 |
+| 409 | 业务状态冲突：对抗已结束、本盘未 READY、本盘已在其它状态、已有另一盘 PLAYING、阵容已锁定、队员不属于该队伍、队伍已退赛、阵容已失效（队员已被移出名单）、名单已冻结（队伍已有对抗开赛）、缺少可用赛制快照、另一个请求正在处理该对抗（写锁等待超时）。 |
 | 422 | payload 本身非法：人数与盘型不符、同一边重复队员、比分不合法。 |
 
 失败响应保持项目现有风格（`{"detail": "可展示的中文原因"}`），B 直接展示 `detail`。
@@ -166,6 +193,7 @@ PENDING ──提交合法阵容──▶ READY ──start──▶ PLAYING ─
 | `can_confirm_lineup` | 列在权限集合里 | 保留字段，语义 = `can_edit_lineup`（提交即确认） | 本版没有单独的确认步骤，但按钮字段保留。 |
 | `TeamSummary.members` | 可选 | 始终返回 | 避免 B 为显示队伍再发多次请求。 |
 | 详情响应 | `TeamTieView` | `TeamTieRuntimeOut`（A3 字段的超集） | A3 详情响应是它的子集，兼容升级。 |
+| 阵容有效性 | 无 | 追加 `lineup_valid` / `lineup_invalid_reason` | PR #20 复审：队员被移出名单或队伍退赛后，`start` 会 409；B 可以直接展示原因而不是自己判断。 |
 
 其余字段名与语义与 Draft 一致。B 的 mock（`frontend/src/team/types.ts`）按生成的
 `openapi.d.ts` 对齐即可；两处同名文档合并时以本文为准。
