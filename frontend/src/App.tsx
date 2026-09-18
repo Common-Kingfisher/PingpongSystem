@@ -9,6 +9,8 @@ import BigScreenPage from './pages/BigScreenPage'
 import RegisterPage from './pages/RegisterPage'
 import ChampionJourneyPage from './pages/ChampionJourneyPage'
 import OrderBookPage from './pages/OrderBookPage'
+import MatchPrintPage from './pages/MatchPrintPage'
+import TeamTiePage from './pages/TeamTiePage'
 import PreflightPage from './pages/PreflightPage'
 import { getActiveTournamentId } from './activeTournament'
 
@@ -68,6 +70,8 @@ export default function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/journey" element={<ChampionJourneyPage />} />
           <Route path="/orderbook" element={<OrderBookPage />} />
+          <Route path="/match-print" element={<MatchPrintPage />} />
+          <Route path="/team-tie" element={<TeamTiePage />} />
         </Routes>
       </main>
     </div>

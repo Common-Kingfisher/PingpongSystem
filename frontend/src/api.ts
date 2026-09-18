@@ -52,6 +52,8 @@ export type QualificationDecision = Schemas['QualificationDecisionOut']
 export type PlayerBrief = Schemas['PlayerBrief']
 export type KnockoutMatch = Schemas['KnockoutMatchOut']
 export type KnockoutRound = Schemas['KnockoutRoundOut']
+export type ScheduleEstimateMatch = Schemas['ScheduleEstimateMatch']
+export type ScheduleEstimates = Schemas['ScheduleEstimates']
 
 export type Match = Schemas['MatchOut']
 export type TableWithMatch = Schemas['TableWithMatch']

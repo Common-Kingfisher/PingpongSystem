@@ -43,10 +43,19 @@ def _cell(row: list[str], i: int | None) -> str:
 
 
 def _parse_csv(content: bytes) -> list[list[str]]:
-    try:
-        text = content.decode("utf-8-sig")  # 兼容 UTF-8 与 UTF-8 BOM
-    except UnicodeDecodeError:
-        raise ImportFileError("CSV 文件编码无法识别，请使用 UTF-8 编码重新保存。")
+    # UTF-8-SIG 同时兼容 UTF-8 与 UTF-8 BOM。GB18030 是 GBK 的超集，
+    # 因而可覆盖 Excel/WPS 常见的“ANSI/GBK”导出，而不需要猜测本地代码页。
+    text: str | None = None
+    for encoding in ("utf-8-sig", "gb18030"):
+        try:
+            text = content.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise ImportFileError(
+            "CSV 文件编码无法识别。请在 Excel/WPS 中另存为 UTF-8 CSV，或使用 GBK/GB18030 编码后重试。"
+        )
     rows = []
     for row in csv.reader(io.StringIO(text)):
         cells = [c.strip() for c in row]
@@ -70,7 +79,9 @@ def _parse_xlsx(content: bytes) -> list[list[str]]:
                 rows.append(cells)
         wb.close()
     except Exception:
-        raise ImportFileError("无法打开 Excel 文件，请确认其为有效的 .xlsx 文件")
+        raise ImportFileError(
+            "无法打开 Excel 文件。请确认文件是未损坏的 .xlsx（WPS 请使用“另存为 Excel 工作簿 .xlsx”），且至少包含一个工作表。"
+        )
     return rows
 
 
