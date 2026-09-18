@@ -20,8 +20,11 @@ export default function QueueEstimate({ ahead, estimatedStartAt, unavailableReas
     && month >= 1 && month <= 12 && day >= 1 && day <= new Date(Date.UTC(year, month, 0)).getUTCDate()
     && hour <= 23 && minute <= 59 && second <= 59
   const suffix = matched?.[7]
+  const offsetHour = suffix && suffix.toUpperCase() !== 'Z' ? Number(suffix.slice(1, 3)) : null
+  const offsetMinute = suffix && suffix.toUpperCase() !== 'Z' ? Number(suffix.slice(4, 6)) : null
   const validOffset = !suffix || suffix.toUpperCase() === 'Z'
-    || (Number(suffix.slice(1, 3)) <= 23 && Number(suffix.slice(4, 6)) <= 59)
+    || (offsetHour !== null && offsetMinute !== null && offsetMinute <= 59
+      && (offsetHour < 14 || (offsetHour === 14 && offsetMinute === 0)))
   const normalizedUtc = validCalendar && validOffset && estimatedStartAt
     ? `${estimatedStartAt.replace(' ', 'T')}${suffix ? '' : 'Z'}`
     : null
