@@ -71,11 +71,17 @@ def delete_tournament(
     confirm_name: str | None = Query(default=None),
     conn: Connection = Depends(get_db),
 ):
-    """删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。"""
+    """删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。
+
+    不可恢复：删除前建议先调用 `GET /api/tournaments/{id}/export` 留存结构化备份。
+    """
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise HTTPException(status_code=404, detail="赛事不存在")
     if tournament["operation_mode"] == "LIVE" and confirm_name != tournament["name"]:
-        raise HTTPException(status_code=409, detail="正式赛事删除前必须输入完整赛事名称确认")
+        raise HTTPException(
+            status_code=409,
+            detail="正式赛事删除前必须输入完整赛事名称确认；建议先导出备份（GET /api/tournaments/{id}/export）",
+        )
     repo.delete_tournament(conn, tournament_id)
     conn.commit()
