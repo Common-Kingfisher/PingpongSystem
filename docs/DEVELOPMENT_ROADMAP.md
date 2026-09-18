@@ -83,9 +83,14 @@
 
 位置：`backend/app/services/knockout.py`（撤销淘汰签表）、`backend/app/routers/tournaments.py`（删除赛事）。
 
-现状：A1 新增的"撤销淘汰签表"只返回删除计数，删除赛事只做名称确认，两者都没有记录操作者、理由与时间；人工晋级裁定已有 operator / reason / 时间留痕，两类操作的审计标准不一致。
+现状：A1 新增的"撤销淘汰签表"只返回删除计数，删除赛事只做名称确认，两者都没有记录操作者、理由与时间；人工晋级裁定已有 operator / reason / 时间留痕，两类操作的审计标准不一致。**A2 已评估并决定暂不实现**：单独给撤销加审计会与"删除赛事永久审计"割裂（赛事物理删除会级联带走审计行），需要与归档/软删除一起设计，否则只是表面审计。
 
-要求：真实赛事试点前，为"撤销淘汰签表 / 删除赛事 / 受控强制改分"等关键操作补齐审计留痕（操作者、理由、时间、影响范围），并与 A2 的比赛时间字段一起设计落库方式。A1 不做、不新增数据库迁移；本轮只登记，不实现。
+落地设计（供 A3 或独立批次实现，不在 A2 内实现）：
+  1. 新表 `tournament_operation_audits`：`id`、`tournament_id`（FK，CASCADE 仅供撤销类操作）、`operation`（`KNOCKOUT_UNDO` / `TOURNAMENT_DELETE` / `SCORE_FORCE_EDIT`）、`operator_name`、`reason`、`impact_json`（影响范围快照，例如删除的主签/排位场次数）、`created_at`。
+  2. 删除赛事若要"永久审计"，审计行必须与赛事解耦（例如保留 `tournament_name` 快照且不挂 CASCADE，或先把赛事归档为只读快照），因此与 archive / soft-delete 架构一起做。
+  3. 接口：撤销签表的 body 增加可选 `operator_name` / `reason`（缺省仍可撤销，仅记录为空）；导出 `TournamentExport.operation_audits` 追加即可（兼容追加，`schema_version` 不变）。
+
+要求：真实赛事试点前完成第 1、3 项；删除赛事永久审计与归档架构绑定。
 
 ### R08 / P2：冠军之路和现场体验
 
