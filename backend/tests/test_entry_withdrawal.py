@@ -194,3 +194,57 @@ def test_withdrawn_waiting_slot_forfeits_when_opponent_arrives(conn):
     assert final["winner_entry_id"] != withdrawn_id
     assert final["finished_at"]
     # 对手后来进入空槽触发自动完赛时，finished_at 是事实；started_at 不应成为前置条件。
+
+
+def test_withdrawn_semifinal_loser_forfeits_new_bronze_match(conn):
+    tournament = repo.create_tournament(
+        conn,
+        "季军赛退赛传播",
+        "2026-09-09",
+        2,
+        2,
+        2,
+        bronze_mode="BRONZE_MATCH",
+    )
+    repo.create_tables_for_tournament(conn, tournament["id"], 2)
+    for name in ("甲", "乙", "丙", "丁"):
+        repo.add_player(conn, tournament["id"], name, "体育学院")
+    groups_service.auto_group_tournament(conn, tournament["id"])
+    matches_service.generate_group_matches(conn, tournament["id"])
+    for match in repo.list_matches(conn, tournament["id"]):
+        scores_service.record_score(conn, match["id"], 2, 0)
+
+    knockout_service.generate_knockout(conn, tournament["id"])
+    semifinals = sorted(
+        (
+            match
+            for match in repo.list_matches(conn, tournament["id"])
+            if match["stage"] == "KNOCKOUT"
+            and match["bracket"] == "MAIN"
+            and match["round"] == 1
+        ),
+        key=lambda item: item["match_index"],
+    )
+    # 先结束另一场半决赛；季军赛要等两场半决赛都有结果后才会动态创建。
+    scores_service.record_score(conn, semifinals[1]["id"], 2, 0)
+    withdrawn_id = semifinals[0]["entry_a_id"]
+
+    entry_service.withdraw_from_tournament(
+        conn,
+        tournament["id"],
+        withdrawn_id,
+        "李主裁",
+        "运动员退出整个赛事",
+    )
+
+    bronze = next(
+        match
+        for match in repo.list_matches(conn, tournament["id"])
+        if match.get("placement_min") == 3 and match.get("placement_max") == 4
+    )
+    assert withdrawn_id in (bronze["entry_a_id"], bronze["entry_b_id"])
+    assert bronze["status"] == MatchStatus.FINISHED.value
+    assert bronze["result_type"] == ResultType.FORFEIT.value
+    assert bronze["forfeit_entry_id"] == withdrawn_id
+    assert bronze["winner_entry_id"] != withdrawn_id
+    assert bronze["finished_at"]
