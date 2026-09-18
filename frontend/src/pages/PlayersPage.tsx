@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, GenerateMatchesResult, GroupingResult, ImportPlayersResult, ImportPreviewResult, Player, Tournament } from '../api'
+import { api, ApiError, Entry, GenerateMatchesResult, GroupingResult, ImportPlayersResult, ImportPreviewResult, Player, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import RosterLaunch from '../components/RosterLaunch'
 
@@ -31,6 +31,9 @@ export default function PlayersPage() {
   const [importResult, setImportResult] = useState<ImportPlayersResult | null>(null)
   const [importPreview, setImportPreview] = useState<ImportPreviewResult | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [withdrawTarget, setWithdrawTarget] = useState<Entry | null>(null)
+  const [withdrawOperator, setWithdrawOperator] = useState(() => localStorage.getItem('pingpong_referee_name') ?? '')
+  const [withdrawReason, setWithdrawReason] = useState('')
 
   const load = useCallback(async () => {
     if (tid === null) return
@@ -316,6 +319,26 @@ export default function PlayersPage() {
     }
   }
 
+  const confirmWithdrawal = async () => {
+    if (!withdrawTarget || !withdrawOperator.trim() || withdrawReason.trim().length < 2) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.withdrawEntry(tid, withdrawTarget.id, {
+        operator_name: withdrawOperator.trim(),
+        reason: withdrawReason.trim(),
+      })
+      localStorage.setItem('pingpong_referee_name', withdrawOperator.trim())
+      setWithdrawTarget(null)
+      setWithdrawReason('')
+      await refresh()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '办理退赛失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const groupedCount = players.filter((p) => p.group_id !== null).length
   const locked = tournament !== null && tournament.stage !== 'REGISTRATION'
   const seeds = players
@@ -590,11 +613,21 @@ export default function PlayersPage() {
                     // Entry 与 Player 是两套独立实体，删除并重新添加选手后两者 ID
                     // 不再必然相同。分组使用 Entry 展示时应直接读取 Entry.seed_no。
                     const seedNo = 'seed_no' in p ? p.seed_no : sp?.seed_no
+                    const isEntry = 'display_name' in p
+                    const withdrawn = isEntry && p.status === 'WITHDRAWN'
                     return (
-                      <li key={p.id}>
-                        {seedNo != null && <span className="seed-badge">⭐{seedNo}</span>}{' '}
-                        {'display_name' in p ? p.display_name : p.name}
-                        {'college' in p && p.college ? <span className="muted">（{p.college}）</span> : null}
+                      <li key={p.id} className={withdrawn ? 'entry-withdrawn' : ''}>
+                        <span>
+                          {seedNo != null && <span className="seed-badge">⭐{seedNo}</span>}{' '}
+                          {isEntry ? p.display_name : p.name}
+                          {'college' in p && p.college ? <span className="muted">（{p.college}）</span> : null}
+                          {withdrawn && <span className="withdrawn-badge">已退赛</span>}
+                        </span>
+                        {locked && isEntry && !withdrawn && tournament?.stage !== 'FINISHED' && (
+                          <button className="btn small danger" onClick={() => { setWithdrawTarget(p); setWithdrawReason('') }} disabled={busy}>
+                            退出赛事
+                          </button>
+                        )}
                       </li>
                     )
                   })}
@@ -605,6 +638,32 @@ export default function PlayersPage() {
           </div>
         )}
       </div>
+
+      {withdrawTarget && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="确认退出赛事">
+          <div className="withdrawal-dialog">
+            <button className="modal-close" onClick={() => setWithdrawTarget(null)} aria-label="关闭">×</button>
+            <span className="eyebrow">WITHDRAWAL · ENTRY #{withdrawTarget.id}</span>
+            <h2>确认退出整个赛事</h2>
+            <div className="withdrawal-warning">
+              <strong>{withdrawTarget.display_name}</strong>
+              <p>已结束赛果将保留；正在进行和后续可确定的比赛将判该参赛位负。双打将退出整个组合。</p>
+            </div>
+            <label>主裁判
+              <input value={withdrawOperator} onChange={(event) => setWithdrawOperator(event.target.value)} placeholder="必填：操作人姓名" />
+            </label>
+            <label>退赛原因
+              <textarea value={withdrawReason} onChange={(event) => setWithdrawReason(event.target.value)} placeholder="必填：伤病、主动退出或现场裁定说明" />
+            </label>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setWithdrawTarget(null)}>取消</button>
+              <button className="btn danger" onClick={confirmWithdrawal} disabled={busy || !withdrawOperator.trim() || withdrawReason.trim().length < 2}>
+                确认退出赛事
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <h3>小组循环赛</h3>

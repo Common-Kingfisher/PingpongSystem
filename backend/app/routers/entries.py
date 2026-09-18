@@ -46,3 +46,23 @@ def confirm_roster(tournament_id: int, conn: Connection = Depends(get_db)):
     except entry_service.EntryError as exc:
         raise _http(exc)
     return schemas.ConfirmRosterResult(tournament=tournament, entries=entries)
+
+
+@router.post("/entries/{entry_id}/withdraw", response_model=schemas.EntryWithdrawalResult)
+def withdraw_entry(
+    tournament_id: int,
+    entry_id: int,
+    payload: schemas.EntryWithdrawRequest,
+    conn: Connection = Depends(get_db),
+):
+    try:
+        entry, affected, preserved = entry_service.withdraw_from_tournament(
+            conn, tournament_id, entry_id, payload.operator_name, payload.reason
+        )
+    except entry_service.EntryError as exc:
+        raise _http(exc)
+    return schemas.EntryWithdrawalResult(
+        entry=entry,
+        affected_match_ids=affected,
+        preserved_finished_matches=preserved,
+    )
