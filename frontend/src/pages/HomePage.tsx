@@ -181,6 +181,9 @@ export default function HomePage() {
             <p className="status-ok">🏓 正在进行 {dash.stats.playing} 场比赛</p>
           )}
           <div className="button-row">
+            <Link className="btn preflight-entry-btn" to={`/preflight?tid=${current.id}`}>
+              赛前检查
+            </Link>
             <Link className="btn" to={`/players?tid=${current.id}`}>
               选手与分组
             </Link>

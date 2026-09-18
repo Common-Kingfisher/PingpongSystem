@@ -1,0 +1,251 @@
+"""主裁判只读赛前检查：聚合现有事实，不改变赛事状态。"""
+
+import sqlite3
+from collections import Counter
+from itertools import combinations
+
+from .. import repository as repo
+from ..models import MatchStage, MatchStatus, PreflightLevel, TableStatus, TournamentMode, TournamentStage
+from . import rankings as rankings_service
+
+
+class PreflightError(Exception):
+    def __init__(self, message: str, code: int = 404):
+        super().__init__(message)
+        self.code = code
+
+
+def _check(
+    code: str,
+    title: str,
+    detail: str,
+    level: PreflightLevel,
+    action_label: str | None = None,
+    action_path: str | None = None,
+) -> dict:
+    return {
+        "code": code,
+        "title": title,
+        "detail": detail,
+        "level": level.value,
+        "action_label": action_label,
+        "action_path": action_path,
+    }
+
+
+def inspect_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
+    tournament = repo.get_tournament(conn, tournament_id)
+    if tournament is None:
+        raise PreflightError("赛事不存在")
+
+    players = repo.list_players(conn, tournament_id)
+    entries = repo.list_entries(conn, tournament_id)
+    groups = repo.list_groups(conn, tournament_id)
+    matches = repo.list_matches(conn, tournament_id)
+    group_matches = [m for m in matches if m["stage"] == MatchStage.GROUP.value]
+    knockout_matches = [m for m in matches if m["stage"] == MatchStage.KNOCKOUT.value]
+    tables = repo.list_tables(conn, tournament_id)
+    playing = [m for m in matches if m["status"] == MatchStatus.PLAYING.value]
+    occupied = [t for t in tables if t["status"] == TableStatus.OCCUPIED.value]
+    tid = tournament_id
+    checks: list[dict] = []
+
+    mode_level = PreflightLevel.READY if tournament["operation_mode"] == TournamentMode.LIVE.value else PreflightLevel.WARN
+    checks.append(_check(
+        "operation_mode",
+        "运行模式",
+        "正式赛事，演示造数入口已隔离。" if mode_level == PreflightLevel.READY else "当前是演示赛事，请勿将结果作为正式成绩发布。",
+        mode_level,
+        "查看赛事首页",
+        f"/?tid={tid}",
+    ))
+
+    if tournament["roster_confirmed"]:
+        checks.append(_check("roster", "参赛名单", f"名单已确认，共 {len(players)} 名运动员、{len(entries)} 个参赛位。", PreflightLevel.READY))
+    else:
+        checks.append(_check("roster", "参赛名单", "名单尚未确认，不能进入正式分赛流程。", PreflightLevel.BLOCK, "确认名单", f"/players?tid={tid}"))
+
+    expected_members = 2 if tournament["event_type"] == "DOUBLES" else 1
+    invalid_entries = [entry for entry in entries if len(entry["members"]) != expected_members]
+    if not entries:
+        checks.append(_check("entries", "参赛位完整性", "尚未建立参赛位。单打需一人一位，双打需两人一组。", PreflightLevel.BLOCK, "处理名单", f"/players?tid={tid}"))
+    elif invalid_entries:
+        checks.append(_check("entries", "参赛位完整性", f"发现 {len(invalid_entries)} 个成员数量不正确的参赛位。", PreflightLevel.BLOCK, "检查参赛位", f"/players?tid={tid}"))
+    else:
+        checks.append(_check("entries", "参赛位完整性", f"全部 {len(entries)} 个参赛位结构正确。", PreflightLevel.READY))
+
+    active_entries = [entry for entry in entries if entry.get("status", "ACTIVE") == "ACTIVE"]
+    assigned = sum(1 for entry in active_entries if entry["group_id"] is not None)
+    if not groups:
+        checks.append(_check("groups", "分组与抽签", "尚未生成小组。", PreflightLevel.BLOCK, "前往分组", f"/players?tid={tid}"))
+    elif assigned != len(active_entries):
+        checks.append(_check("groups", "分组与抽签", f"已有 {len(groups)} 个小组，但仍有 {len(active_entries) - assigned} 个有效参赛位未分组。", PreflightLevel.BLOCK, "检查分组", f"/players?tid={tid}"))
+    else:
+        checks.append(_check("groups", "分组与抽签", f"{len(groups)} 个小组、{assigned} 个有效参赛位均已落位。", PreflightLevel.READY))
+
+    group_schedule_generated = tournament["stage"] != TournamentStage.REGISTRATION.value
+    # 当前赛程必须覆盖每一组所有 ACTIVE-ACTIVE 配对。退赛前已经生成的
+    # WITHDRAWN 相关场次作为历史 fixture 保留，但仍必须属于同组且不能重复。
+    expected_active_pairs = {
+        (group["id"], a, b)
+        for group in groups
+        for a, b in combinations(
+            sorted(e["id"] for e in active_entries if e["group_id"] == group["id"]),
+            2,
+        )
+    }
+    group_ids = {group["id"] for group in groups}
+    entries_by_id = {entry["id"]: entry for entry in entries}
+    actual_pairs = Counter()
+    actual_structure_valid = True
+    for match in group_matches:
+        a, b = match.get("entry_a_id"), match.get("entry_b_id")
+        group_id = match.get("group_id")
+        if (
+            a is None
+            or b is None
+            or a == b
+            or group_id not in group_ids
+            or a not in entries_by_id
+            or b not in entries_by_id
+            or entries_by_id[a]["group_id"] != group_id
+            or entries_by_id[b]["group_id"] != group_id
+        ):
+            actual_structure_valid = False
+            continue
+        pair = tuple(sorted((a, b)))
+        actual_pairs[(group_id, *pair)] += 1
+    schedule_valid = (
+        bool(groups)
+        and actual_structure_valid
+        and all(count == 1 for count in actual_pairs.values())
+        and all(actual_pairs[pair] == 1 for pair in expected_active_pairs)
+    )
+    insufficient_groups = []
+    for group in groups:
+        count = sum(e["group_id"] == group["id"] and e.get("status", "ACTIVE") == "ACTIVE" for e in entries)
+        qualify = group["qualify_count"] if group["qualify_count"] is not None else tournament["qualify_per_group"]
+        if not 1 <= qualify <= count:
+            insufficient_groups.append(f"{group['name']}：可晋级 {count} 人，配置出线 {qualify} 人")
+    if not group_matches and not group_schedule_generated:
+        checks.append(_check("group_schedule", "小组赛程", "小组循环赛尚未生成。", PreflightLevel.BLOCK, "生成小组比赛", f"/players?tid={tid}"))
+    elif not schedule_valid:
+        checks.append(_check("group_schedule", "小组赛程", "循环赛对阵缺失、重复或参赛位不匹配，请核查完整赛程。", PreflightLevel.BLOCK, "检查赛程", f"/console?tid={tid}"))
+    elif not group_matches:
+        checks.append(_check("group_schedule", "小组赛程", "小组阶段已生成；各组无需产生循环赛场次。", PreflightLevel.READY, "查看小组排名", f"/rankings?tid={tid}"))
+    else:
+        unfinished_group = sum(1 for match in group_matches if match["status"] != MatchStatus.FINISHED.value)
+        checks.append(_check(
+            "group_schedule",
+            "小组赛程",
+            f"已生成 {len(group_matches)} 场；{'全部结束' if unfinished_group == 0 else f'仍有 {unfinished_group} 场未结束'}。",
+            PreflightLevel.READY if unfinished_group == 0 else PreflightLevel.WARN,
+            "进入比赛控制台" if unfinished_group else "查看小组排名",
+            f"/{'console' if unfinished_group else 'rankings'}?tid={tid}",
+        ))
+
+    occupied_ids = {table["id"] for table in occupied}
+    playing_table_ids = [match.get("table_id") for match in playing]
+    table_consistent = (
+        len(tables) == tournament["table_count"]
+        and all(table_id is not None for table_id in playing_table_ids)
+        and len(set(playing_table_ids)) == len(playing_table_ids)
+        and set(playing_table_ids) == occupied_ids
+    )
+    if table_consistent:
+        checks.append(_check("tables", "球台状态", f"{len(tables)} 张球台状态一致，当前占用 {len(occupied)} 张。", PreflightLevel.READY, "查看现场", f"/console?tid={tid}"))
+    else:
+        checks.append(_check("tables", "球台状态", "球台配置、占用状态与进行中比赛不一致，需要先修复。", PreflightLevel.BLOCK, "检查比赛现场", f"/console?tid={tid}"))
+
+    playing_member_ids: list[int] = []
+    for match in playing:
+        for side in ("a", "b"):
+            entry_id = match.get(f"entry_{side}_id")
+            if entry_id is not None and entry_id in entries_by_id:
+                playing_member_ids.extend(
+                    member["player_id"] for member in entries_by_id[entry_id]["members"]
+                )
+            else:
+                # 兼容旧数据中还没有 Entry 的单打比赛。
+                player_id = match.get(f"player_{side}_id")
+                if player_id is not None:
+                    playing_member_ids.append(player_id)
+    conflicting_players = [
+        player_id
+        for player_id, count in Counter(playing_member_ids).items()
+        if count > 1
+    ]
+    if conflicting_players:
+        checks.append(_check(
+            "playing_participants",
+            "在场运动员",
+            f"发现 {len(conflicting_players)} 名运动员同时出现在多场进行中比赛，请先修复排台状态。",
+            PreflightLevel.BLOCK,
+            "检查比赛现场",
+            f"/console?tid={tid}",
+        ))
+    else:
+        checks.append(_check(
+            "playing_participants",
+            "在场运动员",
+            "当前没有运动员同时参加多场进行中比赛。",
+            PreflightLevel.READY,
+            "查看现场",
+            f"/console?tid={tid}",
+        ))
+
+    ambiguous_groups = 0
+    needs_scores = 0
+    if group_schedule_generated:
+        for group in rankings_service.get_rankings(conn, tournament_id):
+            complete = group["finished_matches"] == group["total_matches"]
+            if complete and group["ambiguous_qualification"]:
+                ambiguous_groups += 1
+                if group["needs_point_scores"]:
+                    needs_scores += 1
+    if insufficient_groups:
+        checks.append(_check("qualification", "晋级判定", "；".join(insufficient_groups) + "。请调整分组或出线配置。", PreflightLevel.BLOCK, "处理分组与出线", f"/players?tid={tid}"))
+    elif not schedule_valid:
+        checks.append(_check("qualification", "晋级判定", "小组赛程不完整，暂不能确认晋级结果。", PreflightLevel.BLOCK, "检查赛程", f"/console?tid={tid}"))
+    elif ambiguous_groups:
+        detail = f"{ambiguous_groups} 个已完赛小组仍无法确定晋级；其中 {needs_scores} 个需要先补录关键小分。"
+        checks.append(_check("qualification", "晋级判定", detail, PreflightLevel.BLOCK, "处理小组排名", f"/rankings?tid={tid}"))
+    else:
+        checks.append(_check("qualification", "晋级判定", "当前没有已完赛但尚未解决的晋级线并列。", PreflightLevel.READY, "查看排名", f"/rankings?tid={tid}"))
+
+    unfinished_group = sum(1 for match in group_matches if match["status"] != MatchStatus.FINISHED.value)
+    if not schedule_valid or insufficient_groups:
+        checks.append(_check("knockout", "淘汰赛衔接", "小组赛程或出线名额不满足要求，需要先处理。", PreflightLevel.BLOCK, "检查小组", f"/players?tid={tid}"))
+    elif knockout_matches:
+        checks.append(_check("knockout", "淘汰赛衔接", f"淘汰签已生成，共 {len(knockout_matches)} 场。", PreflightLevel.READY, "查看淘汰赛", f"/knockout?tid={tid}"))
+    elif group_schedule_generated and unfinished_group == 0 and ambiguous_groups == 0:
+        checks.append(_check("knockout", "淘汰赛衔接", "小组赛已结束且晋级明确，可以生成淘汰签。", PreflightLevel.READY, "生成淘汰赛", f"/knockout?tid={tid}"))
+    else:
+        checks.append(_check("knockout", "淘汰赛衔接", "完成全部小组赛并处理晋级线并列后，才能生成淘汰签。", PreflightLevel.WARN, "查看当前进度", f"/rankings?tid={tid}"))
+
+    checks.append(_check(
+        "rules",
+        "比赛规则",
+        f"{tournament['games_to_win'] * 2 - 1} 局 {tournament['games_to_win']} 胜 · 每局 {tournament['points_to_win']} 分 · 小组按胜场、净胜局、赛事积分排序，特殊同分交主裁处理。",
+        PreflightLevel.READY,
+    ))
+
+    blocker_count = sum(item["level"] == PreflightLevel.BLOCK.value for item in checks)
+    warning_count = sum(item["level"] == PreflightLevel.WARN.value for item in checks)
+    overall = PreflightLevel.BLOCK if blocker_count else (PreflightLevel.WARN if warning_count else PreflightLevel.READY)
+    return {
+        "tournament": tournament,
+        "overall": overall.value,
+        "ready_count": len(checks) - blocker_count - warning_count,
+        "warning_count": warning_count,
+        "blocker_count": blocker_count,
+        "metrics": {
+            "players": len(players),
+            "entries": len(entries),
+            "groups": len(groups),
+            "tables": len(tables),
+            "matches": len(matches),
+            "playing": len(playing),
+        },
+        "checks": checks,
+    }
