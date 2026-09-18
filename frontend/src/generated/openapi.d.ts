@@ -446,6 +446,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/schedule-estimates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Schedule Estimates
+         * @description 预计上场时间（只读模拟）：与自动排台同一套规则，不修改任何业务数据。
+         *
+         *     签位尚未确定或超出模拟范围时返回 null，不返回假精确时间。
+         */
+        get: operations["schedule_estimates_api_tournaments__tournament_id__schedule_estimates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/matches/{match_id}/score": {
         parameters: {
             query?: never;
@@ -943,6 +965,12 @@ export interface components {
             /** Placement Max */
             placement_max?: number | null;
             result_type?: components["schemas"]["ResultType"] | null;
+            /** Called At */
+            called_at?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
         };
         /** KnockoutRoundOut */
         KnockoutRoundOut: {
@@ -1071,6 +1099,8 @@ export interface components {
             placement_min?: number | null;
             /** Placement Max */
             placement_max?: number | null;
+            /** Called At */
+            called_at?: string | null;
             /** Started At */
             started_at?: string | null;
             /** Finished At */
@@ -1312,6 +1342,65 @@ export interface components {
          * @enum {string}
          */
         ResultType: "NORMAL" | "FORFEIT" | "WALKOVER" | "NO_SHOW" | "DISQUALIFIED";
+        /**
+         * ScheduleEstimateMatch
+         * @description 单场 WAITING 比赛的预计上场时间（无法估算时字段为 null）。
+         */
+        ScheduleEstimateMatch: {
+            /** Match Id */
+            match_id: number;
+            stage: components["schemas"]["MatchStage"];
+            /** Round */
+            round: number;
+            /** Group Id */
+            group_id?: number | null;
+            /** Estimated Start At */
+            estimated_start_at?: string | null;
+            /** Estimated Wait Minutes */
+            estimated_wait_minutes?: number | null;
+            /** Queue Ahead */
+            queue_ahead?: number | null;
+            /** Estimate Basis */
+            estimate_basis?: string | null;
+            /** Unavailable Reason */
+            unavailable_reason?: string | null;
+        };
+        /**
+         * ScheduleEstimates
+         * @description 赛事预计上场时间（只读模拟结果）。
+         */
+        ScheduleEstimates: {
+            /** Tournament Id */
+            tournament_id: number;
+            /** Generated At */
+            generated_at: string;
+            /** Estimated Match Duration Seconds */
+            estimated_match_duration_seconds: number;
+            /** Estimate Basis */
+            estimate_basis: string;
+            /** Sample Count */
+            sample_count: number;
+            /**
+             * Initial Playing Matches
+             * @default 0
+             */
+            initial_playing_matches: number;
+            /**
+             * Simulated Batches
+             * @default 0
+             */
+            simulated_batches: number;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /**
+             * Matches
+             * @default []
+             */
+            matches: components["schemas"]["ScheduleEstimateMatch"][];
+        };
         /** ScheduleNextResult */
         ScheduleNextResult: {
             /** Assigned */
@@ -2516,6 +2605,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schedule_estimates_api_tournaments__tournament_id__schedule_estimates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleEstimates"];
                 };
             };
             /** @description Validation Error */

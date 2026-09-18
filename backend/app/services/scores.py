@@ -231,6 +231,8 @@ def record_score(
         match.get("player_a_id") if winner_side == side_a else match.get("player_b_id")
     )
 
+    # WAITING 直接录分（例如淘汰赛页面不先排台）：started_at 保持为空，只写 finished_at，
+    # 这类比赛不进入真实耗时样本；PLAYING 录分则保留已有的 called_at / started_at。
     repo.mark_match_finished(
         conn,
         match_id,
@@ -365,6 +367,8 @@ def revise_score(
     # 与小分补录路径统一：省略 note 时保留原备注；显式空串才清空。
     if note is not None:
         update_fields["result_note"] = note
+    # 纠错不得改动 called_at / started_at / finished_at：时间字段不在 _MATCH_UPDATEABLE 中，
+    # 因此这里天然只改比分与结果，finished_at 保持比赛实际结束的时刻。
     repo.update_match(conn, match_id, **update_fields)
 
     if match["stage"] == MatchStage.KNOCKOUT.value:
