@@ -39,9 +39,13 @@
   - 队伍即参赛实体（`entries.entry_type='TEAM'`），队员即 `entry_members`；**不新建 `teams` / `team_members` 表**。队伍人数只有下限"至少 1 人"，具体人数规则属于赛制（未冻结）。
   - 新增 `team_ties`（一场"A 队 vs B 队"对抗，含赛制快照与预留时间字段）与 `team_rubbers`（盘骨架：单打/双打 + 每边所需出场位置代号）。
   - 小组归属不变量：`GROUP` + 指定小组时，双方队伍的 `entries.group_id` 必须都等于该小组，否则 409；`GROUP` + 不指定小组仍是允许的通用对抗；`KNOCKOUT` 不得挂小组（422）。避免 `team_ties.group_id` 与 `entries.group_id` 互相矛盾。
-  - 赛制（`domain/team_formats.py`）：`TeamFormatSpec` + 校验 + 快照 + 骨架构建；**生产注册表为空**，任何未登记的赛制建盘都返回 422，系统不臆造"经典赛制"。测试用赛制仅存在于测试内。
+  - 赛制（`domain/team_formats.py`）：`TeamFormatSpec` + 校验 + 快照 + 骨架构建。生产注册表只登记
+    组织者确认过的版本化模板——A3 时为空，**A5 起为 `LOCAL_CLASSIC_5_V1`**（见下条）。
+    未登记的赛制建盘一律 422，系统不臆造"经典赛制"，也不会退回任何"默认赛制"；
+    测试用赛制（`TEST_ONLY_*`）仅存在于测试进程内，不进生产注册表。
   - **一盘不是一场 Match**：A3 不创建任何 `matches` 行，`team_rubbers.match_id` 恒为 NULL（原因：`entry_members` 对 player 全局唯一，且 `_match_member_ids()` 会把整队成员标记为占用）。盘 ↔ 比赛的映射、球台占用与兼项校验留给 A4。
-  - 未实现：队伍名单界面、赛制冻结、对阵编排、盘的比分与状态机、团体赛排程/ETA、团体排名与晋级、队伍种子、Demo 模拟（对 TEAM 明确 409）。
+  - 未实现：正式 TEAM 前端入口（队伍名单界面）、团体小组赛编排（`TeamTie` 生成）、
+    团体排名与晋级、团体赛排程/ETA、队伍种子、Demo 模拟（对 TEAM 明确 409）。
   - 阶段门禁现状：TEAM 赛事目前没有任何接口能把 `stage` 从 `REGISTRATION` 推进（生成小组赛/淘汰赛对 TEAM 直接 409），因此对抗创建不挂 stage 门禁；队伍编辑仍锁定在 `REGISTRATION`。
   - 与整项退赛（`#14`，同批基线）的口径一致：已退赛队伍不计入"至少 2 支在赛队伍"，也不能加入新对抗；但"先建对抗、后队伍退赛"不会被 A3 自动判负（需要 A4 的比分层），对抗与盘骨架保持原样。
 - 团体赛 Runtime（A4.1，`docs/TEAM_RUNTIME_CONTRACT.md`）：一场对抗现在可以完整跑完。
@@ -56,6 +60,25 @@
     开始一盘时原子重校验已保存阵容（队员被移出名单 / 队伍退赛 → 409，可重新提交），运行态给出 `lineup_valid`。
   - **并发安全（PR #20 复审补强）**：写操作 = `BEGIN IMMEDIATE` 写事务 + 带预期旧状态的条件更新 + rowcount 检查；
     跨行不变量（最多一盘 PLAYING）在任何写入之前校验。并发双 start / 双 score 都有回归测试（两个独立连接）。
+- 团体赛生产赛制 V1（A5，`docs/TEAM_DOMAIN.md` 的「Production Team Format V1」）：
+  生产注册表现在**不再为空**，登记了平台第一版模板 `LOCAL_CLASSIC_5_V1`（version 1，
+  显示名「经典五盘三胜团体赛」，5 盘、先赢 3 盘、`SINGLES/SINGLES/DOUBLES/SINGLES/SINGLES`，
+  位置代号为中性 `HOME_R*` / `AWAY_R*`）。
+  - 当前真实能力链路：**TEAM 赛事 → 队伍 → 确认名单 → `TeamTie` → 生产 `TeamFormat` →
+    5 盘 rubber skeleton → Runtime（阵容 → 开始 → 录分 → 累计 → 3 胜结束 → 剩余盘 SKIPPED）**，
+    **不再需要 `TEST_ONLY_*` 赛制**。
+  - **不宣称官方规则**：这是平台自己的第一版生产模板，不等同于任何一届 ITTF / 奥运会 / 中国乒协规程；
+    刻意不使用 `ITTF_*` / `OLYMPIC` / `NATIONAL_STANDARD` 这类名字。组织者给出正式规程后
+    **新增**版本化 `TeamFormatSpec`（例如 `..._V2`），不覆盖已创建的赛事快照。
+  - **只冻结驱动 Runtime 的最低必要信息**（盘数、盘类型顺序、获胜所需盘数）。仍未冻结：
+    选手角色映射（A/B/C/X/Y/Z）、谁打一单/二单、双打组合与提交时机、最多打几盘、兼项、
+    替补规则与时机、排阵提交时间、严格盘序、团体小组积分规则。
+  - 快照即历史真相：Runtime 只从 `format_snapshot` 读 `rubbers_to_win`，不重读注册表；
+    改写 / 替换 / 下线 V1 都不会改变已创建的对抗。
+  - 防重复与防换制：已有骨架再建 → 409；`replace=true` 只在"全部盘仍 PENDING 且对抗未进入 Runtime"时成立；
+    对抗只要有盘 READY/PLAYING/FINISHED/SKIPPED，换赛制或重建骨架**永久** 409。
+  - 仍然**没有**：正式 TEAM 前端入口（`TeamTiePage` 仍是占位、`HomePage` 入口继续禁用）、
+    团体小组排名、出线/晋级、淘汰晋级、排程与 ETA、`team_rubbers.match_id` 仍为 NULL。
 - 淘汰赛交叉对阵的冻结范围（A1 复审确认）：
   - 正式冻结：2 组 × 每组前 2（A1-B2、B1-A2）；4 组 × 每组前 2（A1-D2、C1-B2、B1-C2、D1-A2）；偶数组 × 每组前 2 的"首尾交叉"原则（第 i 组第 1 名 ⇄ 倒数第 i 组第 2 名），同组两人与 1/2 号种子分处不同半区。
   - 未正式冻结：需要轮空时的具体轮空落位（例如 6 组 = 12 人进入 16 签）、3/5/7 等奇数组、每组出线人数 != 2 或各组出线人数不一致。
@@ -79,8 +102,9 @@
 | 赛前检查 | 面向主裁聚合名单、参赛位、分组、赛程、球台、晋级和规则状态；只读检查，不替主裁自动决策 | `PreflightPage.tsx`；`services/preflight.py` |
 | 报名与导入 | 在线报名、增删改选手、积分/单位、种子；CSV/XLSX 预览后确认；预览全部行。导入是正式能力，LIVE 与 DEMO 赛事都可用；只有「生成演示选手」等 Demo 功能限 DEMO | `RegisterPage.tsx`、`PlayersPage.tsx`；`services/import_players.py` |
 | Entry 与双打 | 单打 1 人、双打 2 人；近积分候选随机配对；未配齐不能确认名单 | `services/entries.py`、`routers/entries.py` |
-| 团体赛（A3 领域基础） | 队伍 = `entry_type='TEAM'` 的 Entry；队伍增删改查与队员唯一归属校验；`team_ties` / `team_rubbers` 对抗与盘骨架；赛制规格校验与快照（生产注册表为空）；**无界面、无编排、不进排程** | `services/teams.py`、`services/team_ties.py`、`domain/team_formats.py`、`routers/teams.py`、`routers/team_ties.py` |
+| 团体赛（A3 领域基础） | 队伍 = `entry_type='TEAM'` 的 Entry；队伍增删改查与队员唯一归属校验；`team_ties` / `team_rubbers` 对抗与盘骨架；赛制规格校验与快照（生产注册表只含确认过的版本化模板）；**无界面、无编排、不进排程** | `services/teams.py`、`services/team_ties.py`、`domain/team_formats.py`、`routers/teams.py`、`routers/team_ties.py` |
 | 团体赛 Runtime（A4.1） | 阵容绑定（按盘型校验人数、只允许本队队员）、盘状态机（PENDING→READY→PLAYING→FINISHED，提前结束后未打的盘 SKIPPED）、盘大比分录入（复用赛事局制规则）、对抗总分自动累计、达到获胜盘数自动结束并写胜者；统一返回运行态与 permissions；**串行执行、不接排程、不创建 Match** | `services/team_runtime.py`、`routers/team_ties.py`、`docs/TEAM_RUNTIME_CONTRACT.md` |
+| 团体赛生产赛制 V1（A5） | `LOCAL_CLASSIC_5_V1`：5 盘、先赢 3 盘、单/单/双/单/单；真实 TEAM 赛事可直接建盘并进入 Runtime（不依赖测试赛制）；快照版本化不可变；开赛后禁止换赛制/重建骨架；**不声明官方规则、无排名/晋级/排程** | `domain/team_formats.py`、`services/team_ties.py`、`docs/TEAM_DOMAIN.md` |
 | 分组 | 种子分散、人数均衡、同单位软回避；解除分组；配置各组出线数 | `services/groups.py`、`routers/groups.py` |
 | 录分与排名 | 大比分默认 0；小组小分补录；改分强制操作人/理由并保存前后快照；读取结果重算排名、提示出线歧义 | `ScoreSheet.tsx`、`RankingsPage.tsx`；`services/scores.py`、`domain/ranking.py` |
 | 现场控制台 | 真实 API 球台卡、批量/手动排台、下台、比分/弃权；待赛横向换行；已结束场次改分。自动排台优先级＝硬约束 → 组台亲和 → 组间进度公平 → 连续上场惩罚 → 稳定顺序（服务端给出每台建议，前端只展示），更完整的 V1 设计见 `docs/SCHEDULING_V1_DESIGN.md` | `ConsolePage.tsx`、`LiveTableCard.tsx`、`services/scheduling.py` |
@@ -121,7 +145,7 @@
 | qualification_decisions | 人工补足晋级线名额的审计记录 | 不改写比赛结果和算法 rank；只使用 active 且排名快照匹配的记录 |
 | bronze_mode | BRONZE_MATCH / JOINT_BRONZE | 决定 3、4 名是否真的再打一场 |
 | placement_mode | OFF / COMPLETE / TIERED | COMPLETE 支持最多 16 人无轮空标准签；TIERED 仍为预留枚举 |
-| team_ties / team_rubbers | 团体赛（A3）新增：一场对抗 + 对抗中的盘骨架 | `match_id` 恒为 NULL（A3 不创建 Match）；盘只记录"每边需要几个出场位置"，不是选手 id；生产赛制注册表为空 |
+| team_ties / team_rubbers | 团体赛（A3）新增：一场对抗 + 对抗中的盘骨架 | `match_id` 恒为 NULL（A3 不创建 Match）；盘只记录"每边需要几个出场位置"，不是选手 id；生产赛制注册表只含确认过的版本化模板（A5 起为 `LOCAL_CLASSIC_5_V1`） |
 
 当前赛事状态：REGISTRATION → GROUP_STAGE → KNOCKOUT → FINISHED。比赛状态：WAITING → PLAYING → FINISHED；下台回 WAITING。尚无独立 Event/Stage 表和通用 MatchSlot 依赖解析器。当前 `EventType` 有 SINGLES / DOUBLES / TEAM 三个取值；TEAM 赛事**不会**进入这条 stage 链路（生成小组赛/淘汰赛对它直接 409），团体赛的阶段推进要与 A4 的团体赛排程一起设计。
 
@@ -178,6 +202,7 @@ pnpm -C frontend dev
 | 本轮未执行 | 浏览器完整 E2E、120 人/15 台闭环、并发录分、目标机器安装演练、完整规则符合性认证 |
 | A3 团体赛领域基础（PR #19 复审修正后） | 后端 432 项测试通过（含 #14 退赛、#17 赛前检查与本批次团体赛用例）；`pnpm exec tsc --noEmit` 与 `pnpm build` 通过；OpenAPI 快照与 `app.openapi()` 一致、`contract:check` 无漂移；旧库（`tournaments.event_type` + `entries.entry_type` 双表 CHECK）迁移后 `PRAGMA foreign_key_check` 为空且无 legacy 表残留；已合并最新 `develop/field-demo-v02`（8ccf627，含 #17）并重新生成契约；本轮未做浏览器端团体赛操作验证（界面仍为占位，`TeamTiePage` 明确标注未开放） |
 | A4.1 团体赛 Runtime | 后端 474 项测试通过（含本批次 42 项 runtime 用例：完整闭环、状态机失败场景、权限矩阵、并发双 start/双 score、名单冻结与阵容失效、PR #19 旧库升级、导出只读）；`tsc --noEmit`、`pnpm build`、`export_openapi.py --check`、`contract:check` 全部 exit 0；本轮未做浏览器端操作验证（B 的团体赛界面仍在独立分支推进） |
+| A5 生产团体赛赛制 V1 | 后端 503 项测试通过（本批次新增 `backend/tests/test_team_format_v1.py`：生产注册表边界、盘序与中性位置代号、真实建盘 5 盘、Runtime 契约、生产赛制端到端闭环与提前结束、2:2 时第 5 盘、快照抗注册表改写/替换/下线、422/409 拒绝路径、API 层全流程）；`export_openapi.py --check`、`contract:check`、`tsc --noEmit`、`pnpm build` 全部 exit 0；未新增 API/DTO，OpenAPI 快照无结构变化；仍未开放 TEAM 前端入口（B 的界面在独立分支推进） |
 | Word | 使用系统设计模板，完成结构校验；本机缺 LibreOffice，未完成逐页渲染视觉验收 |
 
 测试命令（配置好自己的后端环境后）：

@@ -1,6 +1,6 @@
-# 团体赛（TEAM）领域基础与边界（A3 + A4.1）
+# 团体赛（TEAM）领域基础与边界（A3 + A4.1 + A5）
 
-最近维护：A4.1（Runtime Engine）。本文只描述**已经落地**的团体赛能力，以及**刻意没做**的部分和原因。
+最近维护：A5（Production Team Format V1）。本文只描述**已经落地**的团体赛能力，以及**刻意没做**的部分和原因。
 若与代码冲突，以 `backend/app/` 的 Pydantic 契约、SQLite DDL 与测试为准，并在同一 PR 修正本文。
 运行态字段、状态机与权限的消费契约见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md)。
 
@@ -11,14 +11,68 @@
     两张表**的 CHECK（只迁移前者会让旧库"能建 TEAM 赛事、一建队伍就 500"）；
   - **队伍就是 `entries(entry_type='TEAM')`**，队员就是 `entry_members`，不新建名单表；
   - 新增 `team_ties`（一场"A 队 vs B 队"对抗）与 `team_rubbers`（对抗中的一盘）；
-  - 赛制规格 `TeamFormatSpec` + 校验 + 快照 + **空的生产注册表**；
+  - 赛制规格 `TeamFormatSpec` + 校验 + 快照 + 骨架构建；
   - 按已登记赛制生成"盘骨架"（每盘需要几个出场位置），**不创建任何普通比赛**。
 - A4.1 交付"一场团体对抗的完整 Runtime"：**阵容绑定 → 盘状态机 → 盘比分 → 对抗自动计分 →
   达到获胜盘数自动结束 → 剩余盘 SKIPPED**，并把这些状态、比分、权限通过
   `TeamTieRuntimeOut` 暴露给前端。
+- A5 交付"第一个生产可用、版本化的团体赛赛制"：`LOCAL_CLASSIC_5_V1`
+  （5 盘、先赢 3 盘、单/单/双/单/单），真实 TEAM 赛事不再需要测试赛制就能建盘并直接进入 Runtime。
+  **它只是平台第一版生产模板，不声明等同于任何官方规则**，详见下一节。
 
-它仍**不是**完整的团体赛赛事功能：没有队伍名单界面（B 工作线在推进）、没有任何一条正式赛制被冻结、
-没有对阵编排、没有团体排名/晋级、不参与排程与预计时间。`team_rubbers.match_id` 仍恒为 NULL。
+它仍**不是**完整的团体赛赛事功能：没有正式 TEAM 前端入口（B 工作线在推进）、没有对阵编排、
+没有团体排名/晋级、不参与排程与预计时间。`team_rubbers.match_id` 仍恒为 NULL。
+
+## Production Team Format V1（A5）
+
+生产注册表 `PRODUCTION_FORMATS` 从 A5 起**不再为空**，当前只有一条：
+
+| 字段 | 值 |
+|---|---|
+| `code` | `LOCAL_CLASSIC_5_V1` |
+| `version` | `1` |
+| `display_name` | 经典五盘三胜团体赛 |
+| Rubber 数量 | `5` |
+| Rubber 类型顺序 | `SINGLES` / `SINGLES` / `DOUBLES` / `SINGLES` / `SINGLES`（sequence 1–5，从 1 连续） |
+| `rubbers_to_win` | `3` |
+| 位置代号（每边） | 单打 `HOME_R<序>` / `AWAY_R<序>`；双打 `HOME_R3_1`、`HOME_R3_2` / `AWAY_R3_1`、`AWAY_R3_2` |
+
+### 命名与诚实边界（必须保留）
+
+- 这是**平台当前第一版生产赛制模板**，**不声明**等同于某一届 ITTF / 奥运会 / 中国乒协官方规则。
+  因此刻意不使用 `ITTF_OFFICIAL` / `ITTF_CLASSIC_V1` / `OLYMPIC` / `NATIONAL_STANDARD` /
+  `OFFICIAL_CLASSIC` 这类容易被读成"官方认证"的名字（有测试断言这些 code 一定不存在）。
+- 组织者若提供正式赛事规程：**新增**一个版本化 `TeamFormatSpec`（例如 `..._V2` 或新的 code），
+  **不覆盖**已经创建的赛事快照。
+- 位置代号只是"这一盘这一边的第几个位置"，不是选手，也不是角色。刻意不用 `A/B/C/X/Y/Z`，
+  因为那会暗示"某个固定角色 = 某个位置必须由谁上场"，而角色映射恰恰**没有冻结**。
+  实际上场人由 Runtime 的 lineup 决定。
+
+### 本版**没有**冻结的规则（因此代码里也不存在）
+
+- 选手角色映射（A/B/C/X/Y/Z 谁打哪个位置）；
+- 谁必须打一单 / 二单；
+- 双打由哪些人组成、双打组合提交时机；
+- 同一人最多参加几盘、单打与双打能否兼项；
+- 是否允许替补、替补人数、替补时机；
+- 排阵提交时间；
+- 是否必须严格按照 `sequence` 开赛；
+- 团体小组积分规则、团体排名与晋级。
+
+Runtime 继续只执行已有的通用规则（阵容只做"本队队员 + 队伍在赛 + 盘未结束"这类硬约束），
+`services/team_runtime.py` 里**没有**任何 `if format_code == "LOCAL_CLASSIC_5_V1"` 或
+`if len(rubbers) == 5: target_wins = 3` 之类的分支——`target_wins` 只从该对抗的
+`format_snapshot` 读取，盘数与盘类型只来自 `TeamFormatSpec`。
+
+### 版本化与不可变
+
+`TeamFormat` 是**版本化不可变业务定义**：
+
+- 规则变化**不得**修改旧 code 的语义，必须新增 `LOCAL_CLASSIC_5_V2` 或新的 code；
+- 建盘时把 `format_code` + `format_version` + `format_snapshot` 一起冻结在 `team_ties` 上；
+- Runtime 与读取路径一律基于 `format_snapshot` 解释，**不重新读取当前注册表**。
+  因此即使未来 V1 被改写、被替换、甚至从注册表下线，已创建的 V1 对抗仍按原始规则运行
+  （`backend/tests/test_team_format_v1.py` 有对应的快照稳定性测试）。
 
 ## 数据模型
 
@@ -53,7 +107,7 @@
 | `team_tie_id` | 所属对抗（`ON DELETE CASCADE`） |
 | `sequence` | 第几盘；同一对抗内 `UNIQUE (team_tie_id, sequence)`，从 1 连续 |
 | `rubber_type` | `SINGLES` / `DOUBLES`（**没有 TEAM**：TEAM 是赛事项目，不是盘类型） |
-| `home_slots_json` / `away_slots_json` | 赛制要求的"位置代号"列表，例如 `["H3","H4"]` |
+| `home_slots_json` / `away_slots_json` | 赛制要求的"位置代号"列表，例如 `["HOME_R3_1","HOME_R3_2"]`（中性位置标识，不是角色、不是选手 id） |
 | `home_player_ids_json` / `away_player_ids_json` | **A4.1**：本盘实际参赛人（lineup binding），未绑定时为 NULL |
 | `home_score` / `away_score` | **A4.1**：本盘胜局数；未结束为 NULL |
 | `winner_entry_id` | **A4.1**：本盘胜方队伍；未结束为 NULL |
@@ -89,10 +143,9 @@ A4.1 给 `team_rubbers` 追加运行态列时**不重建表**（CHECK 没变）�
 - `snapshot_dict / dump_snapshot / load_snapshot`：把规格固化为 JSON（含 `snapshot_version`）。
   赛事进行中即使注册表升级，历史对抗仍按创建时的 `format_code + format_version + format_snapshot` 解释；
 - `build_rubber_skeleton(spec)`：生成 `status=PENDING` 的盘骨架；
-- **`PRODUCTION_FORMATS = {}` 是故意的**。团体赛赛制差异极大（几单几双、是否必须打满、
-  双打能否兼项、决胜盘规则……），必须由赛事组织方确认冻结后才能登记。A3 不臆造
-  "奥运赛制 / ITTF 经典赛制"之类的规则，也不在代码里放一个"默认赛制"。
-  因此当前生产环境下调用建盘接口一律返回 **422 未知的团体赛赛制**。
+- `PRODUCTION_FORMATS` 只登记**组织者确认冻结的平台模板**。A3 时故意为空；A5 起登记了第一版
+  `LOCAL_CLASSIC_5_V1`（见上一节）。注册表**不是**"默认赛制"的来源：未登记的 code 一律 422，
+  不会退回任何缺省规则；`TEST_ONLY_*` 之类的测试规格只存在于测试进程内，不进生产注册表。
 
 测试中使用的赛制 code 形如 `TEST_ONLY_*`，只存在于测试进程内（fixture 注册后自动移除），
 不通过任何接口暴露，也不代表任何官方规则。
@@ -109,7 +162,7 @@ A4.1 给 `team_rubbers` 追加运行态列时**不重建表**（CHECK 没变）�
 | GET | `/api/tournaments/{id}/team-ties` | 对抗列表（轻量 `TeamTieOut`，不含阵容/权限） |
 | POST | `/api/tournaments/{id}/team-ties` | 建立对抗（双方必须是同一赛事的 TEAM 队伍；绑定小组时须双方同组） |
 | GET | `/api/tournaments/{id}/team-ties/{tie_id}` | **对抗运行态**（`TeamTieRuntimeOut`：队伍、比分、盘、权限） |
-| POST | `/api/tournaments/{id}/team-ties/{tie_id}/rubber-skeleton` | 按已登记赛制建盘；已存在时 409，`replace=true` 且全部盘仍为 PENDING 时可重建 |
+| POST | `/api/tournaments/{id}/team-ties/{tie_id}/rubber-skeleton` | 按已登记赛制建盘；已存在时 409，`replace=true` 且**所有盘仍为 PENDING 且对抗未进入 Runtime** 时可重建；对抗一旦有盘 READY/PLAYING/FINISHED/SKIPPED 就永久 409 |
 | GET | `.../rubbers/{rubber_id}/lineup-options` | 两边的候选阵容（可用性与不可用原因） |
 | PUT | `.../rubbers/{rubber_id}/lineup` | 提交本盘实际参赛人（人数按盘型校验） |
 | POST | `.../rubbers/{rubber_id}/start` | 开始本盘（READY → PLAYING） |
@@ -131,8 +184,11 @@ Runtime 写操作的守卫见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md) 
 
 ## 明确未实现（后续批次待办清单）
 
-1. **队伍名单界面**：前端由 B 工作线推进（当前 `TeamTiePage` 仍是占位）；后端接口与契约已就绪。
-2. **赛制冻结**：需要组织者确认后写入 `PRODUCTION_FORMATS` 并定 version；当前注册表为空。
+1. **队伍名单界面与正式 TEAM 入口**：前端由 B 工作线推进（当前 `TeamTiePage` 仍是占位，
+   `HomePage` 的 TEAM 入口仍保持禁用）；后端接口与契约已就绪。入口在"后端 + B 界面 + E2E"
+   全部完成后再开放，**不由本批次自动解禁**。
+2. **赛事规程版本化**：第一版生产模板已登记（`LOCAL_CLASSIC_5_V1`）。组织者提供正式规程后
+   必须**新增**版本化 `TeamFormatSpec`，不覆盖旧版本；未登记的赛制仍一律 422。
 3. **对抗编排**：小组内/淘汰结构的对阵生成（抽签、循环编排、场序唯一）未实现，只允许手工建立对抗。
 4. **盘 → 比赛适配器**：`team_rubbers.match_id` 未启用（原因见下节）；盘有自己的运行态比分。
 5. **异常结果与改分**：弃权/未到/取消资格与 `revise score` 未实现（`can_revise_score` 恒 false）；
@@ -233,9 +289,14 @@ pnpm -C frontend run build
   `create_team_entry()` 成功"；迁移后的 DDL 与新建库 DDL 完全一致；重复执行幂等且无 legacy 表残留。
 - `backend/tests/test_team_entries.py`：队伍增删改查与全部业务守卫、名单确认三分支、
   "1 人队伍不被当成单打实体播种"等二元假设回归、TEAM 赛事自动分组、退赛队伍不计入名单确认。
-- `backend/tests/test_team_domain.py`：赛制校验/快照、生产注册表为空、建盘不创建 Match、
+- `backend/tests/test_team_domain.py`：赛制校验/快照、生产注册表只含确认过的模板、建盘不创建 Match、
   重建守卫、单打引擎拒绝 TEAM、导出与级联、小组归属不变量（未分组 / 跨组 / 同组 / 跨赛事小组）
   与服务层 + API 层全流程。
+- `backend/tests/test_team_format_v1.py`（A5）：生产赛制 `LOCAL_CLASSIC_5_V1` 的注册表边界、
+  盘序与中性位置代号、真实建盘 5 盘、Runtime 契约（`target_wins` / `format.*` / `rubbers`）、
+  **生产赛制端到端闭环**（打到 3 胜 → 提前结束 → 剩余盘 SKIPPED）、2:2 时第 5 盘仍能正常打、
+  快照抗注册表改写/替换/下线、未登记赛制 422、非 TEAM 赛事拒绝、重复建盘与开赛后禁止换赛制、
+  API 层真实 `/rubber-skeleton` 全流程。
 - `backend/tests/test_team_runtime.py`（A4.1）：完整 E2E（阵容 → 开始 → 录分 → 累计 → 达标结束 →
   剩余 SKIPPED）、target_wins 来自快照、全部状态机失败场景与错误码、权限矩阵、候选阵容规则、
   非法比分、"两盘同时 PLAYING"的防御、PR #19 旧库升级运行态列、导出运行态且只读。
