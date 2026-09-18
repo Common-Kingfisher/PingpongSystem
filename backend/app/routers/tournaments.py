@@ -6,6 +6,7 @@ from sqlite3 import Connection
 from .. import repository as repo, schemas
 from ..db import get_db
 from ..services import order_book as order_book_service
+from ..services import tournament_export as tournament_export_service
 from ..services import tournaments as tournament_service
 
 router = APIRouter(prefix="/api/tournaments", tags=["tournaments"])
@@ -41,6 +42,18 @@ def get_order_book_snapshot(tournament_id: int, conn: Connection = Depends(get_d
     try:
         return order_book_service.get_snapshot(conn, tournament_id)
     except order_book_service.OrderBookError as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc))
+
+
+@router.get("/{tournament_id}/export", response_model=schemas.TournamentExport)
+def export_tournament(tournament_id: int, conn: Connection = Depends(get_db)):
+    """导出赛事结构化数据（只读）：落库数据 + 运行期推导结果，含 schema_version。
+
+    建议在删除赛事前先调用本接口留存备份；导出不修改任何业务数据。
+    """
+    try:
+        return tournament_export_service.get_export(conn, tournament_id)
+    except tournament_export_service.ExportError as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc))
 
 

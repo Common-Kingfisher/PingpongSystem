@@ -586,6 +586,28 @@ def list_match_games(conn: sqlite3.Connection, match_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def list_tournament_match_games(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    """某赛事全部逐局比分（导出用，一次查询避免逐场查询）。"""
+    rows = conn.execute(
+        "SELECT g.id, g.match_id, g.game_no, g.side_a_score, g.side_b_score, g.winner_entry_id "
+        "FROM match_games g JOIN matches m ON m.id = g.match_id "
+        "WHERE m.tournament_id = ? ORDER BY g.match_id, g.game_no",
+        (tournament_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_tournament_score_requests(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    """某赛事的比分写入审计账本（幂等编号 / 动作 / 指纹 / 时间）。"""
+    rows = conn.execute(
+        "SELECT s.request_id, s.match_id, s.action, s.payload_fingerprint, s.created_at "
+        "FROM score_requests s JOIN matches m ON m.id = s.match_id "
+        "WHERE m.tournament_id = ? ORDER BY s.created_at, s.request_id",
+        (tournament_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def decorate_match(conn: sqlite3.Connection, match: dict) -> dict:
     result = dict(match)
     entries = {}
