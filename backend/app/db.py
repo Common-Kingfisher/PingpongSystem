@@ -52,6 +52,40 @@ ENTRIES_TABLE_SQL = """CREATE TABLE IF NOT EXISTS entries (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );"""
 
+# team_rubbers：A3 只落"骨架"（盘序 + 单打/双打 + 每边位置代号）；
+# A4.1 追加"运行态"列：本盘实际参赛人（lineup binding）、盘比分、胜者与起止时间。
+# 这些列不改变任何 CHECK（状态取值不变），因此旧库只需要 ADD COLUMN，不必重建表。
+TEAM_RUBBER_RUNTIME_COLUMNS = (
+    ("home_player_ids_json", "TEXT"),
+    ("away_player_ids_json", "TEXT"),
+    ("home_score", "INTEGER"),
+    ("away_score", "INTEGER"),
+    ("winner_entry_id", "INTEGER REFERENCES entries(id)"),
+    ("started_at", "TEXT"),
+    ("finished_at", "TEXT"),
+)
+
+TEAM_RUBBERS_TABLE_SQL = """CREATE TABLE IF NOT EXISTS team_rubbers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_tie_id INTEGER NOT NULL REFERENCES team_ties(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK (sequence >= 1),
+    rubber_type TEXT NOT NULL CHECK (rubber_type IN ('SINGLES','DOUBLES')),
+    home_slots_json TEXT NOT NULL,
+    away_slots_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING','READY','PLAYING','FINISHED','SKIPPED')),
+    match_id INTEGER REFERENCES matches(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    home_player_ids_json TEXT,
+    away_player_ids_json TEXT,
+    home_score INTEGER,
+    away_score INTEGER,
+    winner_entry_id INTEGER REFERENCES entries(id),
+    started_at TEXT,
+    finished_at TEXT,
+    UNIQUE (team_tie_id, sequence)
+);"""
+
 SCHEMA = f"""
 {TOURNAMENTS_TABLE_SQL}
 
@@ -172,7 +206,7 @@ CREATE TABLE IF NOT EXISTS qualification_decisions (
 
 -- 团体赛领域模型（A3）：TeamTie 表示"A 队 vs B 队"整场对抗，TeamRubber 表示其中的一盘。
 -- 队伍本身复用 entries(entry_type='TEAM') + entry_members，不再建 teams/team_members 重复名单。
--- TeamRubber.match_id 只是为 A4 的 Match adapter 预留，A3 永远保持 NULL。
+-- TeamRubber.match_id 只是为以后的 Match adapter 预留，A4.1 仍然保持 NULL。
 CREATE TABLE IF NOT EXISTS team_ties (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
@@ -195,19 +229,7 @@ CREATE TABLE IF NOT EXISTS team_ties (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS team_rubbers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_tie_id INTEGER NOT NULL REFERENCES team_ties(id) ON DELETE CASCADE,
-    sequence INTEGER NOT NULL CHECK (sequence >= 1),
-    rubber_type TEXT NOT NULL CHECK (rubber_type IN ('SINGLES','DOUBLES')),
-    home_slots_json TEXT NOT NULL,
-    away_slots_json TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'PENDING'
-        CHECK (status IN ('PENDING','READY','PLAYING','FINISHED','SKIPPED')),
-    match_id INTEGER REFERENCES matches(id),
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (team_tie_id, sequence)
-);
+{TEAM_RUBBERS_TABLE_SQL}
 
 CREATE INDEX IF NOT EXISTS idx_players_tournament ON players(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);
@@ -403,6 +425,11 @@ def init_db() -> None:
             ("withdrawal_reason", "TEXT"),
         ):
             _add_column_if_missing(conn, "entries", column, ddl)
+        # A4.1 团体赛 Runtime：team_rubbers 追加运行态列（lineup 绑定 / 盘比分 / 胜者 / 起止时间）。
+        # 上面的 SCHEMA 已经保证该表存在（新建库直接带全部列，A3 旧库则缺这些列），
+        # 因此这里只需 ADD COLUMN，不需要重建表，也不要求删除 demo.db。
+        for column, ddl in TEAM_RUBBER_RUNTIME_COLUMNS:
+            _add_column_if_missing(conn, "team_rubbers", column, ddl)
         # TEAM 项目：旧库的 tournaments.event_type 与 entries.entry_type 都只有
         # SINGLES/DOUBLES，SQLite 不能直接修改 CHECK，必须重建这两张表。
         # 先重建 tournaments（entries 引用它），再重建 entries（entry_members/matches/team_ties 引用它）；

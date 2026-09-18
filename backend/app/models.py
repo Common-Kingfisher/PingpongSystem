@@ -63,8 +63,9 @@ class TeamTieStatus(str, Enum):
 class TeamRubberStatus(str, Enum):
     """团体对抗内单盘（Rubber）状态。
 
-    A3 的 skeleton 只会生成 PENDING；PENDING → READY → PLAYING → FINISHED
-    的流转与 SKIPPED（提前结束比赛后未打的盘）由 A4 实现。
+    A3 的 skeleton 只会生成 PENDING；A4.1 起真正使用状态机：
+    PENDING（未绑定阵容）→ READY（阵容合法）→ PLAYING（已开始）→ FINISHED（已录比分）；
+    对抗被一方提前结束时，未打的 PENDING/READY 盘 → SKIPPED。
     """
 
     PENDING = "PENDING"
@@ -79,6 +80,13 @@ class TeamRubberType(str, Enum):
 
     SINGLES = "SINGLES"
     DOUBLES = "DOUBLES"
+
+
+class TeamSide(str, Enum):
+    """团体对抗的两边（主队 / 客队）；用于盘结果与权限表达，不是球队身份。"""
+
+    HOME = "HOME"
+    AWAY = "AWAY"
 
 
 class TournamentMode(str, Enum):

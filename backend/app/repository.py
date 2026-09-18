@@ -352,7 +352,8 @@ _TIE_COLS = (
 )
 _RUBBER_COLS = (
     "id, team_tie_id, sequence, rubber_type, home_slots_json, away_slots_json, status, "
-    "match_id, created_at"
+    "match_id, created_at, home_player_ids_json, away_player_ids_json, home_score, away_score, "
+    "winner_entry_id, started_at, finished_at"
 )
 
 
@@ -435,15 +436,96 @@ def list_team_rubbers(conn: sqlite3.Connection, tie_id: int) -> list[dict]:
 
 
 def list_tournament_team_rubbers(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
-    """某赛事全部盘骨架（导出用，一次 JOIN 查询）。"""
+    """某赛事全部盘骨架与运行态（导出用，一次 JOIN 查询）。"""
     rows = conn.execute(
         f"SELECT r.id, r.team_tie_id, r.sequence, r.rubber_type, r.home_slots_json, "
-        f"r.away_slots_json, r.status, r.match_id, r.created_at "
+        f"r.away_slots_json, r.status, r.match_id, r.created_at, r.home_player_ids_json, "
+        f"r.away_player_ids_json, r.home_score, r.away_score, r.winner_entry_id, "
+        f"r.started_at, r.finished_at "
         f"FROM team_rubbers r JOIN team_ties t ON t.id = r.team_tie_id "
         f"WHERE t.tournament_id = ? ORDER BY r.team_tie_id, r.sequence",
         (tournament_id,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------- 团体赛运行态（A4.1：lineup 绑定 / 盘比分 / 生命周期）
+
+def set_team_rubber_lineup(
+    conn: sqlite3.Connection,
+    rubber_id: int,
+    home_player_ids_json: str,
+    away_player_ids_json: str,
+) -> Optional[dict]:
+    """写入本盘实际参赛人，并把 PENDING → READY（合法阵容就绪即可开始）。"""
+    conn.execute(
+        "UPDATE team_rubbers SET home_player_ids_json = ?, away_player_ids_json = ?, "
+        "status = 'READY' WHERE id = ?",
+        (home_player_ids_json, away_player_ids_json, rubber_id),
+    )
+    return get_team_rubber(conn, rubber_id)
+
+
+def mark_team_rubber_playing(conn: sqlite3.Connection, rubber_id: int) -> None:
+    """READY → PLAYING，记录开始时间。"""
+    conn.execute(
+        "UPDATE team_rubbers SET status = 'PLAYING', started_at = ? WHERE id = ?",
+        (utc_now(conn), rubber_id),
+    )
+
+
+def mark_team_rubber_finished(
+    conn: sqlite3.Connection,
+    rubber_id: int,
+    home_score: int,
+    away_score: int,
+    winner_entry_id: int,
+) -> None:
+    """PLAYING → FINISHED，写入盘比分、胜者与结束时间。"""
+    conn.execute(
+        "UPDATE team_rubbers SET status = 'FINISHED', home_score = ?, away_score = ?, "
+        "winner_entry_id = ?, finished_at = ? WHERE id = ?",
+        (home_score, away_score, winner_entry_id, utc_now(conn), rubber_id),
+    )
+
+
+def skip_open_team_rubbers(conn: sqlite3.Connection, tie_id: int) -> int:
+    """对抗提前结束后，把还没打的盘（PENDING/READY）标成 SKIPPED；FINISHED 不动。"""
+    cur = conn.execute(
+        "UPDATE team_rubbers SET status = 'SKIPPED' "
+        "WHERE team_tie_id = ? AND status IN ('PENDING','READY')",
+        (tie_id,),
+    )
+    return cur.rowcount
+
+
+def set_team_tie_scores(
+    conn: sqlite3.Connection, tie_id: int, team_a_score: int, team_b_score: int
+) -> None:
+    """对抗总分永远由后端按 FINISHED 的盘重算后写入（不接受客户端传入）。"""
+    conn.execute(
+        "UPDATE team_ties SET team_a_score = ?, team_b_score = ? WHERE id = ?",
+        (team_a_score, team_b_score, tie_id),
+    )
+
+
+def mark_team_tie_playing(conn: sqlite3.Connection, tie_id: int) -> None:
+    """对抗首次有盘开始：WAITING → PLAYING（called_at 与 started_at 同源记录，只写一次）。"""
+    now = utc_now(conn)
+    conn.execute(
+        "UPDATE team_ties SET status = 'PLAYING', called_at = COALESCE(called_at, ?), "
+        "started_at = COALESCE(started_at, ?) WHERE id = ?",
+        (now, now, tie_id),
+    )
+
+
+def mark_team_tie_finished(conn: sqlite3.Connection, tie_id: int, winner_entry_id: int) -> None:
+    """对抗达到获胜盘数：FINISHED + 胜者 + 结束时间。"""
+    conn.execute(
+        "UPDATE team_ties SET status = 'FINISHED', winner_entry_id = ?, finished_at = ? "
+        "WHERE id = ?",
+        (winner_entry_id, utc_now(conn), tie_id),
+    )
 
 
 def delete_team_rubbers_for_tie(conn: sqlite3.Connection, tie_id: int) -> None:
