@@ -1,6 +1,8 @@
 """主裁判只读赛前检查：聚合现有事实，不改变赛事状态。"""
 
 import sqlite3
+from collections import Counter
+from itertools import combinations
 
 from .. import repository as repo
 from ..models import MatchStage, MatchStatus, PreflightLevel, TableStatus, TournamentMode, TournamentStage
@@ -81,8 +83,28 @@ def inspect_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
         checks.append(_check("groups", "分组与抽签", f"{len(groups)} 个小组、{assigned} 个参赛位均已落位。", PreflightLevel.READY))
 
     group_schedule_generated = tournament["stage"] != TournamentStage.REGISTRATION.value
+    # Withdrawn entries retain historical fixtures; eligibility only affects capacity.
+    expected_pairs = Counter(
+        (group["id"], a, b)
+        for group in groups
+        for a, b in combinations(sorted(e["id"] for e in entries if e["group_id"] == group["id"]), 2)
+    )
+    actual_pairs = Counter()
+    for match in group_matches:
+        a, b = match.get("entry_a_id"), match.get("entry_b_id")
+        pair = tuple(sorted((a, b))) if a is not None and b is not None else (a, b)
+        actual_pairs[(match["group_id"], *pair)] += 1
+    schedule_valid = bool(groups) and actual_pairs == expected_pairs
+    insufficient_groups = []
+    for group in groups:
+        count = sum(e["group_id"] == group["id"] and e.get("status", "ACTIVE") == "ACTIVE" for e in entries)
+        qualify = group["qualify_count"] if group["qualify_count"] is not None else tournament["qualify_per_group"]
+        if not 1 <= qualify <= count:
+            insufficient_groups.append(f"{group['name']}：可晋级 {count} 人，配置出线 {qualify} 人")
     if not group_matches and not group_schedule_generated:
         checks.append(_check("group_schedule", "小组赛程", "小组循环赛尚未生成。", PreflightLevel.BLOCK, "生成小组比赛", f"/players?tid={tid}"))
+    elif not schedule_valid:
+        checks.append(_check("group_schedule", "小组赛程", "循环赛对阵缺失、重复或参赛位不匹配，请核查完整赛程。", PreflightLevel.BLOCK, "检查赛程", f"/console?tid={tid}"))
     elif not group_matches:
         checks.append(_check("group_schedule", "小组赛程", "小组阶段已生成；各组无需产生循环赛场次。", PreflightLevel.READY, "查看小组排名", f"/rankings?tid={tid}"))
     else:
@@ -118,14 +140,20 @@ def inspect_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
                 ambiguous_groups += 1
                 if group["needs_point_scores"]:
                     needs_scores += 1
-    if ambiguous_groups:
+    if insufficient_groups:
+        checks.append(_check("qualification", "晋级判定", "；".join(insufficient_groups) + "。请调整分组或出线配置。", PreflightLevel.BLOCK, "处理分组与出线", f"/players?tid={tid}"))
+    elif not schedule_valid:
+        checks.append(_check("qualification", "晋级判定", "小组赛程不完整，暂不能确认晋级结果。", PreflightLevel.BLOCK, "检查赛程", f"/console?tid={tid}"))
+    elif ambiguous_groups:
         detail = f"{ambiguous_groups} 个已完赛小组仍无法确定晋级；其中 {needs_scores} 个需要先补录关键小分。"
         checks.append(_check("qualification", "晋级判定", detail, PreflightLevel.BLOCK, "处理小组排名", f"/rankings?tid={tid}"))
     else:
         checks.append(_check("qualification", "晋级判定", "当前没有已完赛但尚未解决的晋级线并列。", PreflightLevel.READY, "查看排名", f"/rankings?tid={tid}"))
 
     unfinished_group = sum(1 for match in group_matches if match["status"] != MatchStatus.FINISHED.value)
-    if knockout_matches:
+    if not schedule_valid or insufficient_groups:
+        checks.append(_check("knockout", "淘汰赛衔接", "小组赛程或出线名额不满足要求，需要先处理。", PreflightLevel.BLOCK, "检查小组", f"/players?tid={tid}"))
+    elif knockout_matches:
         checks.append(_check("knockout", "淘汰赛衔接", f"淘汰签已生成，共 {len(knockout_matches)} 场。", PreflightLevel.READY, "查看淘汰赛", f"/knockout?tid={tid}"))
     elif group_schedule_generated and unfinished_group == 0 and ambiguous_groups == 0:
         checks.append(_check("knockout", "淘汰赛衔接", "小组赛已结束且晋级明确，可以生成淘汰签。", PreflightLevel.READY, "生成淘汰赛", f"/knockout?tid={tid}"))

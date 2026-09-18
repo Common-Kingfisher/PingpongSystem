@@ -1,6 +1,7 @@
 """主裁判赛前检查聚合接口。"""
 
 from app import repository as repo
+import pytest
 
 
 def _create(client, mode="LIVE"):
@@ -67,7 +68,8 @@ def test_table_state_mismatch_is_a_blocker(client, conn):
     assert tables["level"] == "BLOCK"
 
 
-def test_zero_match_group_stage_is_not_reported_as_ungenerated(client):
+@pytest.mark.parametrize("qualify", [1, 2])
+def test_zero_match_group_stage_is_not_reported_as_ungenerated(client, qualify):
     tournament_id = client.post(
         "/api/tournaments",
         json={
@@ -75,7 +77,7 @@ def test_zero_match_group_stage_is_not_reported_as_ungenerated(client):
             "date": "2026-09-09",
             "table_count": 2,
             "group_count": 4,
-            "qualify_per_group": 1,
+            "qualify_per_group": qualify,
         },
     ).json()["id"]
     for index in range(4):
@@ -93,7 +95,32 @@ def test_zero_match_group_stage_is_not_reported_as_ungenerated(client):
     knockout = next(item for item in report["checks"] if item["code"] == "knockout")
     assert schedule["level"] == "READY"
     assert "无需产生" in schedule["detail"]
-    assert knockout["level"] == "READY"
+    assert knockout["level"] == ("READY" if qualify == 1 else "BLOCK")
+    qualification = next(item for item in report["checks"] if item["code"] == "qualification")
+    assert qualification["level"] == ("READY" if qualify == 1 else "BLOCK")
+
+
+@pytest.mark.parametrize("damage", ["missing", "duplicate", "null", "empty"])
+def test_invalid_round_robin_blocks_qualification(client, conn, damage):
+    tid = _create(client)
+    for index in range(4):
+        client.post(f"/api/tournaments/{tid}/players", json={"name": f"球员{index}"})
+    client.post(f"/api/tournaments/{tid}/auto-group")
+    client.post(f"/api/tournaments/{tid}/generate-group-matches")
+    matches = repo.list_matches(conn, tid)
+    if damage in ("missing", "empty"):
+        conn.execute("DELETE FROM matches WHERE tournament_id = ? AND id != ?", (tid, matches[0]["id"] if damage == "missing" else -1))
+    elif damage == "duplicate":
+        conn.execute("UPDATE matches SET entry_a_id = ?, entry_b_id = ? WHERE id = ?", (matches[0]["entry_a_id"], matches[0]["entry_b_id"], matches[1]["id"]))
+    else:
+        conn.execute("UPDATE matches SET entry_a_id = NULL WHERE id = ?", (matches[0]["id"],))
+    conn.execute("UPDATE matches SET status = 'FINISHED', player_a_score = 2, player_b_score = 0, winner_entry_id = entry_a_id WHERE tournament_id = ?", (tid,))
+    conn.commit()
+    report = client.get(f"/api/tournaments/{tid}/preflight").json()
+    checks = {item["code"]: item for item in report["checks"]}
+    assert report["overall"] == "BLOCK"
+    for code in ("group_schedule", "qualification", "knockout"):
+        assert checks[code]["level"] == "BLOCK"
 
 
 def test_duplicate_playing_table_assignment_is_a_blocker(client, conn):
