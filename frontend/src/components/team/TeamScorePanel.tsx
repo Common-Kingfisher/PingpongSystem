@@ -4,9 +4,11 @@ const statusLabel: Record<TeamRubberView['status'], string> = {
   PENDING: '待阵容', READY: '可开始', PLAYING: '进行中', FINISHED: '已结束', SKIPPED: '不再进行',
 }
 
-export default function TeamScorePanel({ tie, onLineup, onScore }: {
+export default function TeamScorePanel({ tie, busy, onLineup, onStart, onScore }: {
   tie: TeamTieView
+  busy: boolean
   onLineup: (rubber: TeamRubberView, trigger: HTMLButtonElement) => void
+  onStart: (rubber: TeamRubberView, trigger: HTMLButtonElement) => void
   onScore: (rubber: TeamRubberView, trigger: HTMLButtonElement) => void
 }) {
   return (
@@ -16,7 +18,8 @@ export default function TeamScorePanel({ tie, onLineup, onScore }: {
         <div className="rubber-list">{tie.rubbers.map((rubber) => <article className={`rubber-card ${rubber.status.toLowerCase()}`} key={rubber.id}>
           <div className="rubber-card-head"><strong>第 {rubber.sequence} 盘 · {rubber.rubber_type === 'SINGLES' ? '单打' : '双打'}</strong><span>{statusLabel[rubber.status]}</span></div>
           <div className="rubber-sides"><div><small>{tie.home_team.display_name}</small><b>{rubber.home_players.join(' / ') || '阵容待确认'}</b></div><em>{rubber.home_score ?? '—'} : {rubber.away_score ?? '—'}</em><div><small>{tie.away_team.display_name}</small><b>{rubber.away_players.join(' / ') || '阵容待确认'}</b></div></div>
-          <div className="rubber-actions"><button className="btn small" disabled={!rubber.permissions.can_edit_lineup} onClick={(event) => onLineup(rubber, event.currentTarget)}>设置阵容</button><button className="btn small primary" disabled={!rubber.permissions.can_record_score} onClick={(event) => onScore(rubber, event.currentTarget)}>录入比分</button></div>
+          {!rubber.lineup_valid && rubber.lineup_invalid_reason && <p className="status-error">{rubber.lineup_invalid_reason}</p>}
+          <div className="rubber-actions"><button className="btn small" disabled={busy || !rubber.permissions.can_edit_lineup} onClick={(event) => onLineup(rubber, event.currentTarget)}>设置阵容</button><button className="btn small" disabled={busy || !rubber.permissions.can_start} onClick={(event) => onStart(rubber, event.currentTarget)}>开始本盘</button><button className="btn small primary" disabled={busy || !rubber.permissions.can_record_score} onClick={(event) => onScore(rubber, event.currentTarget)}>录入比分</button></div>
         </article>)}</div>
       )}
     </section>
