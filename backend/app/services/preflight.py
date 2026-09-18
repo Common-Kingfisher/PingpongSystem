@@ -74,27 +74,53 @@ def inspect_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
     else:
         checks.append(_check("entries", "参赛位完整性", f"全部 {len(entries)} 个参赛位结构正确。", PreflightLevel.READY))
 
-    assigned = sum(1 for entry in entries if entry["group_id"] is not None)
+    active_entries = [entry for entry in entries if entry.get("status", "ACTIVE") == "ACTIVE"]
+    assigned = sum(1 for entry in active_entries if entry["group_id"] is not None)
     if not groups:
         checks.append(_check("groups", "分组与抽签", "尚未生成小组。", PreflightLevel.BLOCK, "前往分组", f"/players?tid={tid}"))
-    elif assigned != len(entries):
-        checks.append(_check("groups", "分组与抽签", f"已有 {len(groups)} 个小组，但仍有 {len(entries) - assigned} 个参赛位未分组。", PreflightLevel.BLOCK, "检查分组", f"/players?tid={tid}"))
+    elif assigned != len(active_entries):
+        checks.append(_check("groups", "分组与抽签", f"已有 {len(groups)} 个小组，但仍有 {len(active_entries) - assigned} 个有效参赛位未分组。", PreflightLevel.BLOCK, "检查分组", f"/players?tid={tid}"))
     else:
-        checks.append(_check("groups", "分组与抽签", f"{len(groups)} 个小组、{assigned} 个参赛位均已落位。", PreflightLevel.READY))
+        checks.append(_check("groups", "分组与抽签", f"{len(groups)} 个小组、{assigned} 个有效参赛位均已落位。", PreflightLevel.READY))
 
     group_schedule_generated = tournament["stage"] != TournamentStage.REGISTRATION.value
-    # Withdrawn entries retain historical fixtures; eligibility only affects capacity.
-    expected_pairs = Counter(
+    # 当前赛程必须覆盖每一组所有 ACTIVE-ACTIVE 配对。退赛前已经生成的
+    # WITHDRAWN 相关场次作为历史 fixture 保留，但仍必须属于同组且不能重复。
+    expected_active_pairs = {
         (group["id"], a, b)
         for group in groups
-        for a, b in combinations(sorted(e["id"] for e in entries if e["group_id"] == group["id"]), 2)
-    )
+        for a, b in combinations(
+            sorted(e["id"] for e in active_entries if e["group_id"] == group["id"]),
+            2,
+        )
+    }
+    group_ids = {group["id"] for group in groups}
+    entries_by_id = {entry["id"]: entry for entry in entries}
     actual_pairs = Counter()
+    actual_structure_valid = True
     for match in group_matches:
         a, b = match.get("entry_a_id"), match.get("entry_b_id")
-        pair = tuple(sorted((a, b))) if a is not None and b is not None else (a, b)
-        actual_pairs[(match["group_id"], *pair)] += 1
-    schedule_valid = bool(groups) and actual_pairs == expected_pairs
+        group_id = match.get("group_id")
+        if (
+            a is None
+            or b is None
+            or a == b
+            or group_id not in group_ids
+            or a not in entries_by_id
+            or b not in entries_by_id
+            or entries_by_id[a]["group_id"] != group_id
+            or entries_by_id[b]["group_id"] != group_id
+        ):
+            actual_structure_valid = False
+            continue
+        pair = tuple(sorted((a, b)))
+        actual_pairs[(group_id, *pair)] += 1
+    schedule_valid = (
+        bool(groups)
+        and actual_structure_valid
+        and all(count == 1 for count in actual_pairs.values())
+        and all(actual_pairs[pair] == 1 for pair in expected_active_pairs)
+    )
     insufficient_groups = []
     for group in groups:
         count = sum(e["group_id"] == group["id"] and e.get("status", "ACTIVE") == "ACTIVE" for e in entries)
@@ -131,7 +157,6 @@ def inspect_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
     else:
         checks.append(_check("tables", "球台状态", "球台配置、占用状态与进行中比赛不一致，需要先修复。", PreflightLevel.BLOCK, "检查比赛现场", f"/console?tid={tid}"))
 
-    entries_by_id = {entry["id"]: entry for entry in entries}
     playing_member_ids: list[int] = []
     for match in playing:
         for side in ("a", "b"):

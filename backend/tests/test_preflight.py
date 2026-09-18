@@ -137,6 +137,83 @@ def test_zero_match_group_can_regenerate_knockout_after_undo(client):
     assert regenerated.status_code == 200
 
 
+def _withdraw(client, tournament_id, entry_id):
+    response = client.post(
+        f"/api/tournaments/{tournament_id}/entries/{entry_id}/withdraw",
+        json={"operator_name": "李主裁", "reason": "赛前确认退赛"},
+    )
+    assert response.status_code == 200
+
+
+def _create_with_six_entries(client):
+    tournament_id = client.post(
+        "/api/tournaments",
+        json={
+            "name": "退赛赛前检查",
+            "date": "2026-09-09",
+            "table_count": 2,
+            "group_count": 2,
+            "qualify_per_group": 1,
+        },
+    ).json()["id"]
+    for index in range(6):
+        client.post(
+            f"/api/tournaments/{tournament_id}/players",
+            json={"name": f"选手{index + 1}"},
+        )
+    confirmed = client.post(f"/api/tournaments/{tournament_id}/confirm-roster")
+    assert confirmed.status_code == 200
+    entries = client.get(f"/api/tournaments/{tournament_id}/entries").json()
+    return tournament_id, entries
+
+
+def _preflight_checks(client, tournament_id):
+    report = client.get(f"/api/tournaments/{tournament_id}/preflight").json()
+    return {item["code"]: item for item in report["checks"]}
+
+
+def test_withdrawal_before_grouping_does_not_require_withdrawn_entry_assignment(client):
+    tournament_id, entries = _create_with_six_entries(client)
+    _withdraw(client, tournament_id, entries[0]["id"])
+
+    assert client.post(f"/api/tournaments/{tournament_id}/auto-group").status_code == 200
+    assert client.post(f"/api/tournaments/{tournament_id}/generate-group-matches").status_code == 200
+
+    checks = _preflight_checks(client, tournament_id)
+    assert checks["groups"]["level"] == "READY"
+    assert checks["group_schedule"]["level"] != "BLOCK"
+
+
+def test_withdrawal_after_grouping_does_not_require_new_fixture(client):
+    tournament_id, entries = _create_with_six_entries(client)
+    assert client.post(f"/api/tournaments/{tournament_id}/auto-group").status_code == 200
+    _withdraw(client, tournament_id, entries[0]["id"])
+
+    generated = client.post(f"/api/tournaments/{tournament_id}/generate-group-matches")
+    assert generated.status_code == 200
+    assert generated.json()["matches_generated"] == 4
+
+    checks = _preflight_checks(client, tournament_id)
+    assert checks["groups"]["level"] == "READY"
+    assert checks["group_schedule"]["level"] != "BLOCK"
+
+
+def test_withdrawal_after_schedule_keeps_valid_historical_fixtures(client):
+    tournament_id, entries = _create_with_six_entries(client)
+    assert client.post(f"/api/tournaments/{tournament_id}/auto-group").status_code == 200
+    generated = client.post(f"/api/tournaments/{tournament_id}/generate-group-matches")
+    assert generated.status_code == 200
+    assert generated.json()["matches_generated"] == 6
+
+    _withdraw(client, tournament_id, entries[0]["id"])
+
+    matches = client.get(f"/api/tournaments/{tournament_id}/matches").json()
+    assert len([match for match in matches if match["stage"] == "GROUP"]) == 6
+    checks = _preflight_checks(client, tournament_id)
+    assert checks["groups"]["level"] == "READY"
+    assert checks["group_schedule"]["level"] != "BLOCK"
+
+
 @pytest.mark.parametrize("damage", ["missing", "duplicate", "null", "empty"])
 def test_invalid_round_robin_blocks_qualification(client, conn, damage):
     tid = _create(client)
