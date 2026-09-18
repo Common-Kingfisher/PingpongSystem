@@ -7,7 +7,8 @@
 
 A3 交付的是"团体赛领域地基 + 只读/骨架接口"：
 
-- `EventType.TEAM` 成为正式枚举值，旧库自动迁移；
+- `EventType.TEAM` 成为正式枚举值；旧库自动迁移 **`tournaments.event_type` 与 `entries.entry_type`
+  两张表**的 CHECK（只迁移前者会让旧库"能建 TEAM 赛事、一建队伍就 500"）；
 - **队伍就是 `entries(entry_type='TEAM')`**，队员就是 `entry_members`，不新建名单表；
 - 新增 `team_ties`（一场"A 队 vs B 队"对抗）与 `team_rubbers`（对抗中的一盘）；
 - 赛制规格 `TeamFormatSpec` + 校验 + 快照 + **空的生产注册表**；
@@ -35,7 +36,7 @@ A3 交付的是"团体赛领域地基 + 只读/骨架接口"：
 |---|---|
 | `tournament_id` | 所属赛事（`ON DELETE CASCADE`） |
 | `stage` | `GROUP` / `KNOCKOUT`（复用 `MatchStage` 的取值，不新增 `MatchStage.TEAM`） |
-| `group_id` / `round` / `match_index` | 小组、轮次、场序（A3 不强制场序唯一，编排属于 A4） |
+| `group_id` / `round` / `match_index` | 小组、轮次、场序（A3 不强制场序唯一，编排属于 A4）；**绑定小组时有归属不变量，见下** |
 | `entry_a_id` / `entry_b_id` | 双方队伍，`NOT NULL`，**故意不带 CASCADE**：删队伍必须被业务层拦住 |
 | `team_a_score` / `team_b_score` / `winner_entry_id` | 对抗比分与胜者；A3 只读，恒为 0 / NULL |
 | `status` | `WAITING` / `PLAYING` / `FINISHED`（A3 只写入初值 `WAITING`） |
@@ -54,6 +55,16 @@ A3 交付的是"团体赛领域地基 + 只读/骨架接口"：
 | `match_id` | **A3 恒为 NULL**，预留给 A4 的"盘 → 比赛"适配器 |
 
 位置代号不是选手 id：把选手填进位置（出场名单 / 兼项校验）属于 A4。
+
+### 旧库迁移（两张表，不只是 tournaments）
+
+旧库的 `tournaments.event_type` 与 `entries.entry_type` 的 CHECK 都只有 `SINGLES/DOUBLES`。
+`CREATE TABLE IF NOT EXISTS` 不会修改已有表的 CHECK，所以启动时用同一套安全流程重建这两张表
+（`db.py::_rebuild_table_to_allow_team`）：读 `sqlite_master` 判断是否需要迁移（已含 `'TEAM'` 即跳过，
+幂等）；`foreign_keys=OFF` + `legacy_alter_table=ON`，使 `entry_members` / `matches` / `team_ties`
+等既有子表的 `REFERENCES <表>(id)` 继续指向同名新表；只拷贝"旧列 ∩ 新列"，因此既兼容真正旧库，
+也兼容已经带了 #14 退赛审计列的库。新建库 DDL 与迁移 DDL 共用 `TOURNAMENTS_TABLE_SQL` /
+`ENTRIES_TABLE_SQL`，并有测试断言两者完全一致。
 
 ## 赛制：`backend/app/domain/team_formats.py`
 
@@ -83,13 +94,18 @@ A3 交付的是"团体赛领域地基 + 只读/骨架接口"：
 | PATCH | `/api/tournaments/{id}/teams/{entry_id}` | 改名 / 全量替换队员 / 改积分 |
 | DELETE | `/api/tournaments/{id}/teams/{entry_id}` | 删除队伍（已被对抗引用时 409） |
 | GET | `/api/tournaments/{id}/team-ties` | 对抗列表 |
-| POST | `/api/tournaments/{id}/team-ties` | 建立对抗（双方必须是同一赛事的 TEAM 队伍） |
+| POST | `/api/tournaments/{id}/team-ties` | 建立对抗（双方必须是同一赛事的 TEAM 队伍；绑定小组时须双方同组） |
 | GET | `/api/tournaments/{id}/team-ties/{tie_id}` | 对抗详情（含盘骨架） |
 | POST | `/api/tournaments/{id}/team-ties/{tie_id}/rubber-skeleton` | 按已登记赛制建盘；已存在时 409，`replace=true` 且全部盘仍为 PENDING 时可重建 |
 
 队伍接口的业务守卫：赛事不存在 → 404；不是 TEAM 项目 → 409；不在 `REGISTRATION` 阶段 → 409；
 队员为空 / 重复 → 422；队员不属于本赛事 → 404；队员已在别处 → 409；队伍重名 → 409；
 已被对抗引用 → 409；已退赛的队伍加入新对抗 → 409。全部是业务错误，不会漏成 500。
+
+对抗接口的业务守卫：赛事不存在 → 404；不是 TEAM 项目 → 409；自己打自己 → 422；
+赛段非法 → 422；轮次/场序非法 → 422；队伍不存在或不属于本赛事 → 404；不是 TEAM 实体 → 409；
+已退赛队伍 → 409；小组不存在或跨赛事 → 404；`KNOCKOUT` 却指定小组 → 422；
+绑定小组但双方不同组 → 409。
 
 ## 明确未实现（A4+ 待办清单）
 
@@ -106,6 +122,19 @@ A3 交付的是"团体赛领域地基 + 只读/骨架接口"：
 9. **Demo 模拟**：`demo/finish-group-stage` 与小组赛/淘汰赛生成接口对 TEAM 一律 409，不伪造团体赛结果。
 10. **删除与审计**：删赛事会级联清掉 `team_ties` / `team_rubbers`（有测试）；
     但团体赛的归档与操作审计仍沿用 A1.1 的待办（尚未实现）。
+
+## 小组归属不变量（PR #19 Reviewer 修正）
+
+`team_ties.group_id` 与 `entries.group_id` 不允许互相矛盾。建立对抗时：
+
+| 请求 | 结果 |
+|---|---|
+| `stage=GROUP` + `group_id=NULL` | 允许（还没绑定具体小组的通用对抗；A3 保持这个 contract 不变） |
+| `stage=GROUP` + `group_id` 指定 | **双方队伍的 `entries.group_id` 必须都等于该小组**，否则 409：双方未分组、只有一方分组、双方在别的组、双方分处两组全部拒绝 |
+| `stage=KNOCKOUT` + `group_id` 指定 | 422（淘汰赛段不挂小组） |
+
+拒绝时返回 409（请求结构合法但当前领域状态冲突），且不会写入任何对抗行。这样后续的小组排名、
+晋级、导出、重分组不必再猜 `team_ties.group_id` 和 `entries.group_id` 哪个才是真实来源。
 
 ## 与整项退赛（`#14`）的交互
 
@@ -149,10 +178,13 @@ TEAM 赛事目前**没有任何接口**能把 `stage` 从 `REGISTRATION` 推进�
 pnpm -C frontend run build
 ```
 
-- `backend/tests/test_team_migration.py`：旧库（CHECK 无 TEAM）迁移、数据与 id 保留、
-  子表外键仍指向 `tournaments`、`PRAGMA foreign_key_check` 为空、重复执行幂等。
+- `backend/tests/test_team_migration.py`：`tournaments.event_type` 与 `entries.entry_type` 的旧 CHECK
+  都写不进 TEAM（前提）；迁移后数据、id、退赛审计列与子表外键全部保留（`REFERENCES tournaments(id)` /
+  `REFERENCES entries(id)` 不被改写成 legacy 表名）；真实链路"旧库 → init_db → TEAM 赛事 → 选手 →
+  `create_team_entry()` 成功"；迁移后的 DDL 与新建库 DDL 完全一致；重复执行幂等且无 legacy 表残留。
 - `backend/tests/test_team_entries.py`：队伍增删改查与全部业务守卫、名单确认三分支、
-  "1 人队伍不被当成单打实体播种"等二元假设回归、TEAM 赛事自动分组。
+  "1 人队伍不被当成单打实体播种"等二元假设回归、TEAM 赛事自动分组、退赛队伍不计入名单确认。
 - `backend/tests/test_team_domain.py`：赛制校验/快照、生产注册表为空、建盘不创建 Match、
-  重建守卫、单打引擎拒绝 TEAM、导出与级联、API 全流程。
-- `backend/tests/test_tournament_delete_reliability.py`：新增团体赛级联删除用例。
+  重建守卫、单打引擎拒绝 TEAM、导出与级联、小组归属不变量（未分组 / 跨组 / 同组 / 跨赛事小组）
+  与服务层 + API 层全流程。
+- `backend/tests/test_tournament_delete_reliability.py`：团体赛级联删除用例。

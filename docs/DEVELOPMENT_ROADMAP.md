@@ -24,9 +24,11 @@
 
 ## 团体赛（TEAM）状态：A3 已完成领域基础，A4 才有比赛能力
 
-A3 批次已落地（详见 `docs/TEAM_DOMAIN.md`）：`EventType.TEAM` 与旧库迁移、队伍复用 `entries`/`entry_members`、
+A3 批次已落地（详见 `docs/TEAM_DOMAIN.md`）：`EventType.TEAM` 与旧库迁移（`tournaments.event_type`
+与 `entries.entry_type` 两张表的 CHECK，PR #19 复审补齐）、队伍复用 `entries`/`entry_members`、
 `team_ties` / `team_rubbers` 表、赛制规格 `TeamFormatSpec`（校验 + 快照 + 骨架，**生产注册表为空**）、
-队伍与对抗接口、导出与级联删除、以及"单打引擎拒绝 TEAM"的守卫。
+队伍与对抗接口、导出与级联删除、小组归属不变量（绑定小组的对抗要求双方同组，否则 409）、
+以及"单打引擎拒绝 TEAM"的守卫。
 
 仍未实现、且必须等规则冻结后再做的（按建议顺序）：
 

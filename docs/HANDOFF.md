@@ -34,9 +34,10 @@
 - 真实耗时与典型耗时（A2）：只有"有开始与结束时间 + 结果类型 NORMAL"的比赛进入耗时样本；系统轮空、未排台直接录分、弃权/未到/取消资格都不计入。赛事典型耗时取中位数，样本不足 3 场时使用按赛制定义的冷启动估算值（技术估算参数，未来可配置）。
 - 预计上场时间（A2，`GET /api/tournaments/{id}/schedule-estimates`）：只读模拟，复用自动排台同一套规则（硬约束 → 组台亲和 → 组间进度公平 → 连续上场软惩罚 → 稳定顺序），进行中的比赛按"最大(下限, 典型时长 − 已进行)"推进；签位未定的后续轮次与超出模拟范围的比赛返回 null。
 - 团体赛（A3）当前范围：这是**领域地基，不是可用的团体赛功能**，详见 [团体赛领域基础与边界](TEAM_DOMAIN.md)。
-  - `EventType` 增加 `TEAM`；旧库启动时自动迁移 `tournaments.event_type` 的 CHECK（重建该表，数据与子表外键保留）。
+  - `EventType` 增加 `TEAM`；旧库启动时自动迁移 **`tournaments.event_type` 与 `entries.entry_type` 两张表**的 CHECK（SQLite 不能直接改 CHECK，需要重建；数据、id、退赛审计列与子表外键都保留，幂等）。只迁移前者会让旧库"能建 TEAM 赛事、一建队伍就 500"。
   - 队伍即参赛实体（`entries.entry_type='TEAM'`），队员即 `entry_members`；**不新建 `teams` / `team_members` 表**。队伍人数只有下限"至少 1 人"，具体人数规则属于赛制（未冻结）。
   - 新增 `team_ties`（一场"A 队 vs B 队"对抗，含赛制快照与预留时间字段）与 `team_rubbers`（盘骨架：单打/双打 + 每边所需出场位置代号）。
+  - 小组归属不变量：`GROUP` + 指定小组时，双方队伍的 `entries.group_id` 必须都等于该小组，否则 409；`GROUP` + 不指定小组仍是允许的通用对抗；`KNOCKOUT` 不得挂小组（422）。避免 `team_ties.group_id` 与 `entries.group_id` 互相矛盾。
   - 赛制（`domain/team_formats.py`）：`TeamFormatSpec` + 校验 + 快照 + 骨架构建；**生产注册表为空**，任何未登记的赛制建盘都返回 422，系统不臆造"经典赛制"。测试用赛制仅存在于测试内。
   - **一盘不是一场 Match**：A3 不创建任何 `matches` 行，`team_rubbers.match_id` 恒为 NULL（原因：`entry_members` 对 player 全局唯一，且 `_match_member_ids()` 会把整队成员标记为占用）。盘 ↔ 比赛的映射、球台占用与兼项校验留给 A4。
   - 未实现：队伍名单界面、赛制冻结、对阵编排、盘的比分与状态机、团体赛排程/ETA、团体排名与晋级、队伍种子、Demo 模拟（对 TEAM 明确 409）。
@@ -161,7 +162,7 @@ pnpm -C frontend dev
 | 额外隔离诊断 | 复现非法比分校验不足、不等额出线拒绝、半决赛改分不更新季军参与者、淘汰生成后仍可改小组结果 |
 | Git 发布前检查 | 21 个历史提交范围内，未发现已跟踪依赖目录/数据库/私钥文件或常见 Token 特征；这不是完整安全审计 |
 | 本轮未执行 | 浏览器完整 E2E、120 人/15 台闭环、并发录分、目标机器安装演练、完整规则符合性认证 |
-| A3 团体赛领域基础 | 后端 408 项测试通过（含 #14 退赛的 5 项与本批次 72 项）；`pnpm exec tsc --noEmit` 与 `pnpm build` 通过；OpenAPI 快照与 `app.openapi()` 一致；旧库迁移后 `PRAGMA foreign_key_check` 为空；已把 `develop/field-demo-v02` 的 #14 合并进本分支并同步重生成契约；本轮未做浏览器端团体赛操作验证（界面未实现） |
+| A3 团体赛领域基础（PR #19 复审修正后） | 后端 432 项测试通过（含 #14 退赛、#17 赛前检查与本批次团体赛用例）；`pnpm exec tsc --noEmit` 与 `pnpm build` 通过；OpenAPI 快照与 `app.openapi()` 一致、`contract:check` 无漂移；旧库（`tournaments.event_type` + `entries.entry_type` 双表 CHECK）迁移后 `PRAGMA foreign_key_check` 为空且无 legacy 表残留；已合并最新 `develop/field-demo-v02`（8ccf627，含 #17）并重新生成契约；本轮未做浏览器端团体赛操作验证（界面仍为占位，`TeamTiePage` 明确标注未开放） |
 | Word | 使用系统设计模板，完成结构校验；本机缺 LibreOffice，未完成逐页渲染视觉验收 |
 
 测试命令（配置好自己的后端环境后）：
