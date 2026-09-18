@@ -101,7 +101,7 @@ def test_revoke_is_blocked_after_knockout_generation(conn):
     knockout_service.generate_knockout(conn, tid)
 
     with pytest.raises(
-        decision_service.QualificationDecisionError, match="淘汰赛已生成"
+        decision_service.QualificationDecisionError, match="淘汰赛签表已经生成"
     ):
         decision_service.revoke_decision(
             conn, tid, group_id, "发现记录错误", "主裁判乙"
@@ -146,7 +146,7 @@ def test_manual_decision_http_contract(client):
         )
         assert client.post(
             f"/api/matches/{match['id']}/revise-score",
-            json={"games": games},
+                json={"games": games, "operator_name": "测试主裁", "change_reason": "补录小分"},
         ).status_code == 200
 
     ranking = client.get(f"/api/tournaments/{tid}/rankings").json()["rankings"][0]

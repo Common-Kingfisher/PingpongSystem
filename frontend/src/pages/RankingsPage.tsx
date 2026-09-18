@@ -79,7 +79,7 @@ export default function RankingsPage() {
     setBusy(true)
     setError(null)
     try {
-      await api.reviseScore(detailMatch.id, payload)
+      await api.reviseScore(detailMatch.id, payload as import('../api').ScoreRevisionPayload)
       setDetailMatch(null)
       await load()
     } catch (e) {
@@ -283,6 +283,7 @@ export default function RankingsPage() {
         pointsToWin={tournament.points_to_win}
         busy={busy}
         detailMode
+        auditMode="revise"
         onClose={() => setDetailMatch(null)}
         onSave={savePointScores}
       />}

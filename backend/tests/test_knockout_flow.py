@@ -68,6 +68,44 @@ def _assert_losers_never_reappear(conn, tid):
 
 # ------------------------------------------------------------ 全流程
 
+def test_quarterfinal_entry_pairing_follows_head_to_tail_cross(conn):
+    """4 组 × 每组前 2：八强实际 entry 配对必须是 A1-D2 / C1-B2 / B1-C2 / D1-A2。"""
+    tid = _build_tournament(conn, n_players=16, group_count=4, qualify=2)
+    _play_all(conn, tid)
+
+    rankings = rankings_service.get_rankings(conn, tid)
+    label_of: dict[int, tuple[str, int]] = {}
+    for group in rankings:
+        rank = 0
+        for entry in group["entries"]:
+            if entry["qualified"]:
+                rank += 1
+                label_of[entry["player_id"]] = (group["group_name"], rank)
+
+    knockout_service.generate_knockout(conn, tid)
+    first_round = [
+        match
+        for match in repo.list_matches(conn, tid, stage="KNOCKOUT")
+        if match["bracket"] == "MAIN" and match["round"] == 1
+    ]
+
+    pairs = {
+        frozenset((label_of[match["entry_a_id"]], label_of[match["entry_b_id"]]))
+        for match in first_round
+    }
+    assert pairs == {
+        frozenset({("A组", 1), ("D组", 2)}),
+        frozenset({("C组", 1), ("B组", 2)}),
+        frozenset({("B组", 1), ("C组", 2)}),
+        frozenset({("D组", 1), ("A组", 2)}),
+    }
+    # 同组两人不在首轮相遇
+    for match in first_round:
+        group_a = label_of[match["entry_a_id"]][0]
+        group_b = label_of[match["entry_b_id"]][0]
+        assert group_a != group_b
+
+
 def test_full_flow_to_unique_champion(conn):
     tid = _build_tournament(conn)  # 8 人 / 4 组 × 2
     _play_all(conn, tid)

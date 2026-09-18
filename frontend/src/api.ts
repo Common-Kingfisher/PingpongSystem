@@ -36,6 +36,8 @@ export type GroupInfo = Schemas['GroupOut']
 export type GroupingResult = Schemas['GroupingResult']
 export type MatchGame = Schemas['MatchGameOut']
 export type ScorePayload = Schemas['ScoreRequest']
+export type ScoreRevisionPayload = Schemas['ScoreRevisionRequest']
+export type ScoreAudit = Schemas['ScoreAuditOut']
 export type GenerateMatchesResult = Schemas['GenerateMatchesResult']
 export type DashboardStats = Schemas['DashboardStats']
 export type ScheduleNextResult = Schemas['ScheduleNextResult']
@@ -177,6 +179,8 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ player_ids: playerIds } satisfies Schemas['SetSeedsRequest']),
     }),
+  autoSeeds: (tournamentId: number) =>
+    request<Player[]>(`/api/tournaments/${tournamentId}/seeds/auto`, { method: 'POST' }),
 
   generateDemoPlayers: (tournamentId: number, count: number, with_seeds: boolean) =>
     request<Player[]>(`/api/tournaments/${tournamentId}/demo/generate-players`, {
@@ -269,16 +273,12 @@ export const api = {
       ? { player_a_score, player_b_score, result_type: 'NORMAL' }
       : player_a_score,
   ),
-  reviseScore: (
-    matchId: number,
-    player_a_score: number | ScorePayload,
-    player_b_score?: number,
-  ) => submitScore(
+  reviseScore: (matchId: number, payload: ScoreRevisionPayload) => submitScore(
     `/api/matches/${matchId}/revise-score`,
-    typeof player_a_score === 'number'
-      ? { player_a_score, player_b_score, result_type: 'NORMAL' }
-      : player_a_score,
+    payload,
   ),
+  listScoreAudits: (matchId: number) =>
+    request<ScoreAudit[]>(`/api/matches/${matchId}/score-audits`),
   getRankings: (tournamentId: number) =>
     request<RankingsResult>(`/api/tournaments/${tournamentId}/rankings`),
   createQualificationDecision: (
@@ -308,6 +308,14 @@ export const api = {
     }),
   getKnockout: (tournamentId: number) =>
     request<KnockoutTree>(`/api/tournaments/${tournamentId}/knockout`),
+  // 撤销淘汰签表：淘汰赛未开始时可用，已开赛返回 409（后端保护，前端只需展示错误）。
+  undoKnockout: (tournamentId: number) =>
+    request<Schemas['KnockoutUndoResult']>(`/api/tournaments/${tournamentId}/knockout/undo`, {
+      method: 'POST',
+    }),
+  // 赛事结构化导出（只读）：可用于删除前的人工备份。
+  exportTournament: (tournamentId: number) =>
+    request<Schemas['TournamentExport']>(`/api/tournaments/${tournamentId}/export`),
   getOrderBookSnapshot: (tournamentId: number) =>
     request<OrderBookSnapshot>(`/api/tournaments/${tournamentId}/order-book-snapshot`),
   getPreflight: (tournamentId: number) =>

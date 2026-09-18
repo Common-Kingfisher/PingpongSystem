@@ -25,7 +25,16 @@
 
 - 保留 React + TypeScript + Vite + FastAPI + SQLite，不搬回 Next.js 原型。
 - 单打和双打；双打按运动员积分相近进行随机配对，不等于“强弱搭配使各队实力均衡”。
-- 默认三局两胜、每局 11 分；常规只录大比分，输入初值为 0。
+- 比赛第一次上台记录开赛时间，第一次完赛记录结束时间；赛后改分不覆盖这两个事实时间。
+- 比分修改必须填写操作人与修改理由，系统保存修改前后完整快照和不可覆盖的操作历史。
+- 默认三局两胜、每局 11 分；创建赛事时可在三局两胜 / 五局三胜 / 七局四胜与每局目标分之间选择；常规只录大比分，输入初值为 0。
+- 种子按赛事隔离：可在选手页手工排序，也可「按积分生成种子」（单打，积分降序、同分按选手编号）；选手种子与 Entry 种子在每次修改后同步，分组与签表按同一份种子执行。双打种子规则尚未冻结，不套用该规则。
+- 淘汰赛交叉对阵的冻结范围（A1 复审确认）：
+  - 正式冻结：2 组 × 每组前 2（A1-B2、B1-A2）；4 组 × 每组前 2（A1-D2、C1-B2、B1-C2、D1-A2）；偶数组 × 每组前 2 的"首尾交叉"原则（第 i 组第 1 名 ⇄ 倒数第 i 组第 2 名），同组两人与 1/2 号种子分处不同半区。
+  - 未正式冻结：需要轮空时的具体轮空落位（例如 6 组 = 12 人进入 16 签）、3/5/7 等奇数组、每组出线人数 != 2 或各组出线人数不一致。
+  - 上述未冻结部分当前保留一套确定性的兼容实现（deterministic compatibility implementation），只保证流程可跑完，**不得描述为正式或国际赛制**；以后按真实赛事规程确认。所有这些都属本项目自有规则，不宣称等同于官方/国际赛制。
+- 淘汰签表可在尚未开始时撤销（`POST /api/tournaments/{id}/knockout/undo`）：删除主签与名次排位并回到 `GROUP_STAGE`，修正小组比分后重新生成；已开赛（有进行中比赛或已录结果）返回 409，不静默删除真实结果。
+- 赛事数据可结构化导出（`GET /api/tournaments/{id}/export`，只读）：用于归档、交付组委会以及删除赛事前的人工备份。
 - 小组正常完赛场次可补录/修改小比分，用于同分排名；淘汰赛 UI 仍只录大比分。
 - 小组排序已确认前缀：胜场数 → 净胜局 → 赛事积分（胜 2、正常负 1、弃权负 0）。后续同分细则仍须专项确认，不宣称已完整实现 ITTF 官方算法。
 - 小组出线数可配置；各组不同人数的组合仍有后端限制，见风险 R03。
@@ -40,13 +49,14 @@
 |---|---|---|
 | 赛事首页 | 创建、选择、删除赛事；单/双打、球台、小组、出线数、季军与排位配置 | `frontend/src/pages/HomePage.tsx` |
 | 赛前检查 | 面向主裁聚合名单、参赛位、分组、赛程、球台、晋级和规则状态；只读检查，不替主裁自动决策 | `PreflightPage.tsx`；`services/preflight.py` |
-| 报名与导入 | 在线报名、增删改选手、积分/单位、种子；CSV/XLSX 预览后确认；预览全部行 | `RegisterPage.tsx`、`PlayersPage.tsx`；`services/import_players.py` |
+| 报名与导入 | 在线报名、增删改选手、积分/单位、种子；CSV/XLSX 预览后确认；预览全部行。导入是正式能力，LIVE 与 DEMO 赛事都可用；只有「生成演示选手」等 Demo 功能限 DEMO | `RegisterPage.tsx`、`PlayersPage.tsx`；`services/import_players.py` |
 | Entry 与双打 | 单打 1 人、双打 2 人；近积分候选随机配对；未配齐不能确认名单 | `services/entries.py`、`routers/entries.py` |
 | 分组 | 种子分散、人数均衡、同单位软回避；解除分组；配置各组出线数 | `services/groups.py`、`routers/groups.py` |
-| 现场控制台 | 真实 API 球台卡、批量/手动排台、下台、比分/弃权；待赛横向换行；已结束场次改分。当前自动排台仍是按记录顺序贪心，V1 设计见 `docs/SCHEDULING_V1_DESIGN.md` | `ConsolePage.tsx`、`LiveTableCard.tsx` |
-| 录分与排名 | 大比分默认 0；小组小分补录；读取结果重算排名、提示出线歧义 | `ScoreSheet.tsx`、`RankingsPage.tsx`；`services/scores.py`、`domain/ranking.py` |
+| 录分与排名 | 大比分默认 0；小组小分补录；改分强制操作人/理由并保存前后快照；读取结果重算排名、提示出线歧义 | `ScoreSheet.tsx`、`RankingsPage.tsx`；`services/scores.py`、`domain/ranking.py` |
+| 现场控制台 | 真实 API 球台卡、批量/手动排台、下台、比分/弃权；待赛横向换行；已结束场次改分。自动排台优先级＝硬约束 → 组台亲和 → 组间进度公平 → 连续上场惩罚 → 稳定顺序（服务端给出每台建议，前端只展示），更完整的 V1 设计见 `docs/SCHEDULING_V1_DESIGN.md` | `ConsolePage.tsx`、`LiveTableCard.tsx`、`services/scheduling.py` |
 | 人工晋级裁定 | 只处理晋级线并列，记录选择、理由、主裁判和时间；相关数据变化后自动失效 | `services/qualification_decisions.py`、`qualification_decisions.py` |
-| 淘汰赛与结果 | 主签胜者晋级、轮空、季军或并列季军、4/8/16 人递归完整排位、最终名次 | `KnockoutPage.tsx`；`services/knockout.py` |
+| 淘汰赛与结果 | 主签胜者晋级、轮空、季军或并列季军、4/8/16 人递归完整排位、最终名次；淘汰赛尚未开始时可用「撤销签表」（`POST /api/tournaments/{id}/knockout/undo`）删除主签与排位并回到 `GROUP_STAGE`，修正小组比分后重新生成，已开赛返回 409 | `KnockoutPage.tsx`；`services/knockout.py` |
+| 数据导出与删除保护 | `GET /api/tournaments/{id}/export` 导出结构化赛事数据（`schema_version` + 落库数据 + 排名/冠军/名次推导 + 小分 + 人工裁定快照 + 比分写入审计），只读；删除正式赛事须输入完整赛事名，建议删除前先导出备份 | `services/tournament_export.py`、`routers/tournaments.py` |
 | 展示与输出 | 大屏、名单过场、冠军路径高亮、秩序册打印 | `BigScreenPage.tsx`、`RosterLaunch.tsx`、`ChampionJourneyPage.tsx`、`OrderBookPage.tsx` |
 
 规模验收数据位于 `docs/demo-data/realistic_players_120.csv` 和 `.xlsx`；24 组×5 人、15 台、每组前 2 的验证命令见 `backend/tests/test_scale_120.py`。
@@ -72,6 +82,8 @@
 | Match.entry_a_id / entry_b_id | 对阵双方 Entry | 不要与 Player ID 混用 |
 | player_a_score / player_b_score | 保留旧名称的大比分，即胜局数 | 2:0 表示赢两局，不是单局得分 |
 | MatchGame | `game_no`、双方单局得分、胜者 | 缺小分不等于实际得 0 分 |
+| started_at / finished_at | 首次上台与首次完赛的事实时间 | 释放重排、改分和补录小分均不覆盖 |
+| score_audits | RECORD/REVISE 前后快照、操作者、原因、时间、请求标识 | 历史只追加不覆盖；旧比分可能没有历史审计 |
 | winner_entry_id / winner_id | 新旧兼容字段 | 淘汰树 `player_a.id` 与排名 `player_id` 可能实际承载 Entry ID；见 service 映射 |
 | result_type | NORMAL、FORFEIT、WALKOVER、NO_SHOW、DISQUALIFIED | 没有完整 CANCELLED 流程 |
 | qualify_count | 组级覆盖值；否则用赛事 `qualify_per_group` | 能保存不代表签表支持所有组合 |
@@ -117,7 +129,7 @@ pnpm -C frontend dev
 
 ## 建议的首次演示
 
-创建单打赛事：4 小组、每组前 2、4 台、季军赛、完整排位。导入 16 人示例 → 确认名单 → 分组/生成比赛 → 排台 → 录 2:0 或 2:1 → 查看排名 → 小组全部完成且出线明确后生成淘汰赛 → 打完八强 → 查看 5–8 排位 → 打完半决赛后查看季军赛 → 完成全部主签和排位 → 查看冠军之路、打印秩序册。若要验收 16 人淘汰主签，需产生 16 个晋级 Entry，并完成 1–16 名所有排位场次。
+创建单打赛事：4 小组、每组前 2、4 台、季军赛、完整排位。导入 16 人示例 → 确认名单 → 分组/生成比赛 → 排台 → 按赛事配置录入大比分（默认三局两胜时为 2:0 / 2:1）→ 查看排名 → 小组全部完成且出线明确后生成淘汰赛 → 打完八强 → 查看 5–8 排位 → 打完半决赛后查看季军赛 → 完成全部主签和排位 → 查看冠军之路、打印秩序册。若要验收 16 人淘汰主签，需产生 16 个晋级 Entry，并完成 1–16 名所有排位场次。
 
 本次演示先使用各组一致的出线数，不在正式比赛中试验已知改分风险。每组可先让固定顺序的高位选手全胜以得到无歧义排名。循环同分另建测试赛事，不要修改正在使用的演示数据来凑名次。双打建议另建 8 或 16 名运动员的赛事，注意 8 名运动员只有 4 个 Entry。
 

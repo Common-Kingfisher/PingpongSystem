@@ -3,7 +3,7 @@ import { KnockoutMatch, Match, ResultType, ScorePayload } from '../api'
 
 type GameDraft = { a: string; b: string }
 
-export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWin, busy, detailMode = false, onClose, onSave }: {
+export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWin, busy, detailMode = false, auditMode = 'record', onClose, onSave }: {
   match: Match | KnockoutMatch
   sideA: string
   sideB: string
@@ -12,6 +12,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
   busy: boolean
   /** FINISHED GROUP 比赛的逐局小分补录/修改模式；默认 false = 大比分录入/修改。 */
   detailMode?: boolean
+  auditMode?: 'record' | 'revise'
   onClose: () => void
   onSave: (payload: ScorePayload) => Promise<void>
 }) {
@@ -29,10 +30,23 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
   const updateNote = (value: string) => { setNote(value); setNoteDirty(true) }
   const notePayload = noteDirty ? note : undefined
 
-  // 默认模式：大比分录入/修改。新比赛默认 0:0，便于现场直接改成 2:0 / 2:1。
+  // 默认模式：大比分录入/修改。新比赛默认 0:0，现场直接改成 {gamesToWin}:{0..gamesToWin-1}。
   const [scoreA, setScoreA] = useState(originalA === null ? '0' : String(originalA))
   const [scoreB, setScoreB] = useState(originalB === null ? '0' : String(originalB))
   const [resultType, setResultType] = useState<ResultType>('NORMAL')
+  const [operatorName, setOperatorName] = useState(() => localStorage.getItem('pingpong_referee_name') ?? '')
+  const [changeReason, setChangeReason] = useState('')
+  const auditReady = operatorName.trim().length > 0
+    && (auditMode === 'record' || changeReason.trim().length >= 2)
+
+  const auditPayload = () => {
+    const operator = operatorName.trim()
+    if (operator) localStorage.setItem('pingpong_referee_name', operator)
+    return {
+      operator_name: operator,
+      change_reason: auditMode === 'revise' ? changeReason.trim() : '首次录入比赛结果',
+    }
+  }
 
   // detailMode：逐局小分补录（局数由已确认大比分决定，不回填 games_to_win*2-1）。
   // 新建补录行默认 0:0；0:0 视为“尚未录入”，不会在弹窗刚打开时显示错误。
@@ -95,6 +109,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
         games: games.map((g) => ({ side_a_score: Number(g.a), side_b_score: Number(g.b) })),
         result_type: 'NORMAL',
         note: notePayload,
+        ...auditPayload(),
       })
     } else {
       onSave({
@@ -102,6 +117,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
         player_b_score: bigB,
         result_type: 'NORMAL',
         note: notePayload,
+        ...auditPayload(),
       })
     }
   }
@@ -110,6 +126,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
     result_type: resultType,
     forfeit_entry_id: forfeitId,
     note: notePayload,
+    ...auditPayload(),
   })
 
   return (
@@ -167,7 +184,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
                   <label><span>{sideB}</span><input aria-label={`${sideB}大比分`} type="number" min={0} max={gamesToWin} value={scoreB} onChange={(e) => setScoreB(e.target.value)} /></label>
                 </div>
                 {!untouchedZeroScore && scoreA !== '' && scoreB !== '' && !validBigScore && (
-                  <p className="score-rule status-error">大比分应为 {gamesToWin}:0、{gamesToWin}:1 或反之（不能平局、不能超出局数）。</p>
+                  <p className="score-rule status-error">大比分应为 {gamesToWin}:0 至 {gamesToWin}:{gamesToWin - 1}（或反之），不能平局、不能超出局数。</p>
                 )}
               </>
             ) : (
@@ -182,8 +199,8 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
                 </label>
                 <p>选择弃权一方。淘汰赛中对方直接晋级；小组赛按弃权规则计入排名。</p>
                 <div className="forfeit-actions">
-                  <button className="btn danger" onClick={() => saveException(sideAId)} disabled={busy}>{sideA} 弃权</button>
-                  <button className="btn danger" onClick={() => saveException(sideBId)} disabled={busy}>{sideB} 弃权</button>
+                  <button className="btn danger" onClick={() => saveException(sideAId)} disabled={busy || !auditReady}>{sideA} 弃权</button>
+                  <button className="btn danger" onClick={() => saveException(sideBId)} disabled={busy || !auditReady}>{sideB} 弃权</button>
                 </div>
               </div>
             )}
@@ -193,10 +210,19 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
         <label className="score-note">裁判备注
           <input value={note} onChange={(e) => updateNote(e.target.value)} placeholder="选填：迟到、判罚或现场说明" />
         </label>
+        <div className="score-audit-fields">
+          <label>操作人
+            <input value={operatorName} onChange={(event) => setOperatorName(event.target.value)} placeholder="必填：主裁判姓名" />
+          </label>
+          {auditMode === 'revise' && <label>修改理由
+            <textarea value={changeReason} onChange={(event) => setChangeReason(event.target.value)} placeholder="必填：说明为什么修改本场结果" />
+          </label>}
+          <p>本次操作将保存修改前后比分、操作人和时间，记录不可覆盖。</p>
+        </div>
         <div className="modal-actions">
           <button className="btn" onClick={onClose}>取消</button>
           {resultType === 'NORMAL' && (
-            <button className="btn primary" onClick={saveNormal} disabled={(detailMode ? !canSubmitSupplement : !validBigScore) || busy}>
+            <button className="btn primary" onClick={saveNormal} disabled={(detailMode ? !canSubmitSupplement : !validBigScore) || busy || !auditReady}>
               {detailMode ? '保存小分' : '确认大比分'}
             </button>
           )}

@@ -251,6 +251,10 @@ def list_entries(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
     return result
 
 
+def set_entry_seed(conn: sqlite3.Connection, entry_id: int, seed_no: int | None) -> None:
+    conn.execute("UPDATE entries SET seed_no = ? WHERE id = ?", (seed_no, entry_id))
+
+
 def clear_entry_groups(conn: sqlite3.Connection, tournament_id: int) -> None:
     conn.execute("UPDATE entries SET group_id = NULL WHERE tournament_id = ?", (tournament_id,))
 
@@ -486,6 +490,8 @@ _MATCH_UPDATEABLE = {
     "bracket",
     "placement_min",
     "placement_max",
+    "started_at",
+    "finished_at",
 }
 
 
@@ -501,6 +507,60 @@ def update_match(conn: sqlite3.Connection, match_id: int, **fields) -> dict:
             f"UPDATE matches SET {', '.join(sets)} WHERE id = ?", params
         )
     return get_match(conn, match_id)
+
+
+def mark_match_playing(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict:
+    """首次上台记录开赛时间；下台重排不会覆盖第一次开赛时间。"""
+    conn.execute(
+        "UPDATE matches SET status = 'PLAYING', table_id = ?, "
+        "started_at = COALESCE(started_at, datetime('now')) WHERE id = ?",
+        (table_id, match_id),
+    )
+    return get_match(conn, match_id)
+
+
+def mark_match_finished(conn: sqlite3.Connection, match_id: int, **fields) -> dict:
+    """首次完赛固定开始/结束时间，后续改分不覆盖。"""
+    unknown = set(fields) - _MATCH_UPDATEABLE
+    if unknown:
+        raise ValueError(f"不允许更新的字段: {sorted(unknown)}")
+    sets = [f"{key} = ?" for key in fields]
+    params: list[Any] = list(fields.values())
+    sets.extend([
+        "status = 'FINISHED'",
+        "started_at = COALESCE(started_at, datetime('now'))",
+        "finished_at = COALESCE(finished_at, datetime('now'))",
+    ])
+    params.append(match_id)
+    conn.execute(f"UPDATE matches SET {', '.join(sets)} WHERE id = ?", params)
+    return get_match(conn, match_id)
+
+
+def create_score_audit(
+    conn: sqlite3.Connection,
+    match_id: int,
+    action: str,
+    before_snapshot: str,
+    after_snapshot: str,
+    operator_name: str | None,
+    change_reason: str | None,
+    request_id: str | None,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO score_audits "
+        "(match_id, action, before_snapshot, after_snapshot, operator_name, change_reason, request_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (match_id, action, before_snapshot, after_snapshot, operator_name, change_reason, request_id),
+    )
+    row = conn.execute("SELECT * FROM score_audits WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+def list_score_audits(conn: sqlite3.Connection, match_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM score_audits WHERE match_id = ? ORDER BY id DESC", (match_id,)
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def claim_score_request(
@@ -546,6 +606,15 @@ def list_matches_by_prev(conn: sqlite3.Connection, match_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def delete_match(conn: sqlite3.Connection, match_id: int) -> bool:
+    """删除一场比赛（match_games / score_requests 由外键级联清理）。
+
+    调用方必须保证没有其它比赛通过 prev_match_a_id / prev_match_b_id 引用它。
+    """
+    cur = conn.execute("DELETE FROM matches WHERE id = ?", (match_id,))
+    return cur.rowcount > 0
+
+
 def replace_match_games(
     conn: sqlite3.Connection,
     match_id: int,
@@ -569,6 +638,28 @@ def list_match_games(conn: sqlite3.Connection, match_id: int) -> list[dict]:
         "SELECT id, match_id, game_no, side_a_score, side_b_score, winner_entry_id "
         "FROM match_games WHERE match_id = ? ORDER BY game_no",
         (match_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_tournament_match_games(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    """某赛事全部逐局比分（导出用，一次查询避免逐场查询）。"""
+    rows = conn.execute(
+        "SELECT g.id, g.match_id, g.game_no, g.side_a_score, g.side_b_score, g.winner_entry_id "
+        "FROM match_games g JOIN matches m ON m.id = g.match_id "
+        "WHERE m.tournament_id = ? ORDER BY g.match_id, g.game_no",
+        (tournament_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_tournament_score_requests(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    """某赛事的比分写入审计账本（幂等编号 / 动作 / 指纹 / 时间）。"""
+    rows = conn.execute(
+        "SELECT s.request_id, s.match_id, s.action, s.payload_fingerprint, s.created_at "
+        "FROM score_requests s JOIN matches m ON m.id = s.match_id "
+        "WHERE m.tournament_id = ? ORDER BY s.created_at, s.request_id",
+        (tournament_id,),
     ).fetchall()
     return [dict(r) for r in rows]
 

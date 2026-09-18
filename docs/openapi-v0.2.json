@@ -111,6 +111,49 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/export": {
+      "get": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Export Tournament",
+        "description": "导出赛事结构化数据（只读）：落库数据 + 运行期推导结果，含 schema_version。\n\n建议在删除赛事前先调用本接口留存备份；导出不修改任何业务数据。",
+        "operationId": "export_tournament_api_tournaments__tournament_id__export_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TournamentExport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}": {
       "get": {
         "tags": [
@@ -157,7 +200,7 @@
           "tournaments"
         ],
         "summary": "Delete Tournament",
-        "description": "删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。",
+        "description": "删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。\n\n不可恢复：删除前建议先调用 `GET /api/tournaments/{id}/export` 留存结构化备份。",
         "operationId": "delete_tournament_api_tournaments__tournament_id__delete",
         "parameters": [
           {
@@ -882,6 +925,53 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/seeds/auto": {
+      "post": {
+        "tags": [
+          "seeds"
+        ],
+        "summary": "Auto Seeds",
+        "description": "按赛事积分自动生成种子（单打）：积分高者 S1…SN，同分按选手 id。",
+        "operationId": "auto_seeds_api_tournaments__tournament_id__seeds_auto_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlayerOut"
+                  },
+                  "title": "Response Auto Seeds Api Tournaments  Tournament Id  Seeds Auto Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}/demo/generate-players": {
       "post": {
         "tags": [
@@ -1378,7 +1468,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ScoreRequest"
+                "$ref": "#/components/schemas/ScoreRevisionRequest"
               }
             }
           }
@@ -1390,6 +1480,52 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MatchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/matches/{match_id}/score-audits": {
+      "get": {
+        "tags": [
+          "scores"
+        ],
+        "summary": "List Score Audits",
+        "operationId": "list_score_audits_api_matches__match_id__score_audits_get",
+        "parameters": [
+          {
+            "name": "match_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Match Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScoreAuditOut"
+                  },
+                  "title": "Response List Score Audits Api Matches  Match Id  Score Audits Get"
                 }
               }
             }
@@ -1752,6 +1888,49 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/knockout/undo": {
+      "post": {
+        "tags": [
+          "knockout"
+        ],
+        "summary": "Undo Knockout",
+        "description": "撤销淘汰签表（主签 + 名次排位），恢复到可修正小组结果的状态。\n\n淘汰赛已经开始（有 PLAYING 或已录比分）时返回 409，不静默删除真实结果。",
+        "operationId": "undo_knockout_api_tournaments__tournament_id__knockout_undo_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnockoutUndoResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "summary": "Health",
@@ -1952,6 +2131,30 @@
           "member_order"
         ],
         "title": "EntryMemberOut"
+      },
+      "EntryMemberRecordOut": {
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "title": "Entry Id"
+          },
+          "player_id": {
+            "type": "integer",
+            "title": "Player Id"
+          },
+          "member_order": {
+            "type": "integer",
+            "title": "Member Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_id",
+          "player_id",
+          "member_order"
+        ],
+        "title": "EntryMemberRecordOut",
+        "description": "entry_members 表的落库形态。"
       },
       "EntryOut": {
         "properties": {
@@ -2257,6 +2460,46 @@
           "entries"
         ],
         "title": "GroupRankingOut"
+      },
+      "GroupRecordOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order"
+          },
+          "qualify_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualify Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "name",
+          "sort_order"
+        ],
+        "title": "GroupRecordOut",
+        "description": "groups 表的落库形态（与运行期分组视图 GroupOut 区分）。"
       },
       "GroupingResult": {
         "properties": {
@@ -2690,6 +2933,34 @@
         ],
         "title": "KnockoutTree"
       },
+      "KnockoutUndoResult": {
+        "properties": {
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "deleted_main_matches": {
+            "type": "integer",
+            "title": "Deleted Main Matches"
+          },
+          "deleted_placement_matches": {
+            "type": "integer",
+            "title": "Deleted Placement Matches"
+          },
+          "deleted_matches": {
+            "type": "integer",
+            "title": "Deleted Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament",
+          "deleted_main_matches",
+          "deleted_placement_matches",
+          "deleted_matches"
+        ],
+        "title": "KnockoutUndoResult",
+        "description": "撤销淘汰签表的结果：只报告删除了哪些淘汰阶段派生数据。"
+      },
       "MatchBracket": {
         "type": "string",
         "enum": [
@@ -3007,6 +3278,28 @@
               }
             ],
             "title": "Placement Max"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
           },
           "games": {
             "items": {
@@ -3482,6 +3775,81 @@
         ],
         "title": "QualificationDecisionCreate"
       },
+      "QualificationDecisionExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "selected_entry_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Selected Entry Ids"
+          },
+          "ranking_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Ranking Snapshot",
+            "default": {}
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "operator_name": {
+            "type": "string",
+            "title": "Operator Name"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "invalidated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidated At"
+          },
+          "invalidation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidation Reason"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "group_id",
+          "selected_entry_ids",
+          "reason",
+          "operator_name",
+          "created_at",
+          "active"
+        ],
+        "title": "QualificationDecisionExport",
+        "description": "人工晋级裁定的导出形态：额外带上冻结的排名快照证据。\n\nranking_snapshot 由 rankings.qualification_snapshot() 写入，是 JSON 对象\n（group_id / qualify_count / 各组进度 / 参赛位名次明细）。"
+      },
       "QualificationDecisionOut": {
         "properties": {
           "id": {
@@ -3717,6 +4085,82 @@
         ],
         "title": "ScheduleNextResult"
       },
+      "ScoreAuditOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "match_id": {
+            "type": "integer",
+            "title": "Match Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "before_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Before Snapshot"
+          },
+          "after_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "After Snapshot"
+          },
+          "operator_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Name"
+          },
+          "change_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Reason"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "match_id",
+          "action",
+          "before_snapshot",
+          "after_snapshot",
+          "operator_name",
+          "change_reason",
+          "request_id",
+          "created_at"
+        ],
+        "title": "ScoreAuditOut"
+      },
       "ScoreRequest": {
         "properties": {
           "player_a_score": {
@@ -3795,10 +4239,168 @@
               }
             ],
             "title": "Request Id"
+          },
+          "operator_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Name"
+          },
+          "change_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Reason"
           }
         },
         "type": "object",
         "title": "ScoreRequest"
+      },
+      "ScoreRequestOut": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "match_id": {
+            "type": "integer",
+            "title": "Match Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "payload_fingerprint": {
+            "type": "string",
+            "title": "Payload Fingerprint"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "match_id",
+          "action",
+          "payload_fingerprint",
+          "created_at"
+        ],
+        "title": "ScoreRequestOut",
+        "description": "比分写入审计账本（幂等编号）。"
+      },
+      "ScoreRevisionRequest": {
+        "properties": {
+          "player_a_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player A Score"
+          },
+          "player_b_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player B Score"
+          },
+          "games": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MatchGameInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Games"
+          },
+          "result_type": {
+            "$ref": "#/components/schemas/ResultType",
+            "default": "NORMAL"
+          },
+          "forfeit_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forfeit Entry Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "operator_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Operator Name"
+          },
+          "change_reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Change Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operator_name",
+          "change_reason"
+        ],
+        "title": "ScoreRevisionRequest",
+        "description": "改分请求必须在机器可读契约中明确携带操作人和原因。"
       },
       "SetSeedsRequest": {
         "properties": {
@@ -3815,6 +4417,33 @@
           "player_ids"
         ],
         "title": "SetSeedsRequest"
+      },
+      "TableOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TableStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "name",
+          "status"
+        ],
+        "title": "TableOut"
       },
       "TableStatus": {
         "type": "string",
@@ -3847,6 +4476,17 @@
                 "type": "null"
               }
             ]
+          },
+          "recommended_match_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Match Id"
           }
         },
         "type": "object",
@@ -3929,6 +4569,151 @@
           "qualify_per_group"
         ],
         "title": "TournamentCreate"
+      },
+      "TournamentExport": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "exported_at": {
+            "type": "string",
+            "title": "Exported At"
+          },
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerOut"
+            },
+            "type": "array",
+            "title": "Players"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Entries"
+          },
+          "entry_members": {
+            "items": {
+              "$ref": "#/components/schemas/EntryMemberRecordOut"
+            },
+            "type": "array",
+            "title": "Entry Members"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GroupRecordOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/TableOut"
+            },
+            "type": "array",
+            "title": "Tables"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/MatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          },
+          "match_games": {
+            "items": {
+              "$ref": "#/components/schemas/MatchGameOut"
+            },
+            "type": "array",
+            "title": "Match Games"
+          },
+          "qualification_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/QualificationDecisionExport"
+            },
+            "type": "array",
+            "title": "Qualification Decisions"
+          },
+          "score_requests": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreRequestOut"
+            },
+            "type": "array",
+            "title": "Score Requests"
+          },
+          "derived": {
+            "$ref": "#/components/schemas/TournamentExportDerived"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "exported_at",
+          "tournament",
+          "players",
+          "entries",
+          "entry_members",
+          "groups",
+          "tables",
+          "matches",
+          "match_games",
+          "qualification_decisions",
+          "score_requests",
+          "derived"
+        ],
+        "title": "TournamentExport",
+        "description": "赛事结构化导出：schema_version + 落库数据 + 推导结果。"
+      },
+      "TournamentExportDerived": {
+        "properties": {
+          "rankings": {
+            "items": {
+              "$ref": "#/components/schemas/GroupRankingOut"
+            },
+            "type": "array",
+            "title": "Rankings"
+          },
+          "champion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runner_up": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "placements": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Placements",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "rankings"
+        ],
+        "title": "TournamentExportDerived",
+        "description": "运行期推导结果，不属于落库数据。"
       },
       "TournamentMode": {
         "type": "string",
