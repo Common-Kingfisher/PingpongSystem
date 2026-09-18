@@ -269,15 +269,72 @@ def test_team_tie_validations(conn):
     assert "TEAM" in str(wrong_event.value)
 
 
-def test_team_tie_group_membership(conn):
+def test_general_tie_without_group_is_allowed(conn):
+    """GROUP + group_id=NULL 仍然允许：这是 A3 的"通用团体对抗"契约，本轮不收紧。"""
     tid = _team_tournament(conn)
     a, b = _two_teams(conn, tid)
-    group = repo.create_group(conn, tid, "A组", 0)
+    tie = tie_service.create_team_tie(conn, tid, a["id"], b["id"])
+    assert tie["group_id"] is None
+    assert tie["stage"] == "GROUP"
+
+    # 淘汰赛段不挂小组：不传 group_id 时正常建立
+    knockout_tie = tie_service.create_team_tie(
+        conn, tid, a["id"], b["id"], stage="KNOCKOUT", round_num=1, match_index=1
+    )
+    assert knockout_tie["stage"] == "KNOCKOUT"
+    assert knockout_tie["group_id"] is None
+
+
+def test_group_tie_requires_both_teams_in_target_group(conn):
+    """GROUP + group_id != NULL 时必须双方都真的在该小组里（领域不变量）。
+
+    否则 team_ties.group_id 与 entries.group_id 会互相矛盾，后续小组排名/晋级/导出/重分组
+    无法判断该信哪一个。
+    """
+    tid = _team_tournament(conn, players=6, group_count=2)
+    a, b = _two_teams(conn, tid)
+    group_a = repo.create_group(conn, tid, "A组", 0)
+    group_b = repo.create_group(conn, tid, "B组", 1)
     conn.commit()
 
-    tie = tie_service.create_team_tie(conn, tid, a["id"], b["id"], group_id=group["id"])
-    assert tie["group_id"] == group["id"]
+    # CASE A：双方都还没分组 → 不能挂到 A组
+    assert repo.get_entry(conn, a["id"])["group_id"] is None
+    assert repo.get_entry(conn, b["id"])["group_id"] is None
+    with pytest.raises(tie_service.TeamTieError) as case_a:
+        tie_service.create_team_tie(conn, tid, a["id"], b["id"], group_id=group_a["id"])
+    assert case_a.value.code == 409
+    assert "A组" in str(case_a.value)
 
+    # CASE B：双方分别在两个小组 → 不能挂到 A组
+    repo.set_entry_group(conn, a["id"], group_a["id"])
+    repo.set_entry_group(conn, b["id"], group_b["id"])
+    conn.commit()
+    with pytest.raises(tie_service.TeamTieError) as case_b:
+        tie_service.create_team_tie(conn, tid, a["id"], b["id"], group_id=group_a["id"])
+    assert case_b.value.code == 409
+    assert "B队" in str(case_b.value)
+
+    # 双方都在别的组（都在 B组，却要挂 A组）→ 同样拒绝
+    repo.set_entry_group(conn, a["id"], group_b["id"])
+    conn.commit()
+    with pytest.raises(tie_service.TeamTieError) as both_in_b:
+        tie_service.create_team_tie(conn, tid, a["id"], b["id"], group_id=group_a["id"])
+    assert both_in_b.value.code == 409
+
+    # CASE C：双方都在 A组 → 成功，且 tie.group_id 等于该小组
+    repo.set_entry_group(conn, a["id"], group_a["id"])
+    repo.set_entry_group(conn, b["id"], group_a["id"])
+    conn.commit()
+    tie = tie_service.create_team_tie(conn, tid, a["id"], b["id"], group_id=group_a["id"])
+    assert tie["group_id"] == group_a["id"]
+    assert repo.get_team_tie(conn, tie["id"])["group_id"] == group_a["id"]
+    # 不该留下失败尝试产生的脏数据
+    assert len(repo.list_team_ties(conn, tid)) == 1
+
+
+def test_group_tie_rejects_group_from_another_tournament(conn):
+    tid = _team_tournament(conn)
+    a, b = _two_teams(conn, tid)
     other = _team_tournament(conn)
     foreign_group = repo.create_group(conn, other, "别组", 0)
     conn.commit()
@@ -523,6 +580,35 @@ def _api_teams(client, tid: int, player_ids: list[int]) -> tuple[int, int]:
         json={"display_name": "B队", "member_ids": player_ids[half:]},
     ).json()["id"]
     return a, b
+
+
+def test_group_tie_api_enforces_group_membership(client, test_only_format):
+    """API 层确认小组归属不变量返回 409（而不是 500 或静默写入矛盾数据）。"""
+    tid, player_ids = _api_team_tournament(client)
+    a, b = _api_teams(client, tid, player_ids)
+
+    # 不绑定小组的通用对抗仍然允许
+    general = client.post(
+        f"/api/tournaments/{tid}/team-ties", json={"entry_a_id": a, "entry_b_id": b}
+    )
+    assert general.status_code == 201, general.text
+    assert general.json()["group_id"] is None
+
+    # 自动分组：两支队伍被分到不同小组
+    grouped = client.post(f"/api/tournaments/{tid}/auto-group")
+    assert grouped.status_code == 200, grouped.text
+    groups = grouped.json()["groups"]
+    assert len(groups) == 2
+    target = groups[0]["id"]
+    assert len(groups[0]["entries"]) == 1  # 每支队伍各占一个小组
+
+    resp = client.post(
+        f"/api/tournaments/{tid}/team-ties",
+        json={"entry_a_id": a, "entry_b_id": b, "group_id": target},
+    )
+    assert resp.status_code == 409
+    assert "不在" in resp.json()["detail"]
+    assert len(client.get(f"/api/tournaments/{tid}/team-ties").json()) == 1  # 没有脏数据
 
 
 def test_team_tie_api_flow_and_production_format_gate(client, test_only_format):

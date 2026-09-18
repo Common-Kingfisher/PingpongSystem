@@ -103,7 +103,19 @@ def create_team_tie(
     round_num: int = 1,
     match_index: int | None = None,
 ) -> dict:
-    """建立一场团体对抗（不生成任何 Match，也不生成盘骨架）。"""
+    """建立一场团体对抗（不生成任何 Match，也不生成盘骨架）。
+
+    校验顺序（每一层都用前面已经取到的数据，不重复查库）：
+      赛事 → 赛段/轮次/场序 → 双方队伍 → 未退赛 → 小组存在 → 小组归属一致 → 落库。
+
+    小组归属一致性（Reviewer 指出的领域不变量）：
+      - `GROUP` + `group_id = NULL`：允许，表示还没绑定具体小组的通用对抗（A3 保持这个 contract 不变）；
+      - `GROUP` + `group_id != NULL`：**双方队伍的 `entries.group_id` 必须都等于该小组**，
+        否则 409 —— 双方未分组、只有一方分组、双方在别的组、双方分别在两个组都属于矛盾数据；
+      - `KNOCKOUT` + `group_id != NULL`：422（淘汰赛段不挂小组，维持既有 guard）。
+    这样 `team_ties.group_id` 与 `entries.group_id` 不会互相矛盾，后续的小组排名/晋级/导出/重分组
+    不必再猜哪一个才是真实来源。
+    """
     _team_tournament(conn, tournament_id)
     if entry_a_id == entry_b_id:
         raise TeamTieError("同一支队伍不能和自己对抗", 422)
@@ -115,24 +127,31 @@ def create_team_tie(
         not isinstance(match_index, int) or isinstance(match_index, bool) or match_index < 1
     ):
         raise TeamTieError("场序必须是不小于 1 的整数", 422)
-    if group_id is not None:
-        if stage != MatchStage.GROUP.value:
-            raise TeamTieError("只有小组赛段的对抗才能挂在小组上", 422)
-        group = repo.get_group(conn, group_id)
-        if group is None or group["tournament_id"] != tournament_id:
-            raise TeamTieError("小组不存在或不属于本赛事", 404)
 
-    _team_entry(conn, tournament_id, entry_a_id, "主队")
-    _team_entry(conn, tournament_id, entry_b_id, "客队")
-    for label, entry_id in (("主队", entry_a_id), ("客队", entry_b_id)):
-        entry = repo.get_entry(conn, entry_id)
-        if entry is not None and entry["status"] != ENTRY_STATUS_ACTIVE:
+    entry_a = _team_entry(conn, tournament_id, entry_a_id, "主队")
+    entry_b = _team_entry(conn, tournament_id, entry_b_id, "客队")
+    for label, entry in (("主队", entry_a), ("客队", entry_b)):
+        if entry["status"] != ENTRY_STATUS_ACTIVE:
             # 与整项退赛（#14）同一口径：已退赛的队伍不能再被安排新对抗。
             # 注意：已经建立、之后才退赛的对抗不会在这里自动判负——那需要团体赛的
             # 盘比分与状态机（A4），A3 不伪造对抗结果。
             raise TeamTieError(
                 f"{label}「{entry['display_name']}」已退出赛事，不能安排新的团体对抗", 409
             )
+
+    if group_id is not None:
+        if stage != MatchStage.GROUP.value:
+            raise TeamTieError("只有小组赛段的对抗才能挂在小组上", 422)
+        group = repo.get_group(conn, group_id)
+        if group is None or group["tournament_id"] != tournament_id:
+            raise TeamTieError("小组不存在或不属于本赛事", 404)
+        for label, entry in (("主队", entry_a), ("客队", entry_b)):
+            if entry["group_id"] != group_id:
+                raise TeamTieError(
+                    f"{label}「{entry['display_name']}」不在{group['name']}中，"
+                    f"不能把这场对抗挂到该小组（请先完成分组或改用不绑定小组的对抗）",
+                    409,
+                )
 
     tie = repo.create_team_tie(
         conn,
