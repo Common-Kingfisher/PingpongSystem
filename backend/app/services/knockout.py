@@ -503,6 +503,10 @@ def _match_out(conn: sqlite3.Connection, match: dict) -> dict:
         "placement_min": match["placement_min"],
         "placement_max": match["placement_max"],
         "result_type": match["result_type"],
+        # A2 时间基础：必须显式透传，否则 KnockoutMatchOut 的默认 None 会静默丢掉时间。
+        "called_at": match.get("called_at"),
+        "started_at": match.get("started_at"),
+        "finished_at": match.get("finished_at"),
     }
 
 

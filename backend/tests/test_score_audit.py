@@ -16,14 +16,20 @@ def _match_and_table(conn):
     return repo.list_matches(conn, tournament["id"])[0], repo.list_tables(conn, tournament["id"])[0]
 
 
-def test_started_at_is_first_assignment_time(conn):
+def test_started_at_tracks_current_assignment(conn):
     match, table = _match_and_table(conn)
-    started = scheduling_service.assign_table(conn, match["id"], table["id"])["started_at"]
-    assert started is not None
+    assigned = scheduling_service.assign_table(conn, match["id"], table["id"])
+    assert assigned["started_at"] == assigned["called_at"]
 
-    scheduling_service.release_match(conn, match["id"])
+    released = scheduling_service.release_match(conn, match["id"])
+    assert released["started_at"] is None
+    conn.execute(
+        "UPDATE matches SET called_at = '2020-01-01 00:00:00' WHERE id = ?",
+        (match["id"],),
+    )
     reassigned = scheduling_service.assign_table(conn, match["id"], table["id"])
-    assert reassigned["started_at"] == started
+    assert reassigned["called_at"] != "2020-01-01 00:00:00"
+    assert reassigned["started_at"] == reassigned["called_at"]
 
 
 def test_revision_requires_identity_and_preserves_finish_time(client):
@@ -41,7 +47,7 @@ def test_revision_requires_identity_and_preserves_finish_time(client):
         f"/api/matches/{match_id}/score",
         json={"player_a_score": 2, "player_b_score": 0, "operator_name": "王主裁"},
     ).json()
-    assert recorded["started_at"] is not None
+    assert recorded["started_at"] is None
     assert recorded["finished_at"] is not None
 
     missing_audit = client.post(
@@ -61,6 +67,7 @@ def test_revision_requires_identity_and_preserves_finish_time(client):
         },
     )
     assert revised.status_code == 200
+    assert revised.json()["started_at"] is None
     assert revised.json()["finished_at"] == recorded["finished_at"]
 
     audits = client.get(f"/api/matches/{match_id}/score-audits").json()
