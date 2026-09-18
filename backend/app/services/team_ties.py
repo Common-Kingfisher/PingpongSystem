@@ -25,7 +25,7 @@ import sqlite3
 from .. import repository as repo
 from ..domain import team_formats
 from ..domain.team_formats import TeamFormatError
-from ..models import EventType, MatchStage, TeamRubberStatus
+from ..models import EventType, MatchStage, TeamRubberStatus, TeamTieStatus
 from .teams import ENTRY_STATUS_ACTIVE
 
 TIE_STAGES = (MatchStage.GROUP.value, MatchStage.KNOCKOUT.value)
@@ -176,10 +176,12 @@ def build_rubber_skeleton(
 ) -> dict:
     """按注册表里的赛制为一场对抗生成盘骨架，并把赛制固化到该对抗上。
 
-    - 赛制必须来自 domain/team_formats.py 的生产注册表；A3 的注册表是空的，
-      所以现在任何调用都会得到 422——这是有意为之：规则未冻结就不生成规则。
+    - 赛制必须来自 domain/team_formats.py 的生产注册表；未登记的 code 一律 422
+      （不会退回任何"默认赛制"，也不会因为存在一个生产赛制就接受乱填的 code）。
     - 已经生成过骨架时：replace=False → 409；replace=True 只在"所有盘都还没开始"
       （status 仍是 PENDING 且 match_id 为 NULL）时允许重建，否则 409。
+      换句话说：**对抗一旦进入 Runtime（有盘 READY/PLAYING/FINISHED/SKIPPED），
+      就永远不能再换赛制或重建骨架**，否则会破坏已有阵容、比分与历史区间。
     - 生成的所有盘都是 PENDING 且 match_id=NULL。
     """
     _team_tournament(conn, tournament_id)
@@ -198,11 +200,14 @@ def build_rubber_skeleton(
             raise TeamTieError(
                 f"该对抗已生成 {len(existing)} 盘骨架，如需重来请显式要求重建", 409
             )
+        # 重建只在"整场对抗还完全没有进入 Runtime"时成立。除盘状态外，把对抗
+        # 自身的状态与"盘是否已绑定 Match"也纳入判断：运维/脚本直接改库留下
+        # PLAYING 对抗、但盘还是 PENDING 时，绝不静默删掉这些盘重建。
         started = [
             r for r in existing
             if r["status"] != TeamRubberStatus.PENDING.value or r["match_id"] is not None
         ]
-        if started:
+        if started or tie["status"] != TeamTieStatus.WAITING.value:
             raise TeamTieError("对抗已有开打的盘，不能重建骨架", 409)
         repo.delete_team_rubbers_for_tie(conn, tie_id)
 
