@@ -149,7 +149,7 @@ def test_group_result_is_locked_after_knockout_generation(conn):
     group_match = repo.list_matches(conn, tid, stage="GROUP")[0]
     knockout_service.generate_knockout(conn, tid)
 
-    with pytest.raises(scores_service.ScoreError, match="淘汰赛已生成"):
+    with pytest.raises(scores_service.ScoreError, match="淘汰赛签表已经生成"):
         scores_service.revise_score(conn, group_match["id"], 0, 2)
 
 

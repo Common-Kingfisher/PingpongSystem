@@ -243,7 +243,8 @@ def test_api_export_with_qualification_decision(client):
             else [{"side_a_score": 5, "side_b_score": 11}, {"side_a_score": 5, "side_b_score": 11}]
         )
         assert client.post(
-            f"/api/matches/{match['id']}/revise-score", json={"games": games}
+            f"/api/matches/{match['id']}/revise-score",
+            json={"games": games, "operator_name": "测试主裁", "change_reason": "复核补录小分"},
         ).status_code == 200
 
     group = client.get(f"/api/tournaments/{tid}/groups").json()["groups"][0]

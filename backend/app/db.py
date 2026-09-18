@@ -108,6 +108,8 @@ CREATE TABLE IF NOT EXISTS matches (
     bracket TEXT NOT NULL DEFAULT 'GROUP' CHECK (bracket IN ('GROUP','MAIN','PLACEMENT')),
     placement_min INTEGER,
     placement_max INTEGER,
+    started_at TEXT,
+    finished_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -126,6 +128,18 @@ CREATE TABLE IF NOT EXISTS score_requests (
     match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
     action TEXT NOT NULL CHECK (action IN ('RECORD','REVISE')),
     payload_fingerprint TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS score_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    action TEXT NOT NULL CHECK (action IN ('RECORD','REVISE')),
+    before_snapshot TEXT NOT NULL,
+    after_snapshot TEXT NOT NULL,
+    operator_name TEXT,
+    change_reason TEXT,
+    request_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -149,6 +163,9 @@ CREATE INDEX IF NOT EXISTS idx_entries_tournament ON entries(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_entry_members_player ON entry_members(player_id);
 CREATE INDEX IF NOT EXISTS idx_match_games_match ON match_games(match_id);
 CREATE INDEX IF NOT EXISTS idx_score_requests_match ON score_requests(match_id);
+CREATE INDEX IF NOT EXISTS idx_score_audits_match ON score_audits(match_id, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_score_audits_request
+    ON score_audits(request_id) WHERE request_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_qualification_decisions_group ON qualification_decisions(group_id, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_qualification_decision_active
     ON qualification_decisions(group_id) WHERE invalidated_at IS NULL;
@@ -247,6 +264,8 @@ def init_db() -> None:
             ("placement_max", "INTEGER"),
             ("prev_match_a_outcome", "TEXT NOT NULL DEFAULT 'WINNER'"),
             ("prev_match_b_outcome", "TEXT NOT NULL DEFAULT 'WINNER'"),
+            ("started_at", "TEXT"),
+            ("finished_at", "TEXT"),
         ):
             _add_column_if_missing(conn, "matches", column, ddl)
         # New tables are created after legacy tables have been upgraded so their FKs target the final table.

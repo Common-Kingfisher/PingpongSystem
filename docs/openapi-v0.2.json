@@ -1468,7 +1468,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ScoreRequest"
+                "$ref": "#/components/schemas/ScoreRevisionRequest"
               }
             }
           }
@@ -1480,6 +1480,52 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MatchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/matches/{match_id}/score-audits": {
+      "get": {
+        "tags": [
+          "scores"
+        ],
+        "summary": "List Score Audits",
+        "operationId": "list_score_audits_api_matches__match_id__score_audits_get",
+        "parameters": [
+          {
+            "name": "match_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Match Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScoreAuditOut"
+                  },
+                  "title": "Response List Score Audits Api Matches  Match Id  Score Audits Get"
                 }
               }
             }
@@ -3191,6 +3237,28 @@
             ],
             "title": "Placement Max"
           },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
           "games": {
             "items": {
               "$ref": "#/components/schemas/MatchGameOut"
@@ -3870,6 +3938,82 @@
         ],
         "title": "ScheduleNextResult"
       },
+      "ScoreAuditOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "match_id": {
+            "type": "integer",
+            "title": "Match Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "before_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Before Snapshot"
+          },
+          "after_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "After Snapshot"
+          },
+          "operator_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Name"
+          },
+          "change_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Reason"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "match_id",
+          "action",
+          "before_snapshot",
+          "after_snapshot",
+          "operator_name",
+          "change_reason",
+          "request_id",
+          "created_at"
+        ],
+        "title": "ScoreAuditOut"
+      },
       "ScoreRequest": {
         "properties": {
           "player_a_score": {
@@ -3948,6 +4092,30 @@
               }
             ],
             "title": "Request Id"
+          },
+          "operator_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Name"
+          },
+          "change_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Reason"
           }
         },
         "type": "object",
@@ -3986,6 +4154,106 @@
         ],
         "title": "ScoreRequestOut",
         "description": "比分写入审计账本（幂等编号）。"
+      },
+      "ScoreRevisionRequest": {
+        "properties": {
+          "player_a_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player A Score"
+          },
+          "player_b_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player B Score"
+          },
+          "games": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MatchGameInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Games"
+          },
+          "result_type": {
+            "$ref": "#/components/schemas/ResultType",
+            "default": "NORMAL"
+          },
+          "forfeit_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forfeit Entry Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "operator_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Operator Name"
+          },
+          "change_reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Change Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operator_name",
+          "change_reason"
+        ],
+        "title": "ScoreRevisionRequest",
+        "description": "改分请求必须在机器可读契约中明确携带操作人和原因。"
       },
       "SetSeedsRequest": {
         "properties": {

@@ -206,6 +206,7 @@ export default function KnockoutPage() {
         gamesToWin={tournament.games_to_win}
         pointsToWin={tournament.points_to_win}
         busy={busy}
+        auditMode="record"
         onClose={() => setModal(null)}
         onSave={submitScore}
       />}
