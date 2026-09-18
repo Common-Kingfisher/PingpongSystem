@@ -11,15 +11,16 @@ from pathlib import Path
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "demo.db"
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS tournaments (
+# tournaments 表单独提取为常量：TEAM 事件类型需要重建旧表（SQLite 不能直接改 CHECK），
+# 重建时必须以同一份 DDL 为准，避免两处 schema 漂移。
+TOURNAMENTS_TABLE_SQL = """CREATE TABLE IF NOT EXISTS tournaments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     date TEXT NOT NULL,
     table_count INTEGER NOT NULL CHECK (table_count BETWEEN 1 AND 15),
     group_count INTEGER NOT NULL CHECK (group_count BETWEEN 1 AND 26),
     qualify_per_group INTEGER NOT NULL CHECK (qualify_per_group >= 1),
-    event_type TEXT NOT NULL DEFAULT 'SINGLES' CHECK (event_type IN ('SINGLES','DOUBLES')),
+    event_type TEXT NOT NULL DEFAULT 'SINGLES' CHECK (event_type IN ('SINGLES','DOUBLES','TEAM')),
     bronze_mode TEXT NOT NULL DEFAULT 'JOINT_BRONZE' CHECK (bronze_mode IN ('BRONZE_MATCH','JOINT_BRONZE')),
     placement_mode TEXT NOT NULL DEFAULT 'OFF' CHECK (placement_mode IN ('OFF','COMPLETE','TIERED')),
     games_to_win INTEGER NOT NULL DEFAULT 2 CHECK (games_to_win BETWEEN 1 AND 4),
@@ -30,7 +31,10 @@ CREATE TABLE IF NOT EXISTS tournaments (
     stage TEXT NOT NULL DEFAULT 'REGISTRATION'
         CHECK (stage IN ('REGISTRATION','GROUP_STAGE','KNOCKOUT','FINISHED')),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
+);"""
+
+SCHEMA = f"""
+{TOURNAMENTS_TABLE_SQL}
 
 CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,6 +161,45 @@ CREATE TABLE IF NOT EXISTS qualification_decisions (
     invalidation_reason TEXT
 );
 
+-- 团体赛领域模型（A3）：TeamTie 表示"A 队 vs B 队"整场对抗，TeamRubber 表示其中的一盘。
+-- 队伍本身复用 entries(entry_type='TEAM') + entry_members，不再建 teams/team_members 重复名单。
+-- TeamRubber.match_id 只是为 A4 的 Match adapter 预留，A3 永远保持 NULL。
+CREATE TABLE IF NOT EXISTS team_ties (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    stage TEXT NOT NULL DEFAULT 'GROUP' CHECK (stage IN ('GROUP','KNOCKOUT')),
+    group_id INTEGER REFERENCES groups(id),
+    round INTEGER NOT NULL DEFAULT 1,
+    match_index INTEGER,
+    entry_a_id INTEGER NOT NULL REFERENCES entries(id),
+    entry_b_id INTEGER NOT NULL REFERENCES entries(id),
+    team_a_score INTEGER NOT NULL DEFAULT 0 CHECK (team_a_score >= 0),
+    team_b_score INTEGER NOT NULL DEFAULT 0 CHECK (team_b_score >= 0),
+    winner_entry_id INTEGER REFERENCES entries(id),
+    status TEXT NOT NULL DEFAULT 'WAITING' CHECK (status IN ('WAITING','PLAYING','FINISHED')),
+    format_code TEXT,
+    format_version INTEGER,
+    format_snapshot TEXT,
+    called_at TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS team_rubbers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_tie_id INTEGER NOT NULL REFERENCES team_ties(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK (sequence >= 1),
+    rubber_type TEXT NOT NULL CHECK (rubber_type IN ('SINGLES','DOUBLES')),
+    home_slots_json TEXT NOT NULL,
+    away_slots_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING','READY','PLAYING','FINISHED','SKIPPED')),
+    match_id INTEGER REFERENCES matches(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (team_tie_id, sequence)
+);
+
 CREATE INDEX IF NOT EXISTS idx_players_tournament ON players(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
@@ -170,6 +213,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_score_audits_request
 CREATE INDEX IF NOT EXISTS idx_qualification_decisions_group ON qualification_decisions(group_id, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_qualification_decision_active
     ON qualification_decisions(group_id) WHERE invalidated_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_team_ties_tournament ON team_ties(tournament_id, id);
+CREATE INDEX IF NOT EXISTS idx_team_rubbers_tie ON team_rubbers(team_tie_id, sequence);
 """
 
 
@@ -211,6 +256,46 @@ def _upgrade_tournament_limits(conn: sqlite3.Connection) -> None:
     conn.commit()
     conn.execute("PRAGMA legacy_alter_table = OFF")
     conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _upgrade_tournament_event_type(conn: sqlite3.Connection) -> None:
+    """把旧库 tournaments.event_type 的 CHECK 升级为支持 TEAM。
+
+    SQLite 不能直接修改 CHECK 约束，因此只能重建 tournaments 表：
+      - 检测 sqlite_master 中的建表 SQL，已包含 'TEAM' 时直接跳过；
+      - 重建期间关闭外键并开启 legacy_alter_table，使子表（players/entries/matches/...）
+        的 `REFERENCES tournaments(id)` 保持指向同名新表，而不会被改写成旧表名；
+      - 逐列动态拷贝新旧表共有列，保证不丢字段、不换 id、不重建赛事；
+      - 结束后恢复 PRAGMA，调用方可再用 `PRAGMA foreign_key_check` 复核。
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='tournaments'"
+    ).fetchone()
+    table_sql = (row[0] or "") if row else ""
+    if "event_type" not in table_sql or "'TEAM'" in table_sql:
+        return  # 新库或已迁移过的库：什么都不做
+
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("PRAGMA legacy_alter_table = ON")
+    try:
+        conn.execute("ALTER TABLE tournaments RENAME TO tournaments_legacy_event_type")
+        conn.executescript(TOURNAMENTS_TABLE_SQL)
+        legacy_columns = [
+            r[1] for r in conn.execute("PRAGMA table_info(tournaments_legacy_event_type)")
+        ]
+        new_columns = {r[1] for r in conn.execute("PRAGMA table_info(tournaments)")}
+        shared = [c for c in legacy_columns if c in new_columns]
+        column_list = ", ".join(shared)
+        conn.execute(
+            f"INSERT INTO tournaments ({column_list}) "
+            f"SELECT {column_list} FROM tournaments_legacy_event_type"
+        )
+        conn.execute("DROP TABLE tournaments_legacy_event_type")
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA legacy_alter_table = OFF")
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 def _db_path() -> Path:
@@ -271,6 +356,8 @@ def init_db() -> None:
             ("finished_at", "TEXT"),
         ):
             _add_column_if_missing(conn, "matches", column, ddl)
+        # TEAM 事件类型：旧库需要重建 tournaments 表（SQLite 无法直接修改 CHECK）
+        _upgrade_tournament_event_type(conn)
         # New tables are created after legacy tables have been upgraded so their FKs target the final table.
         conn.executescript(SCHEMA)
         conn.commit()
