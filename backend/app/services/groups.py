@@ -6,6 +6,7 @@ import sqlite3
 from .. import repository as repo
 from ..models import TournamentStage
 from . import entries as entry_service
+from . import teams as teams_service
 
 
 class TournamentNotFoundError(Exception):
@@ -77,7 +78,9 @@ def auto_group_tournament(
         try:
             _, entries = entry_service.confirm_roster(conn, tournament_id)
             tournament = repo.get_tournament(conn, tournament_id)
-        except entry_service.EntryError as exc:
+        except (entry_service.EntryError, teams_service.TeamError) as exc:
+            # 团体赛的名单校验住在 services/teams.py，错误类型不同但语义一样：
+            # 名单还没准备好就不该分组，统一转成分组阶段错误。
             raise TournamentStageError(str(exc))
     seeded = sorted(
         (e for e in entries if e["seed_no"] is not None), key=lambda e: e["seed_no"]

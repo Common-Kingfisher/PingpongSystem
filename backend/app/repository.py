@@ -263,6 +263,189 @@ def set_entry_group(conn: sqlite3.Connection, entry_id: int, group_id: int) -> N
     conn.execute("UPDATE entries SET group_id = ? WHERE id = ?", (group_id, entry_id))
 
 
+def list_entries_by_type(
+    conn: sqlite3.Connection, tournament_id: int, entry_type: str
+) -> list[dict]:
+    rows = conn.execute(
+        f"SELECT {_ENTRY_COLS} FROM entries WHERE tournament_id = ? AND entry_type = ? ORDER BY id",
+        (tournament_id, entry_type),
+    ).fetchall()
+    result = []
+    for row in rows:
+        entry = dict(row)
+        entry["members"] = list_entry_members(conn, entry["id"])
+        result.append(entry)
+    return result
+
+
+def update_entry(
+    conn: sqlite3.Connection,
+    entry_id: int,
+    display_name: str,
+    rating_points: int,
+) -> Optional[dict]:
+    conn.execute(
+        "UPDATE entries SET display_name = ?, rating_points = ? WHERE id = ?",
+        (display_name, rating_points, entry_id),
+    )
+    return get_entry(conn, entry_id)
+
+
+def replace_entry_members(
+    conn: sqlite3.Connection, entry_id: int, member_ids: list[int]
+) -> Optional[dict]:
+    """整表替换某 Entry 的成员（member_order 按传入顺序）。"""
+    conn.execute("DELETE FROM entry_members WHERE entry_id = ?", (entry_id,))
+    for order, player_id in enumerate(member_ids, start=1):
+        conn.execute(
+            "INSERT INTO entry_members (entry_id, player_id, member_order) VALUES (?, ?, ?)",
+            (entry_id, player_id, order),
+        )
+    return get_entry(conn, entry_id)
+
+
+def delete_entry(conn: sqlite3.Connection, entry_id: int) -> bool:
+    cur = conn.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
+    return cur.rowcount > 0
+
+
+def find_entry_of_player(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    player_id: int,
+    exclude_entry_id: Optional[int] = None,
+) -> Optional[dict]:
+    """查某选手当前挂在哪个 Entry 上（entry_members 对 player_id 全局唯一）。
+
+    用于在触发 UNIQUE 约束前给出可读的业务错误，而不是抛 IntegrityError。
+    """
+    row = conn.execute(
+        "SELECT e.id, e.entry_type, e.display_name FROM entry_members em "
+        "JOIN entries e ON e.id = em.entry_id "
+        "WHERE em.player_id = ? AND e.tournament_id = ? "
+        "AND (? IS NULL OR e.id != ?) LIMIT 1",
+        (player_id, tournament_id, exclude_entry_id, exclude_entry_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+# -------------------------------------------------- 团体赛（A3：TeamTie / TeamRubber）
+
+_TIE_COLS = (
+    "id, tournament_id, stage, group_id, round, match_index, entry_a_id, entry_b_id, "
+    "team_a_score, team_b_score, winner_entry_id, status, format_code, format_version, "
+    "format_snapshot, called_at, started_at, finished_at, created_at"
+)
+_RUBBER_COLS = (
+    "id, team_tie_id, sequence, rubber_type, home_slots_json, away_slots_json, status, "
+    "match_id, created_at"
+)
+
+
+def create_team_tie(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    stage: str,
+    group_id: int | None,
+    round_num: int,
+    match_index: int | None,
+    entry_a_id: int,
+    entry_b_id: int,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO team_ties (tournament_id, stage, group_id, round, match_index, entry_a_id, entry_b_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (tournament_id, stage, group_id, round_num, match_index, entry_a_id, entry_b_id),
+    )
+    return get_team_tie(conn, int(cur.lastrowid))
+
+
+def get_team_tie(conn: sqlite3.Connection, tie_id: int) -> Optional[dict]:
+    row = conn.execute(f"SELECT {_TIE_COLS} FROM team_ties WHERE id = ?", (tie_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_team_ties(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    rows = conn.execute(
+        f"SELECT {_TIE_COLS} FROM team_ties WHERE tournament_id = ? ORDER BY id",
+        (tournament_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_team_tie_format(
+    conn: sqlite3.Connection,
+    tie_id: int,
+    format_code: str,
+    format_version: int,
+    format_snapshot: str,
+) -> dict:
+    """固化该场对抗使用的赛制（code + version + 快照 JSON）。"""
+    conn.execute(
+        "UPDATE team_ties SET format_code = ?, format_version = ?, format_snapshot = ? WHERE id = ?",
+        (format_code, format_version, format_snapshot, tie_id),
+    )
+    return get_team_tie(conn, tie_id)
+
+
+def create_team_rubber(
+    conn: sqlite3.Connection,
+    team_tie_id: int,
+    sequence: int,
+    rubber_type: str,
+    home_slots_json: str,
+    away_slots_json: str,
+) -> dict:
+    """写入一盘骨架；match_id 保持 NULL（A3 不创建 Match）。"""
+    cur = conn.execute(
+        "INSERT INTO team_rubbers (team_tie_id, sequence, rubber_type, home_slots_json, away_slots_json) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (team_tie_id, sequence, rubber_type, home_slots_json, away_slots_json),
+    )
+    return get_team_rubber(conn, int(cur.lastrowid))
+
+
+def get_team_rubber(conn: sqlite3.Connection, rubber_id: int) -> Optional[dict]:
+    row = conn.execute(
+        f"SELECT {_RUBBER_COLS} FROM team_rubbers WHERE id = ?", (rubber_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_team_rubbers(conn: sqlite3.Connection, tie_id: int) -> list[dict]:
+    rows = conn.execute(
+        f"SELECT {_RUBBER_COLS} FROM team_rubbers WHERE team_tie_id = ? ORDER BY sequence",
+        (tie_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_tournament_team_rubbers(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    """某赛事全部盘骨架（导出用，一次 JOIN 查询）。"""
+    rows = conn.execute(
+        f"SELECT r.id, r.team_tie_id, r.sequence, r.rubber_type, r.home_slots_json, "
+        f"r.away_slots_json, r.status, r.match_id, r.created_at "
+        f"FROM team_rubbers r JOIN team_ties t ON t.id = r.team_tie_id "
+        f"WHERE t.tournament_id = ? ORDER BY r.team_tie_id, r.sequence",
+        (tournament_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_team_rubbers_for_tie(conn: sqlite3.Connection, tie_id: int) -> None:
+    conn.execute("DELETE FROM team_rubbers WHERE team_tie_id = ?", (tie_id,))
+
+
+def find_tie_referencing_entry(conn: sqlite3.Connection, entry_id: int) -> Optional[dict]:
+    """查某队伍是否已被团体对抗引用（有引用时禁止删除该 Entry）。"""
+    row = conn.execute(
+        "SELECT id, tournament_id FROM team_ties WHERE entry_a_id = ? OR entry_b_id = ? "
+        "ORDER BY id LIMIT 1",
+        (entry_id, entry_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 # ------------------------------------------------------------------ groups
 
 _GROUP_COLS = "id, tournament_id, name, sort_order, qualify_count"

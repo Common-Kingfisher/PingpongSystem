@@ -6,6 +6,7 @@ from .. import repository as repo
 from ..domain import knockout
 from ..models import (
     BronzeMode,
+    EventType,
     MatchBracket,
     MatchStage,
     MatchStatus,
@@ -102,6 +103,8 @@ def _create_bracket(
 
 def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
     tournament = _ensure_tournament(conn, tournament_id)
+    if tournament["event_type"] == EventType.TEAM.value:
+        raise KnockoutError("团体赛不生成单打式淘汰赛：团体对阵请使用团体对抗（TeamTie）接口")
     if tournament["stage"] != TournamentStage.GROUP_STAGE.value:
         raise KnockoutError("当前阶段不允许生成淘汰赛")
     existing = repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value)

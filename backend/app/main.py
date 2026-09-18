@@ -9,7 +9,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .db import init_db
-from .routers import demo, entries, groups, knockout, matches, players, qualification_decisions, scheduling, scores, seeds, tournaments
+from .routers import (
+    demo,
+    entries,
+    groups,
+    knockout,
+    matches,
+    players,
+    qualification_decisions,
+    scheduling,
+    scores,
+    seeds,
+    team_ties,
+    teams,
+    tournaments,
+)
 
 logger = logging.getLogger("app")
 
@@ -65,6 +79,9 @@ app.include_router(scheduling.router)
 app.include_router(scores.router)
 app.include_router(qualification_decisions.router)
 app.include_router(knockout.router)
+# 团体赛（A3）：队伍 + 团体对抗/盘骨架
+app.include_router(teams.router)
+app.include_router(team_ties.router)
 
 
 @app.get("/api/health")

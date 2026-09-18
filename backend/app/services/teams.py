@@ -1,0 +1,219 @@
+"""团体队伍（TeamEntry）服务：复用 entries(entry_type='TEAM') + entry_members。
+
+A3 的边界（读代码前请先读这段）：
+- 队伍不是新表：一支队伍就是一个 Entry（entry_type='TEAM'），队员就是 entry_members。
+  这样种子、分组、导出、级联删除等既有机制不用为团体赛再写一套。
+- 队伍人数规则只有下限"至少 1 名队员"。具体赛制要求几人（几单几双、能否兼项）
+  由赛制（domain/team_formats.py）决定，A3 不臆造任何人数上限或"必须 3 人"之类规则。
+- 队伍积分（entries.rating_points）默认 0：团体赛种子规则尚未冻结，
+  这里不会用队员积分自动求和或推导种子，只接受调用方显式传入的值。
+- 名单锁定只认 stage：进入 GROUP_STAGE 及以后禁止增删改队伍，与选手/名单服务一致。
+  roster_confirmed 只表示"名单已确认"，A3 不额外用它做队伍编辑锁
+  （系统目前没有"取消确认"能力，加了锁就没有退路）；A4 引入出场名单后必须
+  重新设计这条冻结规则。
+"""
+
+import sqlite3
+
+from .. import repository as repo
+from ..models import EventType, TournamentStage
+
+MIN_TEAM_MEMBERS = 1
+MIN_TEAM_ENTRIES = 2
+
+
+class TeamError(Exception):
+    def __init__(self, message: str, code: int = 409):
+        super().__init__(message)
+        self.code = code
+
+
+def _tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
+    tournament = repo.get_tournament(conn, tournament_id)
+    if tournament is None:
+        raise TeamError("赛事不存在", 404)
+    return tournament
+
+
+def _team_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
+    """队伍相关操作的前置条件：赛事存在、是团体赛、仍在报名阶段。"""
+    tournament = _tournament(conn, tournament_id)
+    if tournament["event_type"] != EventType.TEAM.value:
+        raise TeamError(
+            f"当前赛事项目是 {tournament['event_type']}，只有团体赛（TEAM）可以管理队伍",
+            409,
+        )
+    if tournament["stage"] != TournamentStage.REGISTRATION.value:
+        raise TeamError("赛事已进入比赛阶段，队伍名单已锁定", 409)
+    return tournament
+
+
+def _clean_name(display_name: str) -> str:
+    name = display_name.strip() if isinstance(display_name, str) else ""
+    if not name:
+        raise TeamError("队伍名称不能为空", 422)
+    return name
+
+
+def _dedup_member_ids(member_ids: list[int]) -> list[int]:
+    if not isinstance(member_ids, list) or any(
+        not isinstance(pid, int) or isinstance(pid, bool) for pid in member_ids
+    ):
+        raise TeamError("队员必须是选手 id 列表", 422)
+    if len(set(member_ids)) != len(member_ids):
+        raise TeamError("同一支队伍里不能重复添加同一名选手", 422)
+    if len(member_ids) < MIN_TEAM_MEMBERS:
+        raise TeamError("队伍至少需要 1 名队员", 422)
+    return list(member_ids)
+
+
+def _check_members(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    member_ids: list[int],
+    exclude_entry_id: int | None = None,
+) -> None:
+    """队员必须属于本赛事，且不能已经挂在别的参赛实体上。
+
+    entry_members 对 player_id 有全局 UNIQUE 约束，所以这里必须提前拦，
+    否则会冒出 500（IntegrityError），而不是可读的业务错误。
+    """
+    roster = {p["id"]: p for p in repo.list_players(conn, tournament_id)}
+    for player_id in member_ids:
+        player = roster.get(player_id)
+        if player is None:
+            raise TeamError(f"选手 {player_id} 不存在或不属于本赛事", 404)
+        holder = repo.find_entry_of_player(conn, tournament_id, player_id, exclude_entry_id)
+        if holder is not None:
+            raise TeamError(
+                f"选手「{player['name']}」已在「{holder['display_name']}」中，不能同时代表两支队伍",
+                409,
+            )
+
+
+def list_team_entries(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    _tournament(conn, tournament_id)
+    return repo.list_entries_by_type(conn, tournament_id, EventType.TEAM.value)
+
+
+def get_team_entry(conn: sqlite3.Connection, tournament_id: int, entry_id: int) -> dict:
+    _tournament(conn, tournament_id)
+    entry = repo.get_entry(conn, entry_id)
+    if entry is None or entry["tournament_id"] != tournament_id:
+        raise TeamError("队伍不存在", 404)
+    if entry["entry_type"] != EventType.TEAM.value:
+        raise TeamError(f"参赛实体 {entry_id} 不是团体队伍", 409)
+    return entry
+
+
+def create_team_entry(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    display_name: str,
+    member_ids: list[int],
+    rating_points: int | None = None,
+) -> dict:
+    """新建一支队伍。rating_points 缺省 0（团体赛种子规则未冻结，不做积分推导）。"""
+    _team_tournament(conn, tournament_id)
+    name = _clean_name(display_name)
+    members = _dedup_member_ids(member_ids)
+    if rating_points is not None and (
+        not isinstance(rating_points, int) or isinstance(rating_points, bool) or rating_points < 0
+    ):
+        raise TeamError("队伍积分必须是不小于 0 的整数", 422)
+    if any(e["display_name"] == name for e in list_team_entries(conn, tournament_id)):
+        raise TeamError(f"已存在同名队伍「{name}」", 409)
+    _check_members(conn, tournament_id, members)
+
+    entry = repo.create_entry(
+        conn,
+        tournament_id,
+        EventType.TEAM.value,
+        name,
+        0 if rating_points is None else rating_points,
+        members,
+        seed_no=None,
+    )
+    conn.commit()
+    return entry
+
+
+def update_team_entry(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    entry_id: int,
+    display_name: str | None = None,
+    member_ids: list[int] | None = None,
+    rating_points: int | None = None,
+) -> dict:
+    """改名 / 换队员 / 改积分；只传需要改的字段。
+
+    member_ids 是全量替换（不是追加），并会先校验再落库。
+    """
+    _team_tournament(conn, tournament_id)
+    entry = get_team_entry(conn, tournament_id, entry_id)
+
+    name = entry["display_name"] if display_name is None else _clean_name(display_name)
+    if rating_points is not None and (
+        not isinstance(rating_points, int) or isinstance(rating_points, bool) or rating_points < 0
+    ):
+        raise TeamError("队伍积分必须是不小于 0 的整数", 422)
+    points = entry["rating_points"] if rating_points is None else rating_points
+
+    if name != entry["display_name"] and any(
+        e["display_name"] == name for e in list_team_entries(conn, tournament_id)
+    ):
+        raise TeamError(f"已存在同名队伍「{name}」", 409)
+
+    if member_ids is not None:
+        members = _dedup_member_ids(member_ids)
+        _check_members(conn, tournament_id, members, exclude_entry_id=entry_id)
+        repo.replace_entry_members(conn, entry_id, members)
+
+    if name != entry["display_name"] or points != entry["rating_points"]:
+        repo.update_entry(conn, entry_id, name, points)
+
+    conn.commit()
+    return get_team_entry(conn, tournament_id, entry_id)
+
+
+def delete_team_entry(conn: sqlite3.Connection, tournament_id: int, entry_id: int) -> None:
+    """删除队伍。已被团体对抗引用的队伍禁止删除（否则会留下悬空引用）。"""
+    _team_tournament(conn, tournament_id)
+    get_team_entry(conn, tournament_id, entry_id)
+    tie = repo.find_tie_referencing_entry(conn, entry_id)
+    if tie is not None:
+        raise TeamError(f"该队伍已出现在团体对抗 #{tie['id']} 中，不能删除", 409)
+    repo.delete_entry(conn, entry_id)
+    conn.commit()
+
+
+def validate_team_roster(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    """确认团体赛名单前的整体校验（由 entries.confirm_roster 调用）。
+
+    只要求自洽：至少 2 支队伍、每队至少 1 人、没有选手被落下或重复代表两队。
+    不校验队伍人数是否满足某个赛制——赛制尚未冻结。
+    """
+    entries = list_team_entries(conn, tournament_id)
+    players = repo.list_players(conn, tournament_id)
+    if len(entries) < MIN_TEAM_ENTRIES:
+        raise TeamError(
+            f"团体赛至少需要 {MIN_TEAM_ENTRIES} 支队伍才能确认名单（当前 {len(entries)} 支）",
+            409,
+        )
+    member_ids: list[int] = []
+    for entry in entries:
+        if len(entry["members"]) < MIN_TEAM_MEMBERS:
+            raise TeamError(f"队伍「{entry['display_name']}」还没有队员", 409)
+        member_ids.extend(m["player_id"] for m in entry["members"])
+    # 兜底：entry_members 对 player_id 有 UNIQUE 约束，正常情况下不会重复，
+    # 这里只是把"万一重复"变成可读错误而不是坏数据。
+    if len(set(member_ids)) != len(member_ids):
+        raise TeamError("有选手同时出现在两支队伍中，请先修正队伍名单", 409)
+    assigned = set(member_ids)
+    missing = [p["id"] for p in players if p["id"] not in assigned]
+    if missing:
+        raise TeamError(
+            f"仍有 {len(missing)} 名选手没有加入任何队伍，不能确认名单", 409
+        )
+    return entries

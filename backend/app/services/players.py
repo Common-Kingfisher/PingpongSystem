@@ -45,11 +45,12 @@ def _sync_singles_entry_seeds(
 
     分组分散与淘汰赛徽标读的是 entries.seed_no，而编辑入口写的是 players.seed_no；
     这里在每次修改种子后同步一次，避免"UI 改了种子但分组仍按旧种子"。
-    双打 Entry（两名成员）的种子规则尚未冻结，这里不触碰。
+    只认 entry_type == SINGLES：双打 Entry（两名成员）与团体 Entry（成员数不定，
+    可以是 1 人也可以是 4 人）的种子规则都尚未冻结，这里不触碰。
     """
     singles = [
         entry for entry in repo.list_entries(conn, tournament_id)
-        if len(entry["members"]) == 1
+        if entry["entry_type"] == EventType.SINGLES.value
     ]
     if not singles:
         return
@@ -107,7 +108,9 @@ def auto_seed_by_rating(conn: sqlite3.Connection, tournament_id: int) -> list[di
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise PlayerError("赛事已进入比赛阶段，种子设置已锁定", 409)
     if tournament["event_type"] != EventType.SINGLES.value:
-        raise PlayerError("双打赛事的种子规则尚未确定，暂不支持按积分自动生成种子", 409)
+        raise PlayerError(
+            "当前仅支持单打按积分自动生成种子；双打与团体赛的种子规则尚未冻结", 409
+        )
     players = repo.list_players(conn, tournament_id)
     if not players:
         raise PlayerError("请先添加或导入选手", 409)

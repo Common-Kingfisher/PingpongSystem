@@ -1,4 +1,8 @@
-"""统一参赛实体：单打选手与双打组合都通过 Entry 进入比赛。"""
+"""统一参赛实体：单打选手、双打组合与团体队伍都通过 Entry 进入比赛。
+
+- SINGLES：1 名成员；DOUBLES：2 名成员；TEAM：>=1 名成员（队伍人数规则属于赛制，未冻结）。
+  TEAM 队伍的增删改在 services/teams.py，本模块只负责分支派发与名单确认。
+"""
 
 import random
 import sqlite3
@@ -6,6 +10,7 @@ import time
 
 from .. import repository as repo
 from ..models import EventType, TournamentStage
+from . import teams as teams_service
 
 
 class EntryError(Exception):
@@ -54,7 +59,7 @@ def random_pair_doubles(
 ) -> tuple[list[dict], list[dict], int]:
     tournament = _tournament(conn, tournament_id)
     if tournament["event_type"] != EventType.DOUBLES.value:
-        raise EntryError("只有双打项目需要生成搭档")
+        raise EntryError("只有双打项目需要随机生成搭档（团体赛的队伍名单请用队伍接口维护）")
     players = repo.list_players(conn, tournament_id)
     if len(players) < 4:
         raise EntryError("双打项目至少需要 4 名运动员")
@@ -96,15 +101,23 @@ def random_pair_doubles(
 
 
 def confirm_roster(conn: sqlite3.Connection, tournament_id: int) -> tuple[dict, list[dict]]:
+    """确认名单。三个项目分支必须显式写全，禁止"非单打即双打"的二元假设。"""
     tournament = _tournament(conn, tournament_id)
-    if tournament["event_type"] == EventType.SINGLES.value:
+    event_type = tournament["event_type"]
+    if event_type == EventType.SINGLES.value:
         build_singles_entries(conn, tournament_id)
-    else:
+    elif event_type == EventType.DOUBLES.value:
         entries = repo.list_entries(conn, tournament_id)
         players = repo.list_players(conn, tournament_id)
         paired_ids = {member["player_id"] for entry in entries for member in entry["members"]}
         if len(paired_ids) != len(players) or any(len(e["members"]) != 2 for e in entries):
             raise EntryError("仍有运动员未完成双打配对，不能确认名单")
+    elif event_type == EventType.TEAM.value:
+        # 团体赛的名单就是队伍名单：至少 2 支队伍、每队至少 1 人、选手不能落在队伍之外。
+        # 队伍人数是否符合某个赛制，属于赛制（尚未冻结），这里不校验。
+        teams_service.validate_team_roster(conn, tournament_id)
+    else:
+        raise EntryError(f"未知的参赛项目：{event_type}，不能确认名单", 409)
     repo.confirm_tournament_roster(conn, tournament_id)
     conn.commit()
     return repo.get_tournament(conn, tournament_id), repo.list_entries(conn, tournament_id)

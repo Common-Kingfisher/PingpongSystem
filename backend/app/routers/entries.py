@@ -6,11 +6,12 @@ from sqlite3 import Connection
 from .. import schemas
 from ..db import get_db
 from ..services import entries as entry_service
+from ..services import teams as teams_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["entries"])
 
 
-def _http(exc: entry_service.EntryError) -> HTTPException:
+def _http(exc: entry_service.EntryError | teams_service.TeamError) -> HTTPException:
     return HTTPException(status_code=exc.code, detail=str(exc))
 
 
@@ -43,6 +44,7 @@ def pair_doubles(
 def confirm_roster(tournament_id: int, conn: Connection = Depends(get_db)):
     try:
         tournament, entries = entry_service.confirm_roster(conn, tournament_id)
-    except entry_service.EntryError as exc:
+    except (entry_service.EntryError, teams_service.TeamError) as exc:
+        # 团体赛的名单校验在 services/teams.py（TeamError），两者都带 code 字段。
         raise _http(exc)
     return schemas.ConfirmRosterResult(tournament=tournament, entries=entries)

@@ -15,6 +15,9 @@ from .models import (
     PlacementMode,
     ResultType,
     TableStatus,
+    TeamRubberStatus,
+    TeamRubberType,
+    TeamTieStatus,
     TournamentMode,
     TournamentStage,
 )
@@ -108,6 +111,79 @@ class PairingRequest(BaseModel):
 class ConfirmRosterResult(BaseModel):
     tournament: TournamentOut
     entries: list[EntryOut]
+
+
+# ------------------------------------------------------------ 团体赛（A3）
+# 队伍本身就是 Entry（entry_type='TEAM'），所以队伍的读写复用 EntryOut / EntryMemberOut，
+# 不为"队伍"再造一份字段相同的 DTO。
+
+
+class TeamEntryCreate(BaseModel):
+    display_name: str = Field(min_length=1, max_length=100)
+    member_ids: list[int] = Field(min_length=1)
+    # 团体赛种子规则尚未冻结：这里只接受显式积分，不做队员积分推导。缺省 0。
+    rating_points: int = Field(default=0, ge=0, le=99999)
+
+
+class TeamEntryUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=100)
+    member_ids: list[int] | None = Field(default=None, min_length=1)
+    rating_points: int | None = Field(default=None, ge=0, le=99999)
+
+
+class TeamTieCreate(BaseModel):
+    entry_a_id: int
+    entry_b_id: int
+    stage: MatchStage = MatchStage.GROUP
+    group_id: int | None = None
+    round: int = Field(default=1, ge=1)
+    match_index: int | None = Field(default=None, ge=1)
+
+
+class TeamRubberOut(BaseModel):
+    id: int
+    team_tie_id: int
+    sequence: int
+    rubber_type: TeamRubberType
+    # A3 只记录"这盘需要几个出场位置"，不记录具体谁上场（TeamLineup 属于 A4）。
+    home_slots: list[str]
+    away_slots: list[str]
+    status: TeamRubberStatus
+    # 预留给 A4 的 Match 适配器；A3 恒为 None。
+    match_id: int | None
+    created_at: str
+
+
+class TeamTieOut(BaseModel):
+    id: int
+    tournament_id: int
+    stage: MatchStage
+    group_id: int | None
+    round: int
+    match_index: int | None
+    entry_a_id: int
+    entry_b_id: int
+    team_a_score: int
+    team_b_score: int
+    winner_entry_id: int | None
+    status: TeamTieStatus
+    format_code: str | None
+    format_version: int | None
+    # 建盘时固化的赛制快照（原样存储的 JSON 文本，便于排障与回放）。
+    format_snapshot: str | None
+    called_at: str | None
+    started_at: str | None
+    finished_at: str | None
+    created_at: str
+
+
+class TeamTieDetailOut(TeamTieOut):
+    rubbers: list[TeamRubberOut]
+
+
+class RubberSkeletonRequest(BaseModel):
+    format_code: str = Field(min_length=1, max_length=50)
+    replace: bool = False
 
 
 class SetSeedsRequest(BaseModel):
@@ -494,6 +570,44 @@ class ScoreRequestOut(BaseModel):
     created_at: str
 
 
+class TeamTieRecordOut(BaseModel):
+    """team_ties 表的落库形态（A3 追加，单打/双打赛事恒为空列表）。"""
+
+    id: int
+    tournament_id: int
+    stage: str
+    group_id: int | None = None
+    round: int
+    match_index: int | None = None
+    entry_a_id: int
+    entry_b_id: int
+    team_a_score: int
+    team_b_score: int
+    winner_entry_id: int | None = None
+    status: str
+    format_code: str | None = None
+    format_version: int | None = None
+    format_snapshot: str | None = None
+    called_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    created_at: str
+
+
+class TeamRubberRecordOut(BaseModel):
+    """team_rubbers 表的落库形态：位置需求保持存储时的 JSON 文本。"""
+
+    id: int
+    team_tie_id: int
+    sequence: int
+    rubber_type: str
+    home_slots_json: str
+    away_slots_json: str
+    status: str
+    match_id: int | None = None
+    created_at: str
+
+
 class QualificationDecisionExport(BaseModel):
     """人工晋级裁定的导出形态：额外带上冻结的排名快照证据。
 
@@ -537,4 +651,6 @@ class TournamentExport(BaseModel):
     match_games: list[MatchGameOut]
     qualification_decisions: list[QualificationDecisionExport]
     score_requests: list[ScoreRequestOut]
+    team_ties: list[TeamTieRecordOut]
+    team_rubbers: list[TeamRubberRecordOut]
     derived: TournamentExportDerived
