@@ -143,10 +143,9 @@ def _forfeit_unfinished_match(
     if match.get("table_id") is not None:
         repo.update_table_status(conn, match["table_id"], TableStatus.FREE.value)
     repo.replace_match_games(conn, match["id"], [], a, b)
-    repo.update_match(
+    repo.mark_match_finished(
         conn,
         match["id"],
-        status=MatchStatus.FINISHED.value,
         table_id=None,
         player_a_score=score_a,
         player_b_score=score_b,

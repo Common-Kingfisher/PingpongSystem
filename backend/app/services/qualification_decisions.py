@@ -95,7 +95,7 @@ def revoke_decision(
     tournament = _ensure_group(conn, tournament_id, group_id)
     if tournament["stage"] != "GROUP_STAGE":
         raise QualificationDecisionError(
-            "淘汰赛已生成，不能撤销人工晋级裁定；请先撤销并重建淘汰签表"
+            "淘汰赛签表已经生成，当前版本不支持撤销该裁定；请在生成签表前完成更正，或联系管理员处理"
         )
     active = repo.get_active_qualification_decision(conn, group_id)
     if active is None:

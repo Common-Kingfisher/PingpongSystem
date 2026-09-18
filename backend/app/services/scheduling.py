@@ -85,7 +85,7 @@ def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict
     if _match_member_ids(conn, match) & busy:
         raise SchedulingError("选手正在参加其他比赛，不能同时上场")
 
-    repo.update_match(conn, match_id, status=MatchStatus.PLAYING.value, table_id=table_id)
+    repo.mark_match_playing(conn, match_id, table_id)
     repo.update_table_status(conn, table_id, TableStatus.OCCUPIED.value)
     conn.commit()
     return repo.get_match(conn, match_id)
@@ -121,7 +121,7 @@ def schedule_next(conn: sqlite3.Connection, tournament_id: int) -> list[tuple[in
         table_index += 1
         batch_busy.update(members)
     for match_id, table_id in assignments:
-        repo.update_match(conn, match_id, status=MatchStatus.PLAYING.value, table_id=table_id)
+        repo.mark_match_playing(conn, match_id, table_id)
         repo.update_table_status(conn, table_id, TableStatus.OCCUPIED.value)
     conn.commit()
     return assignments

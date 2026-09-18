@@ -500,6 +500,8 @@ _MATCH_UPDATEABLE = {
     "bracket",
     "placement_min",
     "placement_max",
+    "started_at",
+    "finished_at",
 }
 
 
@@ -515,6 +517,60 @@ def update_match(conn: sqlite3.Connection, match_id: int, **fields) -> dict:
             f"UPDATE matches SET {', '.join(sets)} WHERE id = ?", params
         )
     return get_match(conn, match_id)
+
+
+def mark_match_playing(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict:
+    """首次上台记录开赛时间；下台重排不会覆盖第一次开赛时间。"""
+    conn.execute(
+        "UPDATE matches SET status = 'PLAYING', table_id = ?, "
+        "started_at = COALESCE(started_at, datetime('now')) WHERE id = ?",
+        (table_id, match_id),
+    )
+    return get_match(conn, match_id)
+
+
+def mark_match_finished(conn: sqlite3.Connection, match_id: int, **fields) -> dict:
+    """首次完赛固定开始/结束时间，后续改分不覆盖。"""
+    unknown = set(fields) - _MATCH_UPDATEABLE
+    if unknown:
+        raise ValueError(f"不允许更新的字段: {sorted(unknown)}")
+    sets = [f"{key} = ?" for key in fields]
+    params: list[Any] = list(fields.values())
+    sets.extend([
+        "status = 'FINISHED'",
+        "started_at = COALESCE(started_at, datetime('now'))",
+        "finished_at = COALESCE(finished_at, datetime('now'))",
+    ])
+    params.append(match_id)
+    conn.execute(f"UPDATE matches SET {', '.join(sets)} WHERE id = ?", params)
+    return get_match(conn, match_id)
+
+
+def create_score_audit(
+    conn: sqlite3.Connection,
+    match_id: int,
+    action: str,
+    before_snapshot: str,
+    after_snapshot: str,
+    operator_name: str | None,
+    change_reason: str | None,
+    request_id: str | None,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO score_audits "
+        "(match_id, action, before_snapshot, after_snapshot, operator_name, change_reason, request_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (match_id, action, before_snapshot, after_snapshot, operator_name, change_reason, request_id),
+    )
+    row = conn.execute("SELECT * FROM score_audits WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+def list_score_audits(conn: sqlite3.Connection, match_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM score_audits WHERE match_id = ? ORDER BY id DESC", (match_id,)
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def claim_score_request(

@@ -453,6 +453,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/matches/{match_id}/score-audits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Score Audits */
+        get: operations["list_score_audits_api_matches__match_id__score_audits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}/rankings": {
         parameters: {
             query?: never;
@@ -985,6 +1002,10 @@ export interface components {
             placement_min?: number | null;
             /** Placement Max */
             placement_max?: number | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
             /**
              * Games
              * @default []
@@ -1202,6 +1223,31 @@ export interface components {
                 [key: string]: number;
             }[];
         };
+        /** ScoreAuditOut */
+        ScoreAuditOut: {
+            /** Id */
+            id: number;
+            /** Match Id */
+            match_id: number;
+            /** Action */
+            action: string;
+            /** Before Snapshot */
+            before_snapshot: {
+                [key: string]: unknown;
+            };
+            /** After Snapshot */
+            after_snapshot: {
+                [key: string]: unknown;
+            };
+            /** Operator Name */
+            operator_name: string | null;
+            /** Change Reason */
+            change_reason: string | null;
+            /** Request Id */
+            request_id: string | null;
+            /** Created At */
+            created_at: string;
+        };
         /** ScoreRequest */
         ScoreRequest: {
             /** Player A Score */
@@ -1218,6 +1264,34 @@ export interface components {
             note?: string | null;
             /** Request Id */
             request_id?: string | null;
+            /** Operator Name */
+            operator_name?: string | null;
+            /** Change Reason */
+            change_reason?: string | null;
+        };
+        /**
+         * ScoreRevisionRequest
+         * @description 改分请求必须在机器可读契约中明确携带操作人和原因。
+         */
+        ScoreRevisionRequest: {
+            /** Player A Score */
+            player_a_score?: number | null;
+            /** Player B Score */
+            player_b_score?: number | null;
+            /** Games */
+            games?: components["schemas"]["MatchGameInput"][] | null;
+            /** @default NORMAL */
+            result_type: components["schemas"]["ResultType"];
+            /** Forfeit Entry Id */
+            forfeit_entry_id?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Request Id */
+            request_id?: string | null;
+            /** Operator Name */
+            operator_name: string;
+            /** Change Reason */
+            change_reason: string;
         };
         /** SetSeedsRequest */
         SetSeedsRequest: {
@@ -2302,7 +2376,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ScoreRequest"];
+                "application/json": components["schemas"]["ScoreRevisionRequest"];
             };
         };
         responses: {
@@ -2313,6 +2387,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MatchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_score_audits_api_matches__match_id__score_audits_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                match_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoreAuditOut"][];
                 };
             };
             /** @description Validation Error */

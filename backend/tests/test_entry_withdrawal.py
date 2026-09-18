@@ -35,6 +35,8 @@ def test_withdrawal_preserves_finished_and_forfeits_unfinished(conn):
     scores_service.record_score(conn, first["id"], *score)
     table = repo.list_tables(conn, tournament_id)[0]
     scheduling_service.assign_table(conn, involving[1]["id"], table["id"])
+    conn.execute("UPDATE matches SET started_at = '2026-09-01 10:00:00' WHERE id = ?", (involving[1]["id"],))
+    first_before = repo.get_match(conn, first["id"])
 
     entry, affected, preserved = entry_service.withdraw_from_tournament(
         conn, tournament_id, withdrawn_id, "李主裁", "运动员伤病退出"
@@ -51,6 +53,13 @@ def test_withdrawal_preserves_finished_and_forfeits_unfinished(conn):
         assert match["status"] == MatchStatus.FINISHED.value
         assert match["result_type"] == ResultType.FORFEIT.value
         assert match["forfeit_entry_id"] == withdrawn_id
+        assert match["started_at"]
+        assert match["finished_at"]
+        if match_id == involving[1]["id"]:
+            assert match["started_at"] == "2026-09-01 10:00:00"
+        else:
+            assert match["started_at"] == match["finished_at"]
+    assert repo.get_match(conn, first["id"])["finished_at"] == first_before["finished_at"]
 
     ranking = rankings_service.get_rankings(conn, tournament_id)[0]
     withdrawn = next(item for item in ranking["entries"] if item["player_id"] == withdrawn_id)
@@ -185,3 +194,5 @@ def test_withdrawn_waiting_slot_forfeits_when_opponent_arrives(conn):
     assert final["result_type"] == ResultType.FORFEIT.value
     assert final["forfeit_entry_id"] == withdrawn_id
     assert final["winner_entry_id"] != withdrawn_id
+    assert final["finished_at"]
+    assert final["started_at"] == final["finished_at"]
