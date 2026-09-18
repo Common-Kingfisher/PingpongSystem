@@ -2412,7 +2412,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TeamTieDetailOut"
+                  "$ref": "#/components/schemas/TeamTieRuntimeOut"
                 }
               }
             }
@@ -2473,7 +2473,267 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TeamTieDetailOut"
+                  "$ref": "#/components/schemas/TeamTieRuntimeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/lineup-options": {
+      "get": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Get Lineup Options",
+        "operationId": "get_lineup_options_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__lineup_options_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "tie_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tie Id"
+            }
+          },
+          {
+            "name": "rubber_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Rubber Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamLineupOptionsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/lineup": {
+      "put": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Set Lineup",
+        "operationId": "set_lineup_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__lineup_put",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "tie_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tie Id"
+            }
+          },
+          {
+            "name": "rubber_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Rubber Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamLineupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTieRuntimeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/start": {
+      "post": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Start Rubber",
+        "operationId": "start_rubber_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__start_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "tie_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tie Id"
+            }
+          },
+          {
+            "name": "rubber_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Rubber Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTieRuntimeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/score": {
+      "post": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Record Rubber Score",
+        "operationId": "record_rubber_score_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__score_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "tie_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tie Id"
+            }
+          },
+          {
+            "name": "rubber_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Rubber Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamRubberScoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTieRuntimeOut"
                 }
               }
             }
@@ -5432,41 +5692,20 @@
         "type": "object",
         "title": "TeamEntryUpdate"
       },
-      "TeamRubberOut": {
+      "TeamFormatRuntimeOut": {
         "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
           },
-          "team_tie_id": {
-            "type": "integer",
-            "title": "Team Tie Id"
-          },
-          "sequence": {
-            "type": "integer",
-            "title": "Sequence"
-          },
-          "rubber_type": {
-            "$ref": "#/components/schemas/TeamRubberType"
-          },
-          "home_slots": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Home Slots"
-          },
-          "away_slots": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Away Slots"
-          },
-          "status": {
-            "$ref": "#/components/schemas/TeamRubberStatus"
-          },
-          "match_id": {
+          "version": {
             "anyOf": [
               {
                 "type": "integer"
@@ -5475,26 +5714,153 @@
                 "type": "null"
               }
             ],
-            "title": "Match Id"
+            "title": "Version"
           },
-          "created_at": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "rubbers_to_win": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubbers To Win"
+          }
+        },
+        "type": "object",
+        "title": "TeamFormatRuntimeOut",
+        "description": "对抗当前使用的赛制（未建盘/未登记时全部为 null，前端不得据此推算盘序）。"
+      },
+      "TeamLineupOptionOut": {
+        "properties": {
+          "player_id": {
+            "type": "integer",
+            "title": "Player Id"
+          },
+          "name": {
             "type": "string",
-            "title": "Created At"
+            "title": "Name"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
           }
         },
         "type": "object",
         "required": [
-          "id",
-          "team_tie_id",
-          "sequence",
-          "rubber_type",
-          "home_slots",
-          "away_slots",
-          "status",
-          "match_id",
-          "created_at"
+          "player_id",
+          "name",
+          "available"
         ],
-        "title": "TeamRubberOut"
+        "title": "TeamLineupOptionOut",
+        "description": "某一边的候选上场队员（B 直接渲染成可点选列表）。"
+      },
+      "TeamLineupOptionsOut": {
+        "properties": {
+          "home": {
+            "items": {
+              "$ref": "#/components/schemas/TeamLineupOptionOut"
+            },
+            "type": "array",
+            "title": "Home"
+          },
+          "away": {
+            "items": {
+              "$ref": "#/components/schemas/TeamLineupOptionOut"
+            },
+            "type": "array",
+            "title": "Away"
+          }
+        },
+        "type": "object",
+        "required": [
+          "home",
+          "away"
+        ],
+        "title": "TeamLineupOptionsOut",
+        "description": "候选阵容按边分组：每边的候选只来自本队，不做跨边混合。"
+      },
+      "TeamLineupRequest": {
+        "properties": {
+          "home_player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Home Player Ids"
+          },
+          "away_player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Away Player Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "home_player_ids",
+          "away_player_ids"
+        ],
+        "title": "TeamLineupRequest",
+        "description": "提交一盘的实际参赛人（覆盖式写入）。"
+      },
+      "TeamPermissionOut": {
+        "properties": {
+          "can_edit_lineup": {
+            "type": "boolean",
+            "title": "Can Edit Lineup"
+          },
+          "can_confirm_lineup": {
+            "type": "boolean",
+            "title": "Can Confirm Lineup"
+          },
+          "can_start": {
+            "type": "boolean",
+            "title": "Can Start"
+          },
+          "can_record_score": {
+            "type": "boolean",
+            "title": "Can Record Score"
+          },
+          "can_revise_score": {
+            "type": "boolean",
+            "title": "Can Revise Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "can_edit_lineup",
+          "can_confirm_lineup",
+          "can_start",
+          "can_record_score",
+          "can_revise_score"
+        ],
+        "title": "TeamPermissionOut",
+        "description": "后端计算的操作权限；前端按钮直接消费这些字段，不得自行推导状态机。"
       },
       "TeamRubberRecordOut": {
         "properties": {
@@ -5540,6 +5906,83 @@
           "created_at": {
             "type": "string",
             "title": "Created At"
+          },
+          "home_player_ids_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Player Ids Json"
+          },
+          "away_player_ids_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away Player Ids Json"
+          },
+          "home_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Score"
+          },
+          "away_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away Score"
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
           }
         },
         "type": "object",
@@ -5554,7 +5997,211 @@
           "created_at"
         ],
         "title": "TeamRubberRecordOut",
-        "description": "team_rubbers 表的落库形态：位置需求保持存储时的 JSON 文本。"
+        "description": "team_rubbers 表的落库形态：位置需求保持存储时的 JSON 文本，运行态字段一并导出。"
+      },
+      "TeamRubberRuntimeOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "team_tie_id": {
+            "type": "integer",
+            "title": "Team Tie Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "rubber_type": {
+            "$ref": "#/components/schemas/TeamRubberType"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TeamRubberStatus"
+          },
+          "home_slots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Home Slots"
+          },
+          "away_slots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Away Slots"
+          },
+          "home_player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Home Player Ids"
+          },
+          "away_player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Away Player Ids"
+          },
+          "home_players": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Home Players"
+          },
+          "away_players": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Away Players"
+          },
+          "home_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Score"
+          },
+          "away_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away Score"
+          },
+          "winner_side": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamSide"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          },
+          "match_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Id"
+          },
+          "lineup_valid": {
+            "type": "boolean",
+            "title": "Lineup Valid",
+            "default": true
+          },
+          "lineup_invalid_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lineup Invalid Reason"
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/TeamPermissionOut"
+          },
+          "lineup_options": {
+            "$ref": "#/components/schemas/TeamLineupOptionsOut"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "team_tie_id",
+          "sequence",
+          "rubber_type",
+          "status",
+          "home_slots",
+          "away_slots",
+          "home_player_ids",
+          "away_player_ids",
+          "home_players",
+          "away_players",
+          "permissions",
+          "lineup_options",
+          "created_at"
+        ],
+        "title": "TeamRubberRuntimeOut",
+        "description": "一盘的完整运行态：位置需求 + 实际阵容 + 比分 + 权限 + 候选阵容。"
+      },
+      "TeamRubberScoreRequest": {
+        "properties": {
+          "home_score": {
+            "type": "integer",
+            "title": "Home Score"
+          },
+          "away_score": {
+            "type": "integer",
+            "title": "Away Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "home_score",
+          "away_score"
+        ],
+        "title": "TeamRubberScoreRequest",
+        "description": "盘比分（胜局数）。合法性由后端按赛事 games_to_win 校验，前端不得自行放宽。"
       },
       "TeamRubberStatus": {
         "type": "string",
@@ -5566,7 +6213,7 @@
           "SKIPPED"
         ],
         "title": "TeamRubberStatus",
-        "description": "团体对抗内单盘（Rubber）状态。\n\nA3 的 skeleton 只会生成 PENDING；PENDING → READY → PLAYING → FINISHED\n的流转与 SKIPPED（提前结束比赛后未打的盘）由 A4 实现。"
+        "description": "团体对抗内单盘（Rubber）状态。\n\nA3 的 skeleton 只会生成 PENDING；A4.1 起真正使用状态机：\nPENDING（未绑定阵容）→ READY（阵容合法）→ PLAYING（已开始）→ FINISHED（已录比分）；\n对抗被一方提前结束时，未打的 PENDING/READY 盘 → SKIPPED。"
       },
       "TeamRubberType": {
         "type": "string",
@@ -5576,6 +6223,47 @@
         ],
         "title": "TeamRubberType",
         "description": "单盘类型：只允许单打或双打盘（TEAM 不是盘类型）。"
+      },
+      "TeamSide": {
+        "type": "string",
+        "enum": [
+          "HOME",
+          "AWAY"
+        ],
+        "title": "TeamSide",
+        "description": "团体对抗的两边（主队 / 客队）；用于盘结果与权限表达，不是球队身份。"
+      },
+      "TeamSummaryOut": {
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "title": "Entry Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/EntryMemberOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_id",
+          "display_name",
+          "status",
+          "members"
+        ],
+        "title": "TeamSummaryOut",
+        "description": "对抗的一边；成员内嵌，避免前端为显示队伍再发多次请求。"
       },
       "TeamTieCreate": {
         "properties": {
@@ -5627,178 +6315,6 @@
           "entry_b_id"
         ],
         "title": "TeamTieCreate"
-      },
-      "TeamTieDetailOut": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "tournament_id": {
-            "type": "integer",
-            "title": "Tournament Id"
-          },
-          "stage": {
-            "$ref": "#/components/schemas/MatchStage"
-          },
-          "group_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Group Id"
-          },
-          "round": {
-            "type": "integer",
-            "title": "Round"
-          },
-          "match_index": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Match Index"
-          },
-          "entry_a_id": {
-            "type": "integer",
-            "title": "Entry A Id"
-          },
-          "entry_b_id": {
-            "type": "integer",
-            "title": "Entry B Id"
-          },
-          "team_a_score": {
-            "type": "integer",
-            "title": "Team A Score"
-          },
-          "team_b_score": {
-            "type": "integer",
-            "title": "Team B Score"
-          },
-          "winner_entry_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Winner Entry Id"
-          },
-          "status": {
-            "$ref": "#/components/schemas/TeamTieStatus"
-          },
-          "format_code": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Format Code"
-          },
-          "format_version": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Format Version"
-          },
-          "format_snapshot": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Format Snapshot"
-          },
-          "called_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Called At"
-          },
-          "started_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Started At"
-          },
-          "finished_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Finished At"
-          },
-          "created_at": {
-            "type": "string",
-            "title": "Created At"
-          },
-          "rubbers": {
-            "items": {
-              "$ref": "#/components/schemas/TeamRubberOut"
-            },
-            "type": "array",
-            "title": "Rubbers"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "tournament_id",
-          "stage",
-          "group_id",
-          "round",
-          "match_index",
-          "entry_a_id",
-          "entry_b_id",
-          "team_a_score",
-          "team_b_score",
-          "winner_entry_id",
-          "status",
-          "format_code",
-          "format_version",
-          "format_snapshot",
-          "called_at",
-          "started_at",
-          "finished_at",
-          "created_at",
-          "rubbers"
-        ],
-        "title": "TeamTieDetailOut"
       },
       "TeamTieOut": {
         "properties": {
@@ -6121,6 +6637,216 @@
         ],
         "title": "TeamTieRecordOut",
         "description": "team_ties 表的落库形态（A3 追加，单打/双打赛事恒为空列表）。"
+      },
+      "TeamTieRuntimeOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/MatchStage"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "match_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Index"
+          },
+          "entry_a_id": {
+            "type": "integer",
+            "title": "Entry A Id"
+          },
+          "entry_b_id": {
+            "type": "integer",
+            "title": "Entry B Id"
+          },
+          "team_a_score": {
+            "type": "integer",
+            "title": "Team A Score"
+          },
+          "team_b_score": {
+            "type": "integer",
+            "title": "Team B Score"
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TeamTieStatus"
+          },
+          "format_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Code"
+          },
+          "format_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Version"
+          },
+          "format_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Snapshot"
+          },
+          "called_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "home_team": {
+            "$ref": "#/components/schemas/TeamSummaryOut"
+          },
+          "away_team": {
+            "$ref": "#/components/schemas/TeamSummaryOut"
+          },
+          "home_score": {
+            "type": "integer",
+            "title": "Home Score"
+          },
+          "away_score": {
+            "type": "integer",
+            "title": "Away Score"
+          },
+          "target_wins": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Wins"
+          },
+          "format": {
+            "$ref": "#/components/schemas/TeamFormatRuntimeOut"
+          },
+          "rubbers": {
+            "items": {
+              "$ref": "#/components/schemas/TeamRubberRuntimeOut"
+            },
+            "type": "array",
+            "title": "Rubbers"
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/TeamPermissionOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "stage",
+          "group_id",
+          "round",
+          "match_index",
+          "entry_a_id",
+          "entry_b_id",
+          "team_a_score",
+          "team_b_score",
+          "winner_entry_id",
+          "status",
+          "format_code",
+          "format_version",
+          "format_snapshot",
+          "called_at",
+          "started_at",
+          "finished_at",
+          "created_at",
+          "home_team",
+          "away_team",
+          "home_score",
+          "away_score",
+          "format",
+          "rubbers",
+          "permissions"
+        ],
+        "title": "TeamTieRuntimeOut",
+        "description": "对抗的统一运行态契约（A4.1）。\n\n它是 A3 详情响应（TeamTieOut + rubbers）的**超集**：原有字段与命名全部保留，\n只追加 B 需要的运行态字段，因此升级是向后兼容的（旧消费方不会因为改名而断裂）。\n所有修改运行态的写接口都直接返回这个结构，前端整体替换即可，无需二次拉取。"
       },
       "TeamTieStatus": {
         "type": "string",

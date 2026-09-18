@@ -1,19 +1,26 @@
 """团体队伍（TeamEntry）服务：复用 entries(entry_type='TEAM') + entry_members。
 
-A3 的边界（读代码前请先读这段）：
+边界（读代码前请先读这段）：
 - 队伍不是新表：一支队伍就是一个 Entry（entry_type='TEAM'），队员就是 entry_members。
   这样种子、分组、导出、级联删除等既有机制不用为团体赛再写一套。
 - 队伍人数规则只有下限"至少 1 名队员"。具体赛制要求几人（几单几双、能否兼项）
-  由赛制（domain/team_formats.py）决定，A3 不臆造任何人数上限或"必须 3 人"之类规则。
+  由赛制（domain/team_formats.py）决定，不臆造任何人数上限或"必须 3 人"之类规则。
 - 队伍积分（entries.rating_points）默认 0：团体赛种子规则尚未冻结，
   这里不会用队员积分自动求和或推导种子，只接受调用方显式传入的值。
-- 名单锁定只认 stage：进入 GROUP_STAGE 及以后禁止增删改队伍，与选手/名单服务一致。
-  roster_confirmed 只表示"名单已确认"，A3 不额外用它做队伍编辑锁
-  （系统目前没有"取消确认"能力，加了锁就没有退路）；A4 引入出场名单后必须
-  重新设计这条冻结规则。
+- 名单锁定分两层：
+  1. **阶段锁**：进入 GROUP_STAGE 及以后禁止增删改队伍（与选手/名单服务一致）；
+     `roster_confirmed` 只表示"名单已确认"，不作为编辑锁（系统没有"取消确认"能力）。
+  2. **Runtime 锁（A4.1）**：队伍一旦有对抗进入 PLAYING/FINISHED，**队员名单冻结**——
+     已开赛的对抗不能因为中途换人而让"已经不属于本队"的选手继续上场。
+     改名与积分不受影响；对抗尚未开始时仍可修正名单，但已提交的 lineup 会在 start 时
+     被原子重校验（见 services/team_runtime.py）。
+  3. **与 Runtime 共用写锁**：改队员名单时先取 SQLite 写锁（`BEGIN IMMEDIATE`）再重新读取
+     "对抗是否已开始"，与 `team_runtime._write_tx()` 是同一套协议；否则会出现
+     "PATCH 读到 WAITING → start 抢先进入 PLAYING → PATCH 再替换成员"的竞态。
 """
 
 import sqlite3
+from contextlib import contextmanager
 
 from .. import repository as repo
 from ..models import EventType, TournamentStage
@@ -31,6 +38,38 @@ class TeamError(Exception):
     def __init__(self, message: str, code: int = 409):
         super().__init__(message)
         self.code = code
+
+
+@contextmanager
+def _roster_write_tx(conn: sqlite3.Connection):
+    """队员名单变更的写事务：语义与 `team_runtime._write_tx()` 一致。
+
+    为什么需要它：`start_rubber()` 在写事务里重校验 lineup 并写入 PLAYING，而"改队员名单"
+    同样是 read-check-write（先读对抗是否已开始，再替换成员）。如果这两者不上同一把锁，
+    就可能出现"PATCH 读到 WAITING、start 抢先进入 PLAYING、PATCH 再替换成员"的竞态，
+    最终留下"盘 PLAYING 但阵容里的选手已不属于该队"的坏状态。
+
+    这里不把 `team_runtime._write_tx` 抽成公共模块，是因为 `team_runtime` 已经依赖 `teams`，
+    反向 import 会形成循环依赖；两处实现刻意保持同样的语义（取锁 → 重新读状态 → 写 → 提交，
+    异常回滚，锁等待超时返回可读的 409）。
+    """
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError as exc:
+        message = str(exc).lower()
+        if "within a transaction" in message:
+            raise TeamError(f"内部错误：名单写事务嵌套（{exc}）", 500) from None
+        raise TeamError("队伍名单正在被另一个请求处理，请稍后重试", 409) from None
+    try:
+        yield
+    except BaseException:
+        conn.rollback()
+        raise
+    try:
+        conn.commit()
+    except sqlite3.OperationalError as exc:
+        conn.rollback()
+        raise TeamError(f"队伍名单写入冲突，请稍后重试（{exc}）", 409) from None
 
 
 def _tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
@@ -143,17 +182,18 @@ def create_team_entry(
     return entry
 
 
-def update_team_entry(
+def _apply_team_entry_update(
     conn: sqlite3.Connection,
     tournament_id: int,
     entry_id: int,
-    display_name: str | None = None,
-    member_ids: list[int] | None = None,
-    rating_points: int | None = None,
+    display_name: str | None,
+    member_ids: list[int] | None,
+    rating_points: int | None,
 ) -> dict:
-    """改名 / 换队员 / 改积分；只传需要改的字段。
+    """`update_team_entry` 的实际逻辑；**不 commit**，事务边界由调用方决定。
 
-    member_ids 是全量替换（不是追加），并会先校验再落库。
+    所有会影响"名单是否冻结"的状态都在这里（即调用方的事务内）重新读取，
+    保证"读到的状态"与"写入"之间不会插入其它写事务。
     """
     _team_tournament(conn, tournament_id)
     entry = get_team_entry(conn, tournament_id, entry_id)
@@ -171,6 +211,16 @@ def update_team_entry(
         raise TeamError(f"已存在同名队伍「{name}」", 409)
 
     if member_ids is not None:
+        # Runtime 锁：队伍已有对抗进入 PLAYING/FINISHED 时不允许再动队员名单，
+        # 否则已经提交/正在进行的 lineup 可能指向"已经不属于该队"的选手。
+        # 这个判断必须在 `_roster_write_tx` 的写锁之内执行（见 update_team_entry）。
+        started_tie = repo.find_started_tie_for_entry(conn, entry_id)
+        if started_tie is not None:
+            raise TeamError(
+                f"该队伍已进入比赛（对抗 #{started_tie['id']}，状态 {started_tie['status']}），"
+                f"队员名单已锁定：团体赛名单在对抗开始后不可更改",
+                409,
+            )
         members = _dedup_member_ids(member_ids)
         _check_members(conn, tournament_id, members, exclude_entry_id=entry_id)
         repo.replace_entry_members(conn, entry_id, members)
@@ -178,8 +228,39 @@ def update_team_entry(
     if name != entry["display_name"] or points != entry["rating_points"]:
         repo.update_entry(conn, entry_id, name, points)
 
-    conn.commit()
     return get_team_entry(conn, tournament_id, entry_id)
+
+
+def update_team_entry(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    entry_id: int,
+    display_name: str | None = None,
+    member_ids: list[int] | None = None,
+    rating_points: int | None = None,
+) -> dict:
+    """改名 / 换队员 / 改积分；只传需要改的字段。
+
+    member_ids 是全量替换（不是追加），并会先校验再落库。
+
+    事务边界：
+    - **只改队名 / 积分**：走普通路径（读 → 写 → commit），它们破坏不了 lineup 不变量；
+    - **改队员名单**：与 Runtime 的 `start_rubber()` 共用同一把 SQLite 写锁——
+      先 `BEGIN IMMEDIATE` 拿到写锁，再在事务内重新读取"对抗是否已开始"，然后替换成员并提交。
+      这样两个方向都只会是合法结果之一：
+        * PATCH 先取锁 → 成员替换提交；随后 start 重新校验 lineup 时会发现队员已离队 → 409；
+        * start 先取锁 → 盘进入 PLAYING；随后 PATCH 会读到对抗已开始 → 409（名单锁定）。
+    """
+    if member_ids is not None:
+        with _roster_write_tx(conn):
+            return _apply_team_entry_update(
+                conn, tournament_id, entry_id, display_name, member_ids, rating_points
+            )
+    result = _apply_team_entry_update(
+        conn, tournament_id, entry_id, display_name, None, rating_points
+    )
+    conn.commit()
+    return result
 
 
 def delete_team_entry(conn: sqlite3.Connection, tournament_id: int, entry_id: int) -> None:

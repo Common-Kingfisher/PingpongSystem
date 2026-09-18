@@ -32,6 +32,15 @@ def _validate_scores(score_a: int, score_b: int, games_to_win: int) -> None:
         raise ScoreError(f"大比分胜局数必须为 {games_to_win}", 422)
 
 
+def validate_aggregate_score(score_a: int, score_b: int, games_to_win: int) -> None:
+    """公开的"大比分（胜局数）合法性"入口。
+
+    团体赛的盘比分复用这一套规则，避免出现第二份比分规则；调用方负责把 ScoreError
+    映射成自己的错误类型与 HTTP 状态码。
+    """
+    _validate_scores(score_a, score_b, games_to_win)
+
+
 def _winner_id(
     player_a_id: int, player_b_id: int, score_a: int, score_b: int
 ) -> int:

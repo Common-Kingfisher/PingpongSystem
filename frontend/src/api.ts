@@ -35,10 +35,13 @@ export type Entry = Schemas['EntryOut']
 export type EntryWithdrawalResult = Schemas['EntryWithdrawalResult']
 export type PairingResult = Schemas['PairingResult']
 export type ConfirmRosterResult = Schemas['ConfirmRosterResult']
-// 团体赛（A3）：队伍就是 entry_type='TEAM' 的 Entry，所以复用 Entry 类型，不复制字段。
+// 团体赛（A3 领域 + A4.1 Runtime）：队伍就是 entry_type='TEAM' 的 Entry，所以复用 Entry 类型。
 export type TeamTie = Schemas['TeamTieOut']
-export type TeamTieDetail = Schemas['TeamTieDetailOut']
-export type TeamRubber = Schemas['TeamRubberOut']
+// 详情/写操作统一返回运行态契约（A3 字段的超集 + 阵容/比分/权限）。
+export type TeamTieDetail = Schemas['TeamTieRuntimeOut']
+export type TeamRubber = Schemas['TeamRubberRuntimeOut']
+export type TeamLineupOptions = Schemas['TeamLineupOptionsOut']
+export type TeamPermission = Schemas['TeamPermissionOut']
 export type GroupPlayer = Schemas['GroupPlayerOut']
 export type GroupInfo = Schemas['GroupOut']
 export type GroupingResult = Schemas['GroupingResult']
@@ -276,6 +279,37 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  // 团体赛 Runtime（A4.1）：形状与权限全部由后端计算，前端只消费 permissions 与返回的完整视图。
+  getTeamLineupOptions: (tournamentId: number, tieId: number, rubberId: number) =>
+    request<TeamLineupOptions>(
+      `/api/tournaments/${tournamentId}/team-ties/${tieId}/rubbers/${rubberId}/lineup-options`,
+    ),
+  setTeamLineup: (
+    tournamentId: number,
+    tieId: number,
+    rubberId: number,
+    body: Schemas['TeamLineupRequest'],
+  ) =>
+    request<TeamTieDetail>(
+      `/api/tournaments/${tournamentId}/team-ties/${tieId}/rubbers/${rubberId}/lineup`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  startTeamRubber: (tournamentId: number, tieId: number, rubberId: number) =>
+    request<TeamTieDetail>(
+      `/api/tournaments/${tournamentId}/team-ties/${tieId}/rubbers/${rubberId}/start`,
+      { method: 'POST' },
+    ),
+  recordTeamRubberScore: (
+    tournamentId: number,
+    tieId: number,
+    rubberId: number,
+    body: Schemas['TeamRubberScoreRequest'],
+  ) =>
+    request<TeamTieDetail>(
+      `/api/tournaments/${tournamentId}/team-ties/${tieId}/rubbers/${rubberId}/score`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
 
   getGroups: (tournamentId: number) =>
     request<GroupingResult>(`/api/tournaments/${tournamentId}/groups`),

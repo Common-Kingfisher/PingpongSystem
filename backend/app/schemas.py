@@ -18,6 +18,7 @@ from .models import (
     TableStatus,
     TeamRubberStatus,
     TeamRubberType,
+    TeamSide,
     TeamTieStatus,
     TournamentMode,
     TournamentStage,
@@ -155,18 +156,82 @@ class TeamTieCreate(BaseModel):
     match_index: int | None = Field(default=None, ge=1)
 
 
-class TeamRubberOut(BaseModel):
+class TeamLineupOptionOut(BaseModel):
+    """某一边的候选上场队员（B 直接渲染成可点选列表）。"""
+
+    player_id: int
+    name: str
+    available: bool
+    # available=false 时必须给出可展示原因（例如"本盘已开始或已结束，阵容已锁定"）。
+    unavailable_reason: str | None = None
+
+
+class TeamLineupOptionsOut(BaseModel):
+    """候选阵容按边分组：每边的候选只来自本队，不做跨边混合。"""
+
+    home: list[TeamLineupOptionOut]
+    away: list[TeamLineupOptionOut]
+
+
+class TeamPermissionOut(BaseModel):
+    """后端计算的操作权限；前端按钮直接消费这些字段，不得自行推导状态机。"""
+
+    can_edit_lineup: bool
+    can_confirm_lineup: bool
+    can_start: bool
+    can_record_score: bool
+    can_revise_score: bool
+
+
+class TeamFormatRuntimeOut(BaseModel):
+    """对抗当前使用的赛制（未建盘/未登记时全部为 null，前端不得据此推算盘序）。"""
+
+    code: str | None = None
+    version: int | None = None
+    display_name: str | None = None
+    # 获胜所需盘数，只能由后端从赛制快照读取。
+    rubbers_to_win: int | None = None
+
+
+class TeamSummaryOut(BaseModel):
+    """对抗的一边；成员内嵌，避免前端为显示队伍再发多次请求。"""
+
+    entry_id: int
+    display_name: str
+    status: str
+    members: list[EntryMemberOut]
+
+
+class TeamRubberRuntimeOut(BaseModel):
+    """一盘的完整运行态：位置需求 + 实际阵容 + 比分 + 权限 + 候选阵容。"""
+
     id: int
     team_tie_id: int
     sequence: int
     rubber_type: TeamRubberType
-    # A3 只记录"这盘需要几个出场位置"，不记录具体谁上场（TeamLineup 属于 A4）。
+    status: TeamRubberStatus
+    # A3 的"位置需求"（例如 DOUBLE 盘需要 2 个位置）；与实际上场人是两件事。
     home_slots: list[str]
     away_slots: list[str]
-    status: TeamRubberStatus
-    # 预留给 A4 的 Match 适配器；A3 恒为 None。
-    match_id: int | None
+    # 本盘实际参赛人：id 用于写操作，name 用于展示。
+    home_player_ids: list[int]
+    away_player_ids: list[int]
+    home_players: list[str]
+    away_players: list[str]
+    home_score: int | None = None
+    away_score: int | None = None
+    winner_side: TeamSide | None = None
+    winner_entry_id: int | None = None
+    # 预留给以后的 Match 适配器；A4.1 仍然恒为 None（一盘不是一场普通比赛）。
+    match_id: int | None = None
+    # 已保存阵容是否仍满足"选手属于本队 + 队伍在赛"；失效时 start 会 409（可重新提交阵容）。
+    lineup_valid: bool = True
+    lineup_invalid_reason: str | None = None
+    permissions: TeamPermissionOut
+    lineup_options: TeamLineupOptionsOut
     created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
 
 
 class TeamTieOut(BaseModel):
@@ -192,13 +257,42 @@ class TeamTieOut(BaseModel):
     created_at: str
 
 
-class TeamTieDetailOut(TeamTieOut):
-    rubbers: list[TeamRubberOut]
+class TeamTieRuntimeOut(TeamTieOut):
+    """对抗的统一运行态契约（A4.1）。
+
+    它是 A3 详情响应（TeamTieOut + rubbers）的**超集**：原有字段与命名全部保留，
+    只追加 B 需要的运行态字段，因此升级是向后兼容的（旧消费方不会因为改名而断裂）。
+    所有修改运行态的写接口都直接返回这个结构，前端整体替换即可，无需二次拉取。
+    """
+
+    home_team: TeamSummaryOut
+    away_team: TeamSummaryOut
+    home_score: int
+    away_score: int
+    # 从赛制快照读取的获胜所需盘数；没有可用快照时为 null。
+    target_wins: int | None = None
+    format: TeamFormatRuntimeOut
+    rubbers: list[TeamRubberRuntimeOut]
+    permissions: TeamPermissionOut
 
 
 class RubberSkeletonRequest(BaseModel):
     format_code: str = Field(min_length=1, max_length=50)
     replace: bool = False
+
+
+class TeamLineupRequest(BaseModel):
+    """提交一盘的实际参赛人（覆盖式写入）。"""
+
+    home_player_ids: list[int]
+    away_player_ids: list[int]
+
+
+class TeamRubberScoreRequest(BaseModel):
+    """盘比分（胜局数）。合法性由后端按赛事 games_to_win 校验，前端不得自行放宽。"""
+
+    home_score: int
+    away_score: int
 
 
 class SetSeedsRequest(BaseModel):
@@ -630,7 +724,7 @@ class TeamTieRecordOut(BaseModel):
 
 
 class TeamRubberRecordOut(BaseModel):
-    """team_rubbers 表的落库形态：位置需求保持存储时的 JSON 文本。"""
+    """team_rubbers 表的落库形态：位置需求保持存储时的 JSON 文本，运行态字段一并导出。"""
 
     id: int
     team_tie_id: int
@@ -641,6 +735,14 @@ class TeamRubberRecordOut(BaseModel):
     status: str
     match_id: int | None = None
     created_at: str
+    # A4.1 运行态：lineup 绑定 / 盘比分 / 胜者 / 起止时间
+    home_player_ids_json: str | None = None
+    away_player_ids_json: str | None = None
+    home_score: int | None = None
+    away_score: int | None = None
+    winner_entry_id: int | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
 
 
 class QualificationDecisionExport(BaseModel):
