@@ -53,7 +53,10 @@ def test_group_mates_and_top_seeds_in_opposite_halves(group_count):
 
 
 def test_six_groups_cross_pairing_with_byes():
-    """6 组 = 12 人 → 16 签：最强的 4 名（各组第一按组序）轮空，其余首尾交叉。"""
+    """6 组 = 12 人 → 16 签：最强的 4 名（各组第一按组序）轮空，其余首尾交叉。
+
+    该规模属于未冻结配置：轮空落位是 deterministic compatibility implementation。
+    """
     groups = [[index * 10 + 1, index * 10 + 2] for index in range(1, 7)]
 
     rounds_spec = build_bracket(_groups(groups), allow_extended=True)
