@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, Dashboard, Match, Player, ScoreAudit, TableWithMatch, Tournament } from '../api'
+import { api, ApiError, Dashboard, Match, Player, ScheduleEstimateMatch, ScoreAudit, TableWithMatch, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import ScoreSheet from '../components/ScoreSheet'
 import LiveTableCard from '../components/LiveTableCard'
+import QueueEstimate from '../components/field/QueueEstimate'
 
 export default function ConsolePage() {
   const [params] = useSearchParams()
@@ -25,6 +26,7 @@ export default function ConsolePage() {
   const [scoreDetailMode, setScoreDetailMode] = useState(false)
   const [auditMatch, setAuditMatch] = useState<Match | null>(null)
   const [audits, setAudits] = useState<ScoreAudit[]>([])
+  const [estimateByMatchId, setEstimateByMatchId] = useState<Map<number, ScheduleEstimateMatch>>(new Map())
 
   const nameOf = useCallback(
     (id: number | null) => {
@@ -40,13 +42,14 @@ export default function ConsolePage() {
 
   const load = useCallback(async () => {
     if (tid === null) return
-    const [t, d, ps, fs, ws, gs] = await Promise.all([
+    const [t, d, ps, fs, ws, gs, estimates] = await Promise.all([
       api.getTournament(tid),
       api.getDashboard(tid),
       api.listPlayers(tid),
       api.listMatches(tid, { status: 'FINISHED' }),
       api.listMatches(tid, { status: 'WAITING' }),
       api.getGroups(tid),
+      api.getScheduleEstimates(tid).catch(() => null),
     ])
     setTournament(t)
     setDash(d)
@@ -57,6 +60,7 @@ export default function ConsolePage() {
     for (const g of gs.groups) names[g.id] = g.name
     setGroupNames(names)
     setGroupOrder(gs.groups.map((g) => g.id))
+    setEstimateByMatchId(new Map((estimates?.matches ?? []).map((item) => [item.match_id, item])))
     setLoaded(true)
   }, [tid])
 
@@ -408,6 +412,11 @@ export default function ConsolePage() {
               {sec.matches.map((m) => (
                 <article key={m.id} className="waiting-match-card">
                   <span>#{m.id}</span><strong>{sideName(m, 'a')}</strong><i>VS</i><strong>{sideName(m, 'b')}</strong>
+                  <QueueEstimate
+                    ahead={estimateByMatchId.get(m.id)?.queue_ahead}
+                    estimatedStartAt={estimateByMatchId.get(m.id)?.estimated_start_at}
+                    unavailableReason={estimateByMatchId.get(m.id)?.unavailable_reason}
+                  />
                 </article>
               ))}
             </div>
@@ -449,6 +458,7 @@ export default function ConsolePage() {
                       {m.games.length ? '修改小比分' : '补录小比分'}
                     </button>}
                     <button className="btn small" onClick={() => showAudits(m)}>操作记录</button>
+                    <Link className="btn small" to={`/match-print?tid=${tid}&mid=${m.id}`}>打印成绩单</Link>
                   </td>
                 </tr>
               )

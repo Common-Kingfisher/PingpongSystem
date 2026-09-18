@@ -562,6 +562,7 @@ export default function PlayersPage() {
               清空分组
             </button>
           )}
+          {groups.groups.length > 0 && <Link className="btn" to={`/orderbook?tid=${tid}`}>打印秩序册</Link>}
         </div>
 
         {groups.groups.length > 0 && (

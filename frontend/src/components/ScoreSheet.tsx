@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { KnockoutMatch, Match, ResultType, ScorePayload } from '../api'
+import TouchScoreInput from './field/TouchScoreInput'
 
 type GameDraft = { a: string; b: string }
 
@@ -179,10 +180,11 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
             {resultType === 'NORMAL' ? (
               <>
                 <div className="big-score-entry">
-                  <label><span>{sideA}</span><input aria-label={`${sideA}大比分`} type="number" min={0} max={gamesToWin} value={scoreA} onChange={(e) => setScoreA(e.target.value)} /></label>
+                  <TouchScoreInput label={sideA} value={scoreA} max={gamesToWin} onChange={setScoreA} side="a" />
                   <b>:</b>
-                  <label><span>{sideB}</span><input aria-label={`${sideB}大比分`} type="number" min={0} max={gamesToWin} value={scoreB} onChange={(e) => setScoreB(e.target.value)} /></label>
+                  <TouchScoreInput label={sideB} value={scoreB} max={gamesToWin} onChange={setScoreB} side="b" />
                 </div>
+                <p className="score-rule">现场先录大比分：先胜 {gamesToWin} 局；每局 {pointsToWin} 分。逐局小比分仍在已结束的小组赛中按需补录。</p>
                 {!untouchedZeroScore && scoreA !== '' && scoreB !== '' && !validBigScore && (
                   <p className="score-rule status-error">大比分应为 {gamesToWin}:0 至 {gamesToWin}:{gamesToWin - 1}（或反之），不能平局、不能超出局数。</p>
                 )}

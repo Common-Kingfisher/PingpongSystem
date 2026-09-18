@@ -186,6 +186,28 @@ h1, h2, h3, h4, .app-title, .ko-card-score, .score-sheet-versus span {
 .big-score-entry input { width: 100%; min-height: 76px; padding: 6px; text-align: center; color: #101828; background: #fff; border: 2px solid #9cbcf9; font: 800 36px/1 Bahnschrift, sans-serif; }
 .big-score-entry label:last-of-type input { border-color: #f5aaa6; }
 .big-score-entry > b { padding-bottom: 21px; font-size: 30px; }
+.touch-score-control { display: grid; gap: 8px; color: #475467; text-align: center; font-size: 12px; font-weight: 700; }
+.touch-score-actions { display: grid; grid-template-columns: 58px minmax(72px, 1fr) 58px; gap: 8px; align-items: stretch; }
+.touch-score-actions button { min-height: 76px; border: 2px solid #9cbcf9; background: #eaf2ff; color: #175cd3; font: 800 32px/1 Bahnschrift, sans-serif; cursor: pointer; }
+.touch-score-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.touch-score-actions input { margin: 0; }
+.touch-score-b .touch-score-actions button { border-color: #f5aaa6; background: #fff1f0; color: #b42318; }
+.touch-score-b .touch-score-actions input { border-color: #f5aaa6; }
+.queue-estimate { grid-column: 2 / -1; margin: -3px 0 0; font-size: 11px; }
+.queue-estimate small { display: block; color: #667085; }
+.match-print-sheet { max-width: 760px; margin: 0 auto; padding: 48px; background: #fff; box-shadow: 0 20px 60px rgba(16,24,40,.12); }
+.print-toolbar { display: flex; justify-content: space-between; margin-bottom: 28px; }
+.print-toolbar a, .print-toolbar button { padding: 8px 12px; color: var(--blue); border: 1px solid var(--blue); background: #fff; text-decoration: none; }
+.match-print-sheet header { padding-bottom: 18px; border-bottom: 2px solid var(--ink); }
+.match-print-sheet header span { color: var(--magenta); font-weight: 700; font-size: 12px; letter-spacing: .12em; }
+.match-print-sheet header h1 { margin: 10px 0 6px; }
+.match-print-versus { display: grid; grid-template-columns: 1fr auto 1fr; gap: 20px; align-items: center; margin: 38px 0; font-size: 20px; }
+.match-print-versus strong:last-child { text-align: right; }
+.match-print-versus b { font-size: 34px; }
+.match-print-sheet table { width: 100%; border-collapse: collapse; }
+.match-print-sheet th, .match-print-sheet td { padding: 12px; border: 1px solid #d0d5dd; text-align: center; }
+.match-print-sheet footer { margin-top: 50px; color: #667085; font-size: 11px; }
+.team-score-panel { margin: 16px 0; padding: 14px; border: 1px dashed #98a2b3; border-radius: 6px; }
 .detail-callout { padding: 10px 12px; color: #175cd3; background: #eff4ff; border-left: 3px solid #155eef; }
 .ranking-tiebreak { margin: 12px 0 16px; padding: 14px; color: #713b12; background: #fff8e9; border: 1px solid #f5d38b; }
 .ranking-tiebreak p { margin: 4px 0 10px; font-size: 12px; }
@@ -472,9 +494,12 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
 }
 
 @media print {
-  .app-header, .order-toolbar { display: none !important; }
+  .app-header, .order-toolbar, .print-toolbar { display: none !important; }
   .app-main { padding: 0; max-width: none; }
   .order-book { max-width: none; padding: 15mm; box-shadow: none; }
+  .order-book table thead, .match-print-sheet table thead { display: table-header-group; }
+  .order-book tr, .match-print-sheet tr { break-inside: avoid; }
+  .match-print-sheet { max-width: none; padding: 15mm; box-shadow: none; }
   .order-book section { break-inside: auto; }
   .order-book table thead { display: table-header-group; }
   .order-cover { break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
