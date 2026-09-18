@@ -211,17 +211,6 @@ def _has_real_result(conn: sqlite3.Connection, match: dict) -> bool:
     )
 
 
-def _restored_stage(conn: sqlite3.Connection, tournament_id: int) -> str:
-    """撤销淘汰赛后恢复的阶段。
-
-    淘汰赛只有在小组赛全部结束后才能生成，因此已生成过小组赛 → 回到 GROUP_STAGE；
-    没有小组赛时不设置阶段（保持当前值由调用方决定）。
-    """
-    if repo.count_matches(conn, tournament_id, stage=MatchStage.GROUP.value) > 0:
-        return TournamentStage.GROUP_STAGE.value
-    return TournamentStage.REGISTRATION.value
-
-
 def undo_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
     """撤销淘汰签表：删除 KNOCKOUT / PLACEMENT 比赛，让小组结果重新可修正。
 
@@ -261,7 +250,9 @@ def undo_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
         else:
             deleted_main += 1
 
-    repo.update_tournament_stage(conn, tournament_id, _restored_stage(conn, tournament_id))
+    # 淘汰赛只能从 GROUP_STAGE 成功生成；即使每组只有一人、合法地没有任何
+    # GROUP 比赛，撤销后也必须回到同一阶段，以允许重新检查并再次生成签表。
+    repo.update_tournament_stage(conn, tournament_id, TournamentStage.GROUP_STAGE.value)
     conn.commit()
     return {
         "tournament": repo.get_tournament(conn, tournament_id),

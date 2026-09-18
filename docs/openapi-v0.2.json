@@ -1689,6 +1689,48 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/preflight": {
+      "get": {
+        "tags": [
+          "preflight"
+        ],
+        "summary": "Inspect Tournament",
+        "operationId": "inspect_tournament_api_tournaments__tournament_id__preflight_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreflightResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decision": {
       "post": {
         "tags": [
@@ -4281,6 +4323,111 @@
         },
         "type": "object",
         "title": "PlayerUpdate"
+      },
+      "PreflightCheckOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "level": {
+            "$ref": "#/components/schemas/PreflightLevel"
+          },
+          "action_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Label"
+          },
+          "action_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "title",
+          "detail",
+          "level"
+        ],
+        "title": "PreflightCheckOut"
+      },
+      "PreflightLevel": {
+        "type": "string",
+        "enum": [
+          "READY",
+          "WARN",
+          "BLOCK"
+        ],
+        "title": "PreflightLevel"
+      },
+      "PreflightResult": {
+        "properties": {
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "overall": {
+            "$ref": "#/components/schemas/PreflightLevel"
+          },
+          "ready_count": {
+            "type": "integer",
+            "title": "Ready Count"
+          },
+          "warning_count": {
+            "type": "integer",
+            "title": "Warning Count"
+          },
+          "blocker_count": {
+            "type": "integer",
+            "title": "Blocker Count"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Metrics"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/PreflightCheckOut"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament",
+          "overall",
+          "ready_count",
+          "warning_count",
+          "blocker_count",
+          "metrics",
+          "checks"
+        ],
+        "title": "PreflightResult"
       },
       "QualificationDecisionCreate": {
         "properties": {

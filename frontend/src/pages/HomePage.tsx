@@ -181,6 +181,9 @@ export default function HomePage() {
             <p className="status-ok">🏓 正在进行 {dash.stats.playing} 场比赛</p>
           )}
           <div className="button-row">
+            <Link className="btn preflight-entry-btn" to={`/preflight?tid=${current.id}`}>
+              赛前检查
+            </Link>
             <Link className="btn" to={`/players?tid=${current.id}`}>
               选手与分组
             </Link>
@@ -276,7 +279,9 @@ export default function HomePage() {
             <select value={form.event_type} onChange={(e) => set('event_type', e.target.value as EventType)}>
               <option value="SINGLES">单打</option>
               <option value="DOUBLES">双打 · 相近积分随机配对</option>
+              <option value="TEAM" disabled>团体 · 后端与规则冻结后开放</option>
             </select>
+            <small className="muted">团体赛将在后端核心与排阵规则冻结后开放。</small>
           </label>
           <label>
             季军产生方式

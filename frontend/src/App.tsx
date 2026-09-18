@@ -9,6 +9,9 @@ import BigScreenPage from './pages/BigScreenPage'
 import RegisterPage from './pages/RegisterPage'
 import ChampionJourneyPage from './pages/ChampionJourneyPage'
 import OrderBookPage from './pages/OrderBookPage'
+import MatchPrintPage from './pages/MatchPrintPage'
+import TeamTiePage from './pages/TeamTiePage'
+import PreflightPage from './pages/PreflightPage'
 import { getActiveTournamentId } from './activeTournament'
 
 function AppNav() {
@@ -19,6 +22,7 @@ function AppNav() {
   const navItems = [
     { to: '/', label: '赛事首页', end: true },
     { to: `/players${qs}`, label: '选手与分组' },
+    { to: `/preflight${qs}`, label: '赛前检查' },
     { to: `/console${qs}`, label: '比赛控制台' },
     { to: `/rankings${qs}`, label: '小组排名' },
     { to: `/knockout${qs}`, label: '淘汰赛' },
@@ -57,6 +61,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/players" element={<PlayersPage />} />
+          <Route path="/preflight" element={<PreflightPage />} />
           <Route path="/console" element={<ConsolePage />} />
           <Route path="/rankings" element={<RankingsPage />} />
           <Route path="/knockout" element={<KnockoutPage />} />
@@ -65,6 +70,8 @@ export default function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/journey" element={<ChampionJourneyPage />} />
           <Route path="/orderbook" element={<OrderBookPage />} />
+          <Route path="/match-print" element={<MatchPrintPage />} />
+          <Route path="/team-tie" element={<TeamTiePage />} />
         </Routes>
       </main>
     </div>

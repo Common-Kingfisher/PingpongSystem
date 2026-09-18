@@ -111,3 +111,9 @@ class MatchBracket(str, Enum):
     GROUP = "GROUP"
     MAIN = "MAIN"
     PLACEMENT = "PLACEMENT"
+
+
+class PreflightLevel(str, Enum):
+    READY = "READY"
+    WARN = "WARN"
+    BLOCK = "BLOCK"

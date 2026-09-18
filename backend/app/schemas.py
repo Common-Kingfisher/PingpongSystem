@@ -13,6 +13,7 @@ from .models import (
     MatchStage,
     MatchStatus,
     PlacementMode,
+    PreflightLevel,
     ResultType,
     TableStatus,
     TeamRubberStatus,
@@ -546,6 +547,25 @@ class TournamentResults(BaseModel):
     placements: list[dict]
     total_matches: int
     finished_matches: int
+
+
+class PreflightCheckOut(BaseModel):
+    code: str
+    title: str
+    detail: str
+    level: PreflightLevel
+    action_label: str | None = None
+    action_path: str | None = None
+
+
+class PreflightResult(BaseModel):
+    tournament: TournamentOut
+    overall: PreflightLevel
+    ready_count: int
+    warning_count: int
+    blocker_count: int
+    metrics: dict[str, int]
+    checks: list[PreflightCheckOut]
 
 
 class KnockoutUndoResult(BaseModel):

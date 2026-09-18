@@ -56,6 +56,31 @@ def test_import_csv_with_bom_and_trim(client):
     assert names["张三"]["seed_no"] == 1
 
 
+def test_import_csv_gbk_and_gb18030(client):
+    tid = _create(client)
+    for filename, encoding, name in [
+        ("gbk.csv", "gbk", "王五"),
+        ("gb18030.csv", "gb18030", "赵六"),
+    ]:
+        content = f"姓名,学院\n{name},信息学院\n".encode(encoding)
+        resp = client.post(
+            f"/api/tournaments/{tid}/players/import",
+            files={"file": (filename, content, "text/csv")},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["imported"] == 1
+
+
+def test_import_csv_invalid_encoding_has_actionable_hint(client):
+    tid = _create(client)
+    resp = client.post(
+        f"/api/tournaments/{tid}/players/import",
+        files={"file": ("broken.csv", b"\xff\xfe\x80\x81", "text/csv")},
+    )
+    assert resp.status_code == 400
+    assert "UTF-8" in resp.json()["detail"]
+
+
 def test_import_csv_english_headers(client):
     tid = _create(client)
     csv_content = "name,college,seed_no\n选手01,计算机学院,1\n".encode("utf-8")

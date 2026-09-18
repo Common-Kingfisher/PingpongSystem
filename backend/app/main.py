@@ -16,6 +16,7 @@ from .routers import (
     knockout,
     matches,
     players,
+    preflight,
     qualification_decisions,
     scheduling,
     scores,
@@ -77,6 +78,7 @@ app.include_router(demo.router)
 app.include_router(matches.router)
 app.include_router(scheduling.router)
 app.include_router(scores.router)
+app.include_router(preflight.router)
 app.include_router(qualification_decisions.router)
 app.include_router(knockout.router)
 # 团体赛（A3）：队伍 + 团体对抗/盘骨架
