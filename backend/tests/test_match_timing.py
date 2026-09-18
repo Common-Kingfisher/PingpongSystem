@@ -14,9 +14,9 @@ from app.services import scheduling as scheduling_service
 from app.services import scores as scores_service
 
 
-def _service_tournament(conn, *, players=24, group_count=4, table_count=6, **kwargs):
+def _service_tournament(conn, *, players=24, group_count=4, table_count=6, qualify_per_group=2, **kwargs):
     tournament = repo.create_tournament(
-        conn, "时间基础验收", "2025-06-01", table_count, group_count, 2, **kwargs
+        conn, "时间基础验收", "2025-06-01", table_count, group_count, qualify_per_group, **kwargs
     )
     tid = tournament["id"]
     repo.create_tables_for_tournament(conn, tid, table_count)
@@ -34,6 +34,97 @@ def _set_times(conn, match_id, *, called=None, started=None, finished=None):
         (called, started, finished, match_id),
     )
     conn.commit()
+
+
+# ------------------------------------------------------------- 淘汰赛时间透传
+
+def test_knockout_service_passes_through_match_times(conn):
+    """淘汰赛读取路径必须透传时间字段（否则 KnockoutMatchOut 的默认 None 会静默丢时间）。"""
+    tid = _service_tournament(conn, players=8, group_count=4, table_count=4, qualify_per_group=2)
+    for match in repo.list_matches(conn, tid, stage="GROUP"):
+        winner = min(match["player_a_id"], match["player_b_id"])
+        score_a, score_b = (2, 0) if winner == match["player_a_id"] else (0, 2)
+        scheduling_service.assign_table(conn, match["id"], repo.list_tables(conn, tid)[0]["id"])
+        scores_service.record_score(conn, match["id"], score_a, score_b)
+    knockout_service.generate_knockout(conn, tid)
+
+    first_round = [
+        match for match in repo.list_matches(conn, tid, stage="KNOCKOUT")
+        if match["bracket"] == "MAIN" and match["round"] == 1
+    ]
+    target = first_round[0]
+    scheduling_service.assign_table(conn, target["id"], repo.list_tables(conn, tid)[0]["id"])
+    scores_service.record_score(conn, target["id"], 2, 0)
+    stored = repo.get_match(conn, target["id"])
+    assert stored["started_at"] is not None and stored["finished_at"] is not None
+
+    tree = knockout_service.get_knockout(conn, tid)
+
+    exported = next(
+        match for match in tree["rounds"][0]["matches"] if match["id"] == target["id"]
+    )
+    assert exported["called_at"] == stored["called_at"]
+    assert exported["started_at"] == stored["started_at"]
+    assert exported["finished_at"] == stored["finished_at"]
+    # 未开始的后续轮次时间必须保持为空，而不是被填充成估算值
+    pending = [
+        match for round_ in tree["rounds"][1:] for match in round_["matches"]
+    ]
+    assert pending and all(
+        match["called_at"] is None and match["started_at"] is None
+        and match["finished_at"] is None
+        for match in pending
+    )
+
+
+def test_knockout_api_returns_times_recorded_in_database(client):
+    """API 路径同样不能丢时间：淘汰赛录分后 GET /knockout 与数据库一致。"""
+    tid = client.post(
+        "/api/tournaments",
+        json={
+            "name": "淘汰赛时间透传",
+            "date": "2025-06-01",
+            "table_count": 1,
+            "group_count": 2,
+            "qualify_per_group": 1,
+        },
+    ).json()["id"]
+    for index in range(4):
+        client.post(f"/api/tournaments/{tid}/players", json={"name": f"P{index + 1}"})
+    client.post(f"/api/tournaments/{tid}/auto-group")
+    client.post(f"/api/tournaments/{tid}/generate-group-matches")
+
+    table_id = client.get(f"/api/tournaments/{tid}/dashboard").json()["tables"][0]["id"]
+    for match in client.get(f"/api/tournaments/{tid}/matches?stage=GROUP").json():
+        winner = min(match["player_a_id"], match["player_b_id"])
+        score_a, score_b = (2, 0) if winner == match["player_a_id"] else (0, 2)
+        client.post(f"/api/matches/{match['id']}/assign-table", json={"table_id": table_id})
+        client.post(
+            f"/api/matches/{match['id']}/score",
+            json={"player_a_score": score_a, "player_b_score": score_b},
+        )
+    assert client.post(f"/api/tournaments/{tid}/generate-knockout").status_code == 200
+
+    final = client.get(f"/api/tournaments/{tid}/knockout").json()["rounds"][0]["matches"][0]
+    client.post(f"/api/matches/{final['id']}/assign-table", json={"table_id": table_id})
+    client.post(
+        f"/api/matches/{final['id']}/score",
+        json={"player_a_score": 2, "player_b_score": 1},
+    )
+
+    round_one = client.get(f"/api/tournaments/{tid}/knockout").json()["rounds"][0]["matches"]
+    exported = next(match for match in round_one if match["id"] == final["id"])
+    db = db_module.connect()
+    try:
+        stored = repo.get_match(db, final["id"])
+    finally:
+        db.close()
+
+    assert stored["started_at"] is not None and stored["finished_at"] is not None
+    assert exported["called_at"] == stored["called_at"]
+    assert exported["started_at"] == stored["started_at"]
+    assert exported["finished_at"] == stored["finished_at"]
+    assert exported["status"] == "FINISHED"
 
 
 # ------------------------------------------------------------- 旧库迁移
