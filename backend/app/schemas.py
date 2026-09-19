@@ -169,6 +169,54 @@ class GenerateTeamGroupTiesResult(BaseModel):
     per_group: dict[str, int]
 
 
+class TeamStandingRowOut(BaseModel):
+    """团体小组排名的一行（A6.2）。
+
+    名次用**区间**表示：`rank_start == rank_end` 表示名次唯一；
+    并列时同组所有队伍共享同一区间且 `ambiguous = true`（绝不按 id 打破同分）。
+    """
+
+    team_entry_id: int
+    team_name: str
+    #: ACTIVE / WITHDRAWN（退赛队伍保留成绩，但不可晋级）。
+    status: str
+    #: 比赛积分：正常完赛胜方 2、负方 1；未完成对抗不计入。
+    match_points: int
+    ties_played: int
+    ties_won: int
+    ties_lost: int
+    rubber_wins: int
+    rubber_losses: int
+    games_won: int
+    games_lost: int
+    rank_start: int
+    rank_end: int
+    ambiguous: bool
+    eligible_for_qualification: bool
+    #: 名次相对晋级线的**事实描述**（RESOLVED / UNDECIDED / ELIGIBLE_ONLY），
+    #: 不是晋级结果；A6.3 才写入真正的 qualification。
+    qualification_position_state: str
+
+
+class TeamGroupStandingsOut(BaseModel):
+    """一个小组的团体排名（A6.2，只读、每次从真实事实重算）。
+
+    **刻意不包含** `qualified: true/false`：晋级写入属于 A6.3。
+    """
+
+    group_id: int
+    group_name: str
+    #: 组内是否还有未完成的对抗（含涉及已退赛队伍的）→ 排名不是最终结果。
+    provisional: bool
+    #: 是否存在无法区分的并列（至少一行 ambiguous）。
+    ambiguous: bool
+    #: provisional 为真时**必须**为 false：V1 不做结果可能性分析。
+    automatic_qualification_allowed: bool
+    #: 实际生效的晋级名额（组级覆盖值优先，否则赛事默认值）。
+    qualify_count: int
+    standings: list[TeamStandingRowOut]
+
+
 class TeamLineupOptionOut(BaseModel):
     """某一边的候选上场队员（B 直接渲染成可点选列表）。"""
 
