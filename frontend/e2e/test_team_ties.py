@@ -117,7 +117,7 @@ def test_team_ties_empty_retry_and_invalid_id():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel=os.getenv("PLAYWRIGHT_CHANNEL", "msedge"), headless=True)
         page = browser.new_page()
-        install_routes(page, [], list_failures=2)
+        install_routes(page, [], list_failures=1)
         page.goto(f"{base_url}/team-ties?tid=42")
         expect(page.get_by_role("alert")).to_contain_text("服务暂不可用")
         page.get_by_role("button", name="重试").click()

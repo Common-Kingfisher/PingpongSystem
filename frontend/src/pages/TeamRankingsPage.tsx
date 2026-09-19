@@ -17,6 +17,13 @@ const positionStateClasses: Record<TeamStandingRow['qualification_position_state
   UNKNOWN: 'undecided',
 }
 
+function qualificationStateLabel(row: TeamStandingRow): string {
+  if (row.qualification_position_state === 'ELIGIBLE_ONLY' && !row.eligible_for_qualification) {
+    return '不可晋级'
+  }
+  return positionStateLabels[row.qualification_position_state]
+}
+
 const messageOf = (error: unknown) =>
   error instanceof ApiError ? error.message : '无法加载团体排名，请稍后重试'
 
@@ -78,7 +85,7 @@ function GroupCard({ group }: { group: TeamGroupStandings }) {
                 <td data-label="局 W/L">{row.games_won}:{row.games_lost}</td>
                 <td data-label="晋级位置">
                   <span className={`team-standing-state ${positionStateClasses[row.qualification_position_state]}`}>
-                    {positionStateLabels[row.qualification_position_state]}
+                    {qualificationStateLabel(row)}
                   </span>
                 </td>
               </tr>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useBlocker, useSearchParams } from 'react-router-dom'
 import { api, ApiError, TeamRosterSaveRequest, TeamRosterSheet } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 
@@ -99,6 +99,7 @@ export default function TeamRosterPage() {
   const stageLocked = sheet?.tournament.stage !== 'REGISTRATION'
   const locked = Boolean(sheet?.tournament.roster_confirmed) || stageLocked
   const dirty = Boolean(draft && sheet && JSON.stringify(draft) !== JSON.stringify(draftFrom(sheet)))
+  const blocker = useBlocker(dirty)
   const editable = !locked && !busy && !loading
   const mutate = (work: (current: Draft) => Draft) => {
     if (!draft || !editable) return
@@ -144,6 +145,11 @@ export default function TeamRosterPage() {
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm('名单修改尚未保存，离开将放弃这些修改。是否继续？')) blocker.proceed()
+    else blocker.reset()
+  }, [blocker])
   useEffect(() => {
     if (!dialog) return
     dialogClose.current?.focus()
@@ -289,7 +295,7 @@ export default function TeamRosterPage() {
   if (!sheet || !draft) return <div className="card"><p className="status-error">{message || '无法加载队伍名单'}</p><button className="btn" onClick={() => void load()}>重试</button></div>
 
   return <div className="team-roster-page">
-    <header className="roster-titlebar"><div><span className="eyebrow">TEAM ROSTER WORKBOOK</span><h1>{sheet.tournament.name} · 队伍与名单</h1></div><div className="roster-title-actions"><Link className="ribbon-btn" to={`/team-ties?tid=${tid}`} onClick={(event) => { if (dirty && !window.confirm('名单修改尚未保存，离开将放弃这些修改。是否继续？')) event.preventDefault() }}>团体对抗</Link><div className={`roster-lock ${locked ? 'locked' : ''}`}>{stageLocked ? '赛事已进入比赛阶段 · 名单锁定' : locked ? `已冻结${sheet.tournament.confirmed_at ? ` · ${sheet.tournament.confirmed_at}` : ''}` : dirty ? '有未保存更改' : '已保存'}</div></div></header>
+    <header className="roster-titlebar"><div><span className="eyebrow">TEAM ROSTER WORKBOOK</span><h1>{sheet.tournament.name} · 队伍与名单</h1></div><div className="roster-title-actions"><Link className="ribbon-btn" to={`/team-ties?tid=${tid}`}>团体对抗</Link><div className={`roster-lock ${locked ? 'locked' : ''}`}>{stageLocked ? '赛事已进入比赛阶段 · 名单锁定' : locked ? `已冻结${sheet.tournament.confirmed_at ? ` · ${sheet.tournament.confirmed_at}` : ''}` : dirty ? '有未保存更改' : '已保存'}</div></div></header>
     <section className="roster-ribbon" aria-label="名单工具">
       <div className="ribbon-group"><strong>队伍</strong><button className="ribbon-btn" title={editTitle} disabled={!editable} onClick={() => { setTeamName(''); openDialog('team') }}>＋ 新建</button><button className="ribbon-btn" title={editTitle} disabled={!editable || !selectedTeamKey} onClick={() => { const team = draft.teams.find((item) => item.key === selectedTeamKey); setTeamName(team?.display_name ?? ''); openDialog('rename') }}>重命名</button><button className="ribbon-btn danger" title={editTitle} disabled={!editable || !selectedTeamKey} onClick={deleteTeam}>删除</button><button className="ribbon-btn" disabled={!editable || reorderDisabled || !selectedTeamKey} title={reorderDisabled ? '请先恢复正式顺序' : editTitle} onClick={() => moveTeam(-1)}>队伍↑</button><button className="ribbon-btn" disabled={!editable || reorderDisabled || !selectedTeamKey} title={reorderDisabled ? '请先恢复正式顺序' : editTitle} onClick={() => moveTeam(1)}>队伍↓</button></div>
       <div className="ribbon-group"><strong>队员</strong><button className="ribbon-btn" title={editTitle} disabled={!editable} onClick={() => { setPlayerForm({ name: '', college: '', rating: '1000', team: selectedTeamKey ?? '' }); openDialog('player') }}>＋ 新建队员</button><select aria-label="将选中队员分配到队伍" disabled={!editable || selected.size === 0} value="" onChange={(event) => { if (event.target.value) assignSelected(event.target.value) }}><option value="">分配到队伍…</option>{draft.teams.map((team) => <option key={team.key} value={team.key}>{team.display_name}</option>)}</select><button className="ribbon-btn" title={editTitle} disabled={!editable || selected.size === 0} onClick={() => assignSelected(null)}>移出队伍</button><button className="ribbon-btn danger" title={editTitle} disabled={!editable || selected.size === 0} onClick={deletePlayers}>永久删除</button></div>

@@ -89,6 +89,7 @@ def test_team_roster_warns_before_leaving_unsaved_draft():
         browser = playwright.chromium.launch(channel=os.getenv("PLAYWRIGHT_CHANNEL", "msedge"), headless=True)
         page = browser.new_page()
         page.route("**/api/tournaments/42/team-roster", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(sheet(), ensure_ascii=False)))
+        page.route("**/api/tournaments/42", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(tournament(), ensure_ascii=False)))
         page.goto(f"{base_url}/team-roster?tid=42")
         page.get_by_label("张三 姓名").fill("张三丰")
 
@@ -98,5 +99,16 @@ def test_team_roster_warns_before_leaving_unsaved_draft():
 
         page.once("dialog", lambda dialog: dialog.accept())
         page.locator(".roster-title-actions a").click()
+        expect(page).to_have_url(f"{base_url}/team-ties?tid=42")
+
+        page.goto(f"{base_url}/team-roster?tid=42")
+        page.get_by_label("张三 姓名").fill("张三丰")
+
+        page.once("dialog", lambda dialog: dialog.dismiss())
+        page.locator("nav").get_by_role("link", name="团体对抗").click()
+        expect(page).to_have_url(f"{base_url}/team-roster?tid=42")
+
+        page.once("dialog", lambda dialog: dialog.accept())
+        page.locator("nav").get_by_role("link", name="团体对抗").click()
         expect(page).to_have_url(f"{base_url}/team-ties?tid=42")
         browser.close()
