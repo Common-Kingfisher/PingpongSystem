@@ -1,18 +1,24 @@
 """团体赛赛制规格（TeamFormatSpec）与出场骨架（Rubber skeleton）——纯函数。
 
-A3 只描述"一场团体对抗由哪几盘组成、每盘每边需要几个出场位置"，
-不涉及谁上场（TeamLineup / 位置分配属于 A4），也不涉及排程与比分状态机。
+只描述"一场团体对抗由哪几盘组成、每盘每边需要几个出场位置"，
+不涉及谁上场（TeamLineup / 位置分配属于 Runtime），也不涉及排程与比分状态机。
 
 诚实边界（必须保留这些说明，不要删）：
-1. PRODUCTION_FORMATS 故意为空。团体赛赛制差异极大（几单几双、是否必须打满、
-   双打是否允许兼项、决胜盘规则……），任何具体规则都必须由赛事组织方确认冻结后
-   才能写进生产注册表。A3 绝不臆造 "奥运赛制 / ITTF 经典赛制" 之类的规则；
-   测试里使用的规格只存在于测试代码中，不通过任何 API 暴露，也不代表官方规则。
+1. **生产注册表只放组织者确认过的平台模板，且必须版本化。** 当前只有
+   `LOCAL_CLASSIC_5_V1`（A5）：它是"平台第一版生产团体赛模板"，采用 5 盘、先赢 3 盘、
+   单/单/双/单/单的盘结构。它**不声明**等同于任何一届 ITTF / 奥运会 / 中国乒协的官方规则，
+   也刻意不使用 `ITTF_*` / `OLYMPIC` / `NATIONAL_STANDARD` 这类会被读成"官方认证"的名字。
+   赛事组织方若提供正式规程，一律**新增**版本化 TeamFormatSpec，绝不覆盖已发布的版本。
+   测试里使用的规格只存在于测试代码中（`TEST_ONLY_*`），不进入生产注册表。
 2. 校验只保证"规格自洽"：结构合法、盘序从 1 连续、每盘位置数符合单打/双打的定义、
    盘数不少于获胜所需盘数。它不假设任何一条真实赛事规则。
-3. 快照（snapshot）把规格固化成 JSON：赛事进行中即使注册表升级，
+3. 快照（snapshot）把规格固化成 JSON：赛事进行中即使注册表升级（新增 V2 或下线 V1），
    已创建的对抗仍按创建时的 format_code + format_version + format_snapshot 解释，
    不会被新规则追溯改写。
+4. **只冻结能驱动 Runtime 的最低必要信息**：盘数、盘类型顺序、获胜所需盘数。
+   选手角色映射（A/B/C/X/Y/Z）、谁打一单、双打由谁组成、兼项与最多打几盘、替补规则与时机、
+   是否必须严格按 sequence 开赛、双打组合提交时机、团体小组积分规则**全部未冻结**，
+   因此"位置代号"（slots）只是骨架里的位置标识，不承载"某名固定选手必须打这里"的语义。
 """
 
 import json
@@ -212,13 +218,73 @@ def load_snapshot(text: str) -> TeamFormatSpec:
 
 # ------------------------------------------------------------ 生产注册表
 
-#: 生产赛制注册表。A3 故意留空：没有任何一条团体赛规则被确认冻结。
-PRODUCTION_FORMATS: dict[str, TeamFormatSpec] = {}
+#: 生产赛制：`LOCAL_CLASSIC_5_V1`（A5 第一版平台生产团体赛模板）。
+#:
+#: 冻结的只有"驱动 Runtime 的最低必要信息"：
+#:   - 5 盘，先赢 3 盘（`rubbers_to_win = 3`）；
+#:   - 盘类型顺序 = 单打 / 单打 / 双打 / 单打 / 单打。
+#:
+#: **没有冻结**（因此下面这些一律不写进规格，Runtime 也不实现）：
+#: 选手角色映射（A/B/C/X/Y/Z）、谁必须打一单/二单、双打由哪些人组成、
+#: 同一人最多参加几盘、单打与双打能否兼项、是否允许替补与替补人数/时机、
+#: 排阵提交时间、是否必须严格按 sequence 开赛、双打组合提交时机、团体小组积分规则。
+#:
+#: 位置代号用**中性**的 `HOME_R<序>` / `AWAY_R<序>`（双打再加 `_1` / `_2`）：
+#: 它们只标"这一盘这一边的第几个位置"，刻意不用 A/B/C/X/Y/Z 之类会暗示
+#: "固定角色 = 固定选手"的代号。实际上场人由 Runtime 的 lineup 决定。
+LOCAL_CLASSIC_5_V1 = TeamFormatSpec(
+    code="LOCAL_CLASSIC_5_V1",
+    version=1,
+    display_name="经典五盘三胜团体赛",
+    rubbers_to_win=3,
+    rubbers=(
+        RubberTemplate(1, TeamRubberType.SINGLES.value, ("HOME_R1",), ("AWAY_R1",)),
+        RubberTemplate(2, TeamRubberType.SINGLES.value, ("HOME_R2",), ("AWAY_R2",)),
+        RubberTemplate(
+            3,
+            TeamRubberType.DOUBLES.value,
+            ("HOME_R3_1", "HOME_R3_2"),
+            ("AWAY_R3_1", "AWAY_R3_2"),
+        ),
+        RubberTemplate(4, TeamRubberType.SINGLES.value, ("HOME_R4",), ("AWAY_R4",)),
+        RubberTemplate(5, TeamRubberType.SINGLES.value, ("HOME_R5",), ("AWAY_R5",)),
+    ),
+)
+
+#: 生产赛制注册表：code → 规格。**只登记已确认冻结的平台模板**，不含 `TEST_ONLY_*`。
+#: 注册表本身是"当前可用的版本清单"；一场对抗的规则真相永远是它自己的 `format_snapshot`。
+PRODUCTION_FORMATS: dict[str, TeamFormatSpec] = {
+    LOCAL_CLASSIC_5_V1.code: LOCAL_CLASSIC_5_V1,
+}
 
 
-def register_format_spec(spec: TeamFormatSpec) -> None:
-    """登记一个赛制版本（同一 code 视为同一赛制，用 version 区分版本）。"""
+def register_format_spec(spec: TeamFormatSpec, *, allow_version_bump: bool = False) -> None:
+    """登记一个赛制版本；**已经存在的 code 一律拒绝覆盖**。
+
+    为什么不再静默覆盖：`TeamFormat` 是版本化不可变定义。已创建的对抗虽然靠
+    `format_snapshot` 自保，但同一个 code 出现两种含义会让导出、审计与人工排查产生歧义
+    （"LOCAL_CLASSIC_5_V1 到底是 5 盘还是 7 盘？"）。因此规则变化必须**新增**新 code
+    （例如 `..._V2`），而不是改写已发布的 code。
+
+    - 新 code：登记成功。
+    - 已存在同一 code：抛 `TeamFormatError`（继承 `ValueError`），**注册表保持原样**；
+      即使传入更高的 version 也拒绝，除非显式 `allow_version_bump=True`
+      （只有确认要修订同一 code 时才用，正常发版不走这条路）。
+    - code 相同且对象就是同一个（幂等重复登记）：视为无操作，避免脚本/测试重复登记时误伤。
+    """
     validate_format_spec(spec)
+    existing = PRODUCTION_FORMATS.get(spec.code)
+    if existing is not None and existing is not spec:
+        if not allow_version_bump:
+            raise TeamFormatError(
+                f"赛制「{spec.code}」已登记（version={existing.version}），不能覆盖；"
+                f"规则变化请新增版本化 code（例如 {spec.code}_V{spec.version}）"
+            )
+        if spec.version <= existing.version:
+            raise TeamFormatError(
+                f"赛制「{spec.code}」版本必须递增才能替换："
+                f"已有 version={existing.version}，收到 version={spec.version}"
+            )
     PRODUCTION_FORMATS[spec.code] = spec
 
 
@@ -226,9 +292,10 @@ def get_format_spec(code: str) -> TeamFormatSpec:
     """按 code 取赛制；未登记一律报错，绝不返回"默认赛制"。"""
     if not isinstance(code, str) or code.strip() == "":
         raise TeamFormatError("赛制 code 不能为空")
+    # 通过模块属性读取：测试可以临时替换整个注册表（monkeypatch）而不影响生产清单。
     spec = PRODUCTION_FORMATS.get(code)
     if spec is None:
-        raise TeamFormatError(f"未知的团体赛赛制：{code}（生产注册表尚未冻结任何赛制）")
+        raise TeamFormatError(f"未知的团体赛赛制：{code}（未登记的赛制不会被套用）")
     return spec
 
 

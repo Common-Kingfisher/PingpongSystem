@@ -2,7 +2,9 @@
 
 测试用的赛制叫 `TEST_ONLY_*`，只在测试进程内注册，**不代表任何正式团体赛赛制**，
 盘序也没有产品含义：它只是用来验证"与赛制无关"的通用状态机。
-生产注册表始终为空（`PRODUCTION_FORMATS == {}`），赛制冻结后只需注册一个 TeamFormatSpec。
+生产注册表另有平台模板 `LOCAL_CLASSIC_5_V1`（A5），本文件刻意不用它，
+以便证明引擎是赛制无关的：换一个 TeamFormatSpec 不需要改引擎。
+真实生产赛制跑通整条链路由 `backend/tests/test_team_format_v1.py` 负责。
 
 PR #20 复审后补充：名单冻结 / lineup 失效重校验（P1-1）、并发下的原子状态迁移（P1-2）、
 "多盘 PLAYING"不变量必须在写入之前校验（P2）。

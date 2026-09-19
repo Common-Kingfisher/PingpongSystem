@@ -8,7 +8,11 @@
 "候选阵容按边分组"等几点，列在文末「与 B Draft 的差异」，合并时以本文为准。
 
 边界：本契约只描述页面消费的数据与操作权限，**不冻结任何真实团体赛规则**。
-赛制仍由组织者确认后登记（当前 `PRODUCTION_FORMATS = {}`），盘序、兼项、替补、提前结束规则都不在本契约里。
+生产赛制由组织者确认后版本化登记：A5 起已有第一版 `LOCAL_CLASSIC_5_V1`
+（5 盘、先赢 3 盘、单/单/双/单/单；**不声明**等同于任何官方规则，详见 `docs/TEAM_DOMAIN.md`）。
+盘序、兼项、替补、选手角色映射与提前结束规则都不在本契约里；**页面不得根据 `format.code` 推导业务逻辑**
+（不得出现 `if code === 'LOCAL_CLASSIC_5_V1'` 或写死 `TARGET_WINS = 3`），
+一律按后端返回的 `rubbers` 渲染、按 `target_wins` 显示。规则变化一律新增版本，不覆盖已有 code。
 
 ## 1. 读取模型：`TeamTieRuntimeOut`
 
@@ -54,11 +58,12 @@ B 不需要为显示一支队伍再发额外请求。
 
 | 字段 | 类型 | nullable | 说明 |
 | --- | --- | --- | --- |
-| `code`, `display_name` | string | 是 | 赛制代号与名称（未登记/未建盘为 null）。 |
-| `version` | integer | 是 | 赛制版本。 |
+| `code`, `display_name` | string | 是 | 赛制代号与名称（未建盘为 null；建盘后为快照里的值，例如 `LOCAL_CLASSIC_5_V1` / 经典五盘三胜团体赛）。 |
+| `version` | integer | 是 | 赛制版本（快照里的版本，不随注册表变化）。 |
 | `rubbers_to_win` | integer | 是 | 获胜所需盘数；与对抗上的 `target_wins` 同源。 |
 
-前端**不得**自己算 `(len(rubbers)+1)/2` 或写死 3：正式赛制可能不是简单多数。
+前端**不得**自己算 `(len(rubbers)+1)/2`、写死 3，或按 `code` / 盘数分支渲染：
+一律 `rubbers.map(...)` + 显示后端给的 `target_wins`。
 
 ## 4. `TeamRubberRuntimeOut`
 
@@ -67,7 +72,7 @@ B 不需要为显示一支队伍再发额外请求。
 | `id`, `team_tie_id`, `sequence` | integer | 否 | 盘标识与显示顺序。 |
 | `rubber_type` | `SINGLES \| DOUBLES` | 否 | 只控制文案与**每边人数**（1 / 2）。 |
 | `status` | `PENDING \| READY \| PLAYING \| FINISHED \| SKIPPED` | 否 | 后端状态机；SKIPPED 只由后端决定。 |
-| `home_slots`, `away_slots` | string[] | 否 | 赛制要求的"位置代号"（例如双打盘 2 个位置）。 |
+| `home_slots`, `away_slots` | string[] | 否 | 赛制要求的"位置代号"（例如生产赛制双打盘的 `["HOME_R3_1","HOME_R3_2"]`）。只是位置标识：不承载"某个固定角色/选手必须打这里"的语义，页面只用于展示。 |
 | `home_player_ids`, `away_player_ids` | integer[] | 否 | 本盘**实际**上场队员 id（未确认为空数组）。写操作用它。 |
 | `home_players`, `away_players` | string[] | 否 | 与上面对应的展示名（用于比分条/直播文案）。 |
 | `home_score`, `away_score` | integer | 是 | 本盘胜局数；未结束/跳过为 null。 |
@@ -171,14 +176,18 @@ Runtime 的每个写操作都满足：
    `BEGIN IMMEDIATE` 再重新读取"对抗是否已开始"，因此 roster mutation 与 Runtime start 原子串行化——
    两者只会有一个成功：要么名单先改完（随后 `start` 因阵容失效 409），要么盘先开始（随后改名单 409 名单锁定）。
    只改队名或积分不进入这把锁。
+5. **写事务实现在 `services/transaction.py`（PR #22 复审 P1）**：`write_transaction()` 是
+   `BEGIN IMMEDIATE` + 异常回滚 + 锁等待超时映射的唯一实现，Runtime 各写操作与建盘骨架
+   （`POST .../rubber-skeleton`）共同复用。因此建盘也满足本节第 1 条：并发重复建盘，
+   一个成功、另一个拿 409，不会把 `UNIQUE (team_tie_id, sequence)` 撞成 500。
 
 ## 8. 错误契约
 
 | 状态码 | 场景 |
 | --- | --- |
 | 404 | 赛事 / 团体对抗 / 盘 / 选手不存在（或盘不属于该对抗、对抗不属于该赛事）。 |
-| 409 | 业务状态冲突：对抗已结束、本盘未 READY、本盘已在其它状态、已有另一盘 PLAYING、阵容已锁定、队员不属于该队伍、队伍已退赛、阵容已失效（队员已被移出名单）、名单已冻结（队伍已有对抗开赛）、缺少可用赛制快照、另一个请求正在处理该对抗（写锁等待超时）。 |
-| 422 | payload 本身非法：人数与盘型不符、同一边重复队员、比分不合法。 |
+| 409 | 业务状态冲突：对抗已结束、本盘未 READY、本盘已在其它状态、已有另一盘 PLAYING、阵容已锁定、队员不属于该队伍、队伍已退赛、阵容已失效（队员已被移出名单）、名单已冻结（队伍已有对抗开赛）、缺少可用赛制快照、另一个请求正在处理该对抗（写锁等待超时）；建盘/重建：已有骨架（未显式 `replace`）、或对抗已进入 Runtime（有盘 READY/PLAYING/FINISHED/SKIPPED）——**开赛后换赛制或重建骨架是永久 409**。 |
+| 422 | payload 本身非法：人数与盘型不符、同一边重复队员、比分不合法、建盘时提交了**未登记/未知的赛制 code**（不会退回默认赛制，也不会变成 500）。 |
 
 失败响应保持项目现有风格（`{"detail": "可展示的中文原因"}`），B 直接展示 `detail`。
 

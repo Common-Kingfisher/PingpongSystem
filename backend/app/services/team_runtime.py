@@ -30,9 +30,9 @@
 FastAPI 每个请求使用独立 SQLite 连接，"先 SELECT 判断、再无条件 UPDATE"不是原子状态迁移：
 两个并发请求可以同时通过校验再依次写入，从而绕过"最多一盘 PLAYING / 不允许改分"等约束。因此：
 
-1. 所有写操作都把 **read-check-write 放进一个 `BEGIN IMMEDIATE` 写事务**（`_write_tx`）：
-   拿到写锁后再读状态，天然把同一对抗的并发请求串行化；锁等待超时（另一个请求正在处理）
-   返回可读的 409 而不是 500。
+1. 所有写操作都把 **read-check-write 放进一个 `BEGIN IMMEDIATE` 写事务**（`_write_tx`，
+   共用实现在 `services/transaction.py`，建盘骨架用的是同一份）：拿到写锁后再读状态，
+   天然把同一对抗的并发请求串行化；锁等待超时（另一个请求正在处理）返回可读的 409 而不是 500。
 2. 写入本身是**带预期旧状态的条件更新**并检查 rowcount（`repository.mark_team_rubber_*`）：
    即使有人绕过事务，PLAYING 也不会被写回 READY、FINISHED 也不会被二次结算覆盖。
 3. "同一对抗同时最多一盘 PLAYING"等跨行不变量**在事务内、任何写入之前**校验。
@@ -64,6 +64,7 @@ from ..models import (
 from .scores import ScoreError, validate_aggregate_score
 from .team_ties import TeamTieError, _team_tournament  # 同包共享赛事/项目前置校验
 from .teams import ENTRY_STATUS_ACTIVE
+from .transaction import TransactionBusyError, write_transaction
 
 #: 每边需要的上场人数直接来自赛制领域定义（SINGLES=1 / DOUBLES=2），不在这里写第二份。
 SLOTS_PER_SIDE = team_formats.SLOTS_PER_SIDE
@@ -81,29 +82,24 @@ class TeamRuntimeError(Exception):
 def _write_tx(conn: sqlite3.Connection):
     """把一次 Runtime 写操作的"读-判断-写"整体放进写事务。
 
-    `BEGIN IMMEDIATE` 立刻取写锁：同一对抗的并发请求会被串行化，后来者读到的是前一个
-    请求已提交的状态，因此状态机守卫不会被并发绕过。异常一律回滚（不留半成品状态）。
+    实现收敛到 `services/transaction.write_transaction`（与建盘 skeleton 共用同一份逻辑），
+    这里只负责把"拿不到锁"翻译成本模块的业务异常：
+
+    - `BEGIN IMMEDIATE` 立刻取写锁：同一对抗的并发请求会被串行化，后来者读到的是前一个
+      请求已提交的状态，因此状态机守卫不会被并发绕过；
+    - 异常一律回滚（不留半成品状态）；
+    - 锁等待超时（另一个请求正在处理）返回可读的 409，而不是 500。
     """
     try:
-        conn.execute("BEGIN IMMEDIATE")
-    except sqlite3.OperationalError as exc:
-        message = str(exc).lower()
-        if "within a transaction" in message:
-            # 调用方漏了 commit，属于内部错误（正常请求路径每个请求一个干净连接）。
-            raise TeamRuntimeError(f"内部错误：Runtime 写事务嵌套（{exc}）", 500) from None
-        raise TeamRuntimeError(
-            f"该对抗正在被另一个请求处理，请稍后重试（{exc}）", 409
-        ) from None
-    try:
-        yield
-    except BaseException:
-        conn.rollback()
-        raise
-    try:
-        conn.commit()
-    except sqlite3.OperationalError as exc:
-        conn.rollback()
-        raise TeamRuntimeError(f"写入冲突，请稍后重试（{exc}）", 409) from None
+        with write_transaction(
+            conn,
+            busy_message="该对抗正在被另一个请求处理，请稍后重试",
+            conflict_message="写入冲突，请稍后重试",
+        ):
+            yield
+    except TransactionBusyError as exc:
+        # 业务冲突保持 409；“写事务嵌套”是调用方漏 commit 的内部错误，按 500 上报（与之前一致）。
+        raise TeamRuntimeError(str(exc), exc.code) from None
 
 
 
