@@ -205,6 +205,21 @@ CREATE TABLE IF NOT EXISTS qualification_decisions (
     invalidation_reason TEXT
 );
 
+-- 团体赛晋级确认（A6.3）：只记录"哪些队伍已被确认晋级"，是**人工/系统确认的结果**。
+-- 排名事实永远从 team_ties / team_rubbers 现算（A6.2），这里**刻意不保存**
+-- rank / 积分 / 排名快照，避免第二真相源；淘汰签只用"小组顺序 + 组内序号"。
+CREATE TABLE IF NOT EXISTS team_qualifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    team_entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'QUALIFIED' CHECK (status IN ('QUALIFIED')),
+    confirmed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (tournament_id, team_entry_id)
+);
+CREATE INDEX IF NOT EXISTS idx_team_qualifications_tournament
+    ON team_qualifications(tournament_id);
+
 -- 团体赛领域模型（A3）：TeamTie 表示"A 队 vs B 队"整场对抗，TeamRubber 表示其中的一盘。
 -- 队伍本身复用 entries(entry_type='TEAM') + entry_members，不再建 teams/team_members 重复名单。
 -- TeamRubber.match_id 只是为以后的 Match adapter 预留，A4.1 仍然保持 NULL。

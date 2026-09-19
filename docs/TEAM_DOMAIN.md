@@ -1,9 +1,11 @@
-# 团体赛（TEAM）领域基础与边界（A3 + A4.1 + A5 + A6.1 + A6.2）
+# 团体赛（TEAM）领域基础与边界（A3 + A4.1 + A5 + A6.1 + A6.2 + A6.3/A6.4）
 
-最近维护：A6.2（Team Group Standings V1）。本文只描述**已经落地**的团体赛能力，以及**刻意没做**的部分和原因。
+最近维护：A6.3 / A6.4（Team Qualification + Team Knockout Bracket）。本文只描述**已经落地**的团体赛能力，以及**刻意没做**的部分和原因。
 若与代码冲突，以 `backend/app/` 的 Pydantic 契约、SQLite DDL 与测试为准，并在同一 PR 修正本文。
 运行态字段、状态机与权限的消费契约见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md)；
-**团体小组排名的业务规则**（唯一规则源）见 [团体小组排名规则 V1](TEAM_GROUP_RULES_V1.md)。
+**团体小组排名的业务规则**（唯一规则源）见 [团体小组排名规则 V1](TEAM_GROUP_RULES_V1.md)；
+**团体晋级与淘汰签的业务规则**（唯一规则源）见
+[团体晋级与淘汰签规则 V1](TEAM_QUALIFICATION_KNOCKOUT_V1.md)。
 
 ## 一句话结论
 
@@ -24,10 +26,39 @@
   （`POST .../team-ties/generate-group-ties`），不再需要手工一场一场建对抗。
 - A6.2 交付"团体小组排名"（只读）：小组现在有**比赛积分 → 同分子集重算 → 盘比率 → 局比率 → 并列区间**
   的排名事实，并给出"能否自动晋级"的标记位。它**只计算与展示**，不写入任何晋级结果。
+- A6.3 交付"团体晋级确认"：按 A6.2 的排名事实判定每组前 N；**跨越晋级线的并列一律交人工确认**
+  （绝不按 id / 顺序 / 随机打破）；确认结果落 `team_qualifications`（只存"谁晋级"）。
+- A6.4 交付"团体淘汰签生成"：按已确认的晋级名单，用"小组顺序 + 组内名次"做种子，
+  相邻组交叉配对生成首轮 TeamTie（`stage='KNOCKOUT'`），并返回完整签表轮次骨架。
 
-它仍**不是**完整的团体赛赛事功能：没有正式 TEAM 前端入口（B 工作线在推进）、
-**没有出线/晋级写入与人工裁定、没有团体淘汰赛**、不参与排程与预计时间、
-赛事阶段 `stage` 也不会因生成对抗或查看排名而推进。`team_rubbers.match_id` 仍恒为 NULL。
+TEAM 现在具备从**小组赛到淘汰签**的后端闭环。它仍**不是**完整的团体赛赛事功能：
+没有正式 TEAM 前端入口（B 工作线在推进）、**淘汰签的胜者晋级尚未实现**（后续轮次只是待定槽位）、
+不参与排程与预计时间、赛事阶段 `stage` 也不会因生成对抗 / 排名 / 晋级 / 签表而推进。
+`team_rubbers.match_id` 仍恒为 NULL。
+
+## 团体晋级与淘汰签（A6.3 / A6.4）
+
+规则全文见 [团体晋级与淘汰签规则 V1](TEAM_QUALIFICATION_KNOCKOUT_V1.md)（**唯一业务规则源**）。
+这里只记录**实现边界**：
+
+- 纯算法在 `domain/team_qualification.py`（晋级判定）与 `domain/team_knockout.py`（配对与轮次结构），
+  服务在 `services/team_qualification.py` / `services/team_knockout.py`，
+  路由在 `routers/team_qualification.py` / `routers/team_knockout.py`。
+- **晋级只消费 A6.2 的事实、不重新排名**；跨晋级线并列 → `requires_manual_resolution = true`，
+  系统不给任何"推荐晋级"。
+- **不复用个人赛**：不调用 `services/knockout.py`、不创建任何 `matches` 行、不用个人赛名次规则。
+  唯一复用是 `domain/knockout.build_bracket()` 的纯**结构**能力（轮次数与后续轮次场次数）。
+- **复用 `team_ties`**：淘汰赛 `stage='KNOCKOUT'`、`group_id` 恒为 NULL，
+  **不新建** `team_knockout_ties`。淘汰赛 TeamTie 与小组赛同构，可直接用 `LOCAL_CLASSIC_5_V1`
+  建盘并进入 A4.1 Runtime。
+- **只存"谁晋级"**：`team_qualifications` 不保存 rank / 积分 / 排名快照，避免第二真相源。
+- **生成只建立首轮**：后续轮次在读取时按签表几何补全为待定槽位
+  （`match_count` 给出应有场次数、`matches` 为空）。原因见规则文档 §2.5：
+  `team_ties.entry_a_id/entry_b_id` 是 NOT NULL 且没有 `prev` 依赖列，
+  预建空对抗只会留下无法消费的空行。
+- **不做**：Scheduler / ETA、实时运行态 UI、高级种子算法（rating / 历史积分 / 跨赛事排名）、
+  自动处理并列晋级、轮空 / 奇数组 / 每组晋级数 ≠ 2（未冻结，一律 409）、
+  淘汰签撤销与重建、TEAM 阶段推进。
 
 ## 团体小组排名（A6.2）
 
@@ -288,6 +319,10 @@ A4.1 给 `team_rubbers` 追加运行态列时**不重建表**（CHECK 没变）�
 | POST | `/api/tournaments/{id}/team-ties/generate-group-ties` | **A6.1** 按小组单循环批量生成小组对抗；返回 `{ties_generated, per_group}`；重复生成 / 有队伍未分组 / 非 TEAM 一律 409 |
 | GET | `/api/tournaments/{id}/team-groups/standings` | **A6.2** 本赛事全部小组的团体排名（只读，可按 `group_id` 过滤，按 `groups.sort_order` 排序） |
 | GET | `/api/tournaments/{id}/team-groups/{group_id}/standings` | **A6.2** 单个小组的团体排名（只读；小组不存在或跨赛事 404；非 TEAM 409） |
+| GET | `/api/tournaments/{id}/qualification` | **A6.3** 团体晋级状态（每组候选、是否需要人工处理、是否可确认、已确认名单；只读） |
+| POST | `/api/tournaments/{id}/qualification/confirm` | **A6.3** 人工确认晋级名单（全量替换；数量/重复/跨线并列取舍不合法 422，未打完或存在未解决并列 409） |
+| POST | `/api/tournaments/{id}/team-knockout/generate` | **A6.4** 按已确认晋级生成团体淘汰签（只建首轮；重复生成 / 未确认 / 规模不受支持 409） |
+| GET | `/api/tournaments/{id}/team-knockout` | **A6.4** 查询团体淘汰签（未生成时 `generated=false`；`rounds` 是完整轮次骨架） |
 | GET | `/api/tournaments/{id}/team-ties/{tie_id}` | **对抗运行态**（`TeamTieRuntimeOut`：队伍、比分、盘、权限） |
 | POST | `/api/tournaments/{id}/team-ties/{tie_id}/rubber-skeleton` | 按已登记赛制建盘；已存在时 409，`replace=true` 且**所有盘仍为 PENDING 且对抗未进入 Runtime** 时可重建；对抗一旦有盘 READY/PLAYING/FINISHED/SKIPPED 就永久 409 |
 | GET | `.../rubbers/{rubber_id}/lineup-options` | 两边的候选阵容（可用性与不可用原因） |
@@ -313,6 +348,15 @@ A4.1 给 `team_rubbers` 追加运行态列时**不重建表**（CHECK 没变）�
 小组排名接口（A6.2）的业务守卫：赛事不存在 → 404；不是 TEAM 项目 → 409；
 小组不存在或跨赛事 → 404。排名是只读计算，**不写任何数据、不改赛事阶段、不写入晋级结果**。
 
+团体晋级接口（A6.3）的业务守卫：赛事不存在 → 404；不是 TEAM 项目 → 409；
+尚未有小组 → 409；组内比赛未全部结束 → 409（`provisional`）；
+确认名单重复 / 每组数量不符 / 跨线并列取舍不正确 / 含非候选队伍 → 422；
+队伍不属于本赛事 → 404。确认是**全量替换**且在一个写事务内完成。
+
+团体淘汰签接口（A6.4）的业务守卫：赛事不存在 → 404；不是 TEAM 项目 → 409；
+尚未确认晋级 → 409；已有淘汰对抗 → 409（不补齐 / 不覆盖 / 不重新生成）；
+已确认队伍中有退赛者 → 409；晋级规模不受支持（奇数小组 / 每组晋级数 ≠ 2 / 非 2 的幂）→ 409。
+
 Runtime 写操作的守卫见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md) §8：
 404（赛事/对抗/盘/选手不存在）、409（对抗已结束、盘未 READY、已有盘 PLAYING、阵容已锁定、
 队员不属于队伍、缺少赛制快照）、422（人数与盘型不符、同边重复队员、比分不合法）。
@@ -332,8 +376,9 @@ Runtime 写操作的守卫见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md) 
    当前同一对抗**串行**执行（同时最多一盘 PLAYING），这是简化而不是现场规则。
    （A6.1 生成的小组对抗同样不参与排程：`round`/`match_index` 只是编排序号，不是时间计划。）
 6. **团体排名与晋级**：`domain/ranking.py` 是单打/双打口径的胜场-净胜局-积分算法，没有团体赛排名。
-   **A6.2 已提供团体小组排名**（见上文「团体小组排名」），但**出线/晋级写入、人工裁定、
-   团体淘汰赛结构**仍未实现；得失分比率（points ratio）也不在 V1 范围内。
+   **A6.2 已提供团体小组排名、A6.3 已提供晋级确认、A6.4 已提供淘汰签生成**（见上文）；
+   仍未实现：**淘汰签的胜者晋级**（后续轮次只是待定槽位）、淘汰签撤销 / 重建、
+   轮空与奇数组配置、得失分比率（points ratio）、自动处理并列晋级（必须人工确认）。
 7. **队伍种子**：团体赛种子规则未冻结；`entries.rating_points` 默认 0，只接受显式传入，
    绝不按队员积分求和或推导；打分赛的「按积分生成种子」对 TEAM / DOUBLES 都返回 409。
 8. **Demo 模拟**：`demo/finish-group-stage` 与小组赛/淘汰赛生成接口对 TEAM 一律 409，不伪造团体赛结果。
@@ -478,4 +523,15 @@ pnpm -C frontend run build
   provisional（WAITING / PLAYING）、退赛（成绩保留 + 不可晋级 + 有未完赛则整组禁止自动晋级）、
   非 TEAM 409 / 小组不存在 404、每次查询从数据库事实重算、并列区间共享、
   A6.1 生成 → Runtime 真打完 → standings 端到端，以及 API 层契约与错误码。
+- `backend/tests/test_team_qualification.py`（A6.3）：4 组 × 每组前 2 正常晋级与确认；
+  **跨晋级线并列**（1 强 + 3 循环构造）→ `requires_manual_resolution`、系统不选任何人、
+  人工从并列块选出正确数量才能确认；小组未打完 → 409；非法确认（跨赛事队伍 404 /
+  数量错误 422 / 重复队伍 422 / 空名单 422）且**都不落库**；已退赛队伍不在候选；
+  确认是全量替换（重复确认不翻倍）；与 A6.2 名次事实逐组一致；非 TEAM / 赛事不存在；API 全流程。
+- `backend/tests/test_team_knockout.py`（A6.4）：8 队 → 4 QF + 2 SF + 1 Final（首轮 4 场入库、
+  后续轮次为待定骨架）、跨组交叉逐场校验、复用 `team_ties`（`stage=KNOCKOUT`、`group_id=NULL`）
+  且**不创建任何 Match**、淘汰赛 TeamTie 可直接建盘进入 Runtime、重复生成 409 不翻倍、
+  未确认晋级 / provisional 禁止生成、确定性（两赛事形态一致 + 查询幂等）、
+  只认已确认名单、已确认队伍退赛后 409、2 组 → 4 签、未生成时查询返回空签表、
+  域层拒绝未冻结规模（奇数组 / 每组晋级数 ≠ 2 / 重复 / 空）、端到端与 API 全流程。
 - `backend/tests/test_tournament_delete_reliability.py`：团体赛级联删除用例。
