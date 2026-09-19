@@ -714,6 +714,41 @@ export interface paths {
         patch: operations["update_team_api_tournaments__tournament_id__teams__entry_id__patch"];
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/team-roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sheet */
+        get: operations["get_sheet_api_tournaments__tournament_id__team_roster_get"];
+        /** Save Sheet */
+        put: operations["save_sheet_api_tournaments__tournament_id__team_roster_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/team-roster/unconfirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unconfirm */
+        post: operations["unconfirm_api_tournaments__tournament_id__team_roster_unconfirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}/team-ties": {
         parameters: {
             query?: never;
@@ -1003,6 +1038,11 @@ export interface components {
             display_name: string;
             /** Rating Points */
             rating_points: number;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
             /** Group Id */
             group_id: number | null;
             /** Seed No */
@@ -1979,6 +2019,71 @@ export interface components {
             can_record_score: boolean;
             /** Can Revise Score */
             can_revise_score: boolean;
+        };
+        /** TeamRosterPlayerDraft */
+        TeamRosterPlayerDraft: {
+            /** Key */
+            key: string;
+            /** Id */
+            id?: number | null;
+            /** Name */
+            name: string;
+            /** College */
+            college?: string | null;
+            /**
+             * Rating Points
+             * @default 1000
+             */
+            rating_points: number;
+            /** Team Key */
+            team_key?: string | null;
+            /** Member Order */
+            member_order?: number | null;
+        };
+        /** TeamRosterSaveRequest */
+        TeamRosterSaveRequest: {
+            /** Base Revision */
+            base_revision: string;
+            /** Teams */
+            teams: components["schemas"]["TeamRosterTeamDraft"][];
+            /** Players */
+            players: components["schemas"]["TeamRosterPlayerDraft"][];
+            /**
+             * Deleted Team Ids
+             * @default []
+             */
+            deleted_team_ids: number[];
+            /**
+             * Deleted Player Ids
+             * @default []
+             */
+            deleted_player_ids: number[];
+        };
+        /** TeamRosterSheetOut */
+        TeamRosterSheetOut: {
+            tournament: components["schemas"]["TournamentOut"];
+            /** Teams */
+            teams: components["schemas"]["EntryOut"][];
+            /** Players */
+            players: components["schemas"]["PlayerOut"][];
+            /** Revision */
+            revision: string;
+        };
+        /** TeamRosterTeamDraft */
+        TeamRosterTeamDraft: {
+            /** Key */
+            key: string;
+            /** Id */
+            id?: number | null;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Rating Points
+             * @default 0
+             */
+            rating_points: number;
+            /** Sort Order */
+            sort_order: number;
         };
         /**
          * TeamRubberRecordOut
@@ -3992,6 +4097,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sheet_api_tournaments__tournament_id__team_roster_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamRosterSheetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_sheet_api_tournaments__tournament_id__team_roster_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamRosterSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamRosterSheetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unconfirm_api_tournaments__tournament_id__team_roster_unconfirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamRosterSheetOut"];
                 };
             };
             /** @description Validation Error */

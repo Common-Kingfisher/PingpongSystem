@@ -73,8 +73,8 @@
 复用个人赛同一份纯函数 `domain/round_robin.py::round_robin`（固定轮转法 / circle method），
 **没有**为团体赛复制第二份算法，也没有为了复用去重构个人赛。每组是一个**独立**的循环：
 
-- 输入顺序 = 该组 `ACTIVE` TeamEntry 按 **`id` 升序**
-  （`entries` 没有 `sort_order` 列；`id` 就是插入顺序，也是个人赛小组赛生成器用的口径）；
+- 输入顺序 = 该组 `ACTIVE` TeamEntry 按 **`id` 升序**。队伍工作表的 `sort_order` 是名单展示与
+  正式队伍顺序；小组循环对阵保留 A6.1 的 `id` 顺序，以避免编辑展示顺序后悄然重排既有编排语义；
 - `round`：组内轮次，**从 1 开始**（偶数 N → N-1 轮；奇数 N → N 轮）；
 - `match_index`：**轮内**场序，从 1 开始，取 round-robin 在该轮的输出顺序；
 - 无随机数、无 `random.shuffle`、不依赖数据库未声明的隐式顺序：
@@ -124,9 +124,8 @@
   必须与团体排名、晋级、排程一起设计；本批次只生成对抗，赛事阶段保持原样。
 - **不批量生成 rubber skeleton**：`build_rubber_skeleton()` 有自己独立的事务与安全契约
   （PR #22 复审），批量调用会造成嵌套写事务；生成后仍按既有接口逐个"选生产赛制 → 建盘"。
-- **不做团体小组积分/排名/出线、团体淘汰赛、团体 Scheduler/ETA**：
-  这些规则 Reviewer 尚未冻结，代码里**不存在**任何 `team standings` / `qualification` /
-  `team knockout` 实现，也没有"胜一场 2 分、负一场 1 分"这类看起来常见但未确认的规则。
+- **A6.1 本批次不做团体小组积分/排名/出线、团体淘汰赛、团体 Scheduler/ETA**：
+  后续 A6.2 已在独立规则冻结后实现只读 `team standings`；`qualification` / `team knockout` 仍未实现。
 - **不做安全撤销/重建团体小组赛**（以后独立设计）。
 
 ## Production Team Format V1（A5）
@@ -179,6 +178,22 @@ Runtime 继续只执行已有的通用规则（阵容只做"本队队员 + 队�
 - Runtime 与读取路径一律基于 `format_snapshot` 解释，**不重新读取当前注册表**。
   因此即使未来 V1 被改写、被替换、甚至从注册表下线，已创建的 V1 对抗仍按原始规则运行
   （`backend/tests/test_team_format_v1.py` 有对应的快照稳定性测试）。
+## 队伍与名单工作表（B）及冻结契约
+
+`/team-roster?tid={id}` 是 TEAM 赛事的独立桌面管理页，主站赛事列表和顶部导航均只在 TEAM 项目中引导至该页。
+它以完整草稿一次保存队伍、队员、跨队调换和正式排序：`GET/PUT /api/tournaments/{id}/team-roster` 使用不透明
+`revision`，保存在单一 SQLite 写事务中重读版本并原子提交；陈旧草稿返回 409，不会静默覆盖服务器数据。
+
+名单确认仍使用 `POST /api/tournaments/{id}/confirm-roster`，但对 TEAM 的含义已明确为**确认并冻结名单**：
+
+- 确认后，队伍/队员 CRUD、导入、种子和工作表保存全部返回 409，不能绕过冻结直接修改名单；
+- 仅在 `REGISTRATION` 阶段、且没有 `PLAYING` 或 `FINISHED` 团体对抗时，可调用
+  `POST /api/tournaments/{id}/team-roster/unconfirm` 撤销冻结；
+- 撤销后恢复编辑。尚未开始的 `WAITING` 对抗可以保留，但随后改动名单可能让已提交阵容在开始时需重新校验；
+- 已有对抗开始或结束后，冻结不可撤销；队伍成员和队内顺序同样不可再改。
+
+这收紧了 A4.1 早期的“赛前可直接改名单、开始时重校验阵容”路径：如果名单已经确认，组织者必须先撤销冻结，
+再修改名单并重新确认。赛事单场选手总数统一上限为 120；工作表新增/删除会按保存后的最终人数校验，不能绕过该上限。
 
 ## 数据模型
 
@@ -265,6 +280,9 @@ A4.1 给 `team_rubbers` 追加运行态列时**不重建表**（CHECK 没变）�
 | GET | `/api/tournaments/{id}/teams/{entry_id}` | 单支队伍 |
 | PATCH | `/api/tournaments/{id}/teams/{entry_id}` | 改名 / 全量替换队员 / 改积分 |
 | DELETE | `/api/tournaments/{id}/teams/{entry_id}` | 删除队伍（已被对抗引用时 409） |
+| GET | `/api/tournaments/{id}/team-roster` | TEAM 完整名单工作表及 `revision` |
+| PUT | `/api/tournaments/{id}/team-roster` | 原子保存完整队伍/队员草稿（含排序、跨队调换和显式删除） |
+| POST | `/api/tournaments/{id}/team-roster/unconfirm` | 在未开赛前撤销 TEAM 名单冻结 |
 | GET | `/api/tournaments/{id}/team-ties` | 对抗列表（轻量 `TeamTieOut`，不含阵容/权限） |
 | POST | `/api/tournaments/{id}/team-ties` | 建立对抗（双方必须是同一赛事的 TEAM 队伍；绑定小组时须双方同组） |
 | POST | `/api/tournaments/{id}/team-ties/generate-group-ties` | **A6.1** 按小组单循环批量生成小组对抗；返回 `{ties_generated, per_group}`；重复生成 / 有队伍未分组 / 非 TEAM 一律 409 |
@@ -301,28 +319,25 @@ Runtime 写操作的守卫见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md) 
 
 ## 明确未实现（后续批次待办清单）
 
-1. **队伍名单界面与正式 TEAM 入口**：前端由 B 工作线推进（当前 `TeamTiePage` 仍是占位，
-   `HomePage` 的 TEAM 入口仍保持禁用）；后端接口与契约已就绪。入口在"后端 + B 界面 + E2E"
-   全部完成后再开放，**不由本批次自动解禁**。
-2. **赛事规程版本化**：第一版生产模板已登记（`LOCAL_CLASSIC_5_V1`）。组织者提供正式规程后
+1. **赛事规程版本化**：第一版生产模板已登记（`LOCAL_CLASSIC_5_V1`）。组织者提供正式规程后
    必须**新增**版本化 `TeamFormatSpec`，不覆盖旧版本；未登记的赛制仍一律 422。
-3. **对抗编排**：小组内循环编排已由 **A6.1** 完成（见上文「团体小组循环对阵生成」）。
+2. **对抗编排**：小组内循环编排已由 **A6.1** 完成（见上文「团体小组循环对阵生成」）。
    仍然未实现的是：**团体淘汰赛结构**、**场序唯一性约束**（`round`/`match_index` 由生成器稳定产出，
    但数据库层没有唯一索引，手工建对抗仍可重复）、以及**安全撤销/重建团体小组赛**。
-4. **盘 → 比赛适配器**：`team_rubbers.match_id` 未启用（原因见下节）；盘有自己的运行态比分。
-5. **异常结果与改分**：弃权/未到/取消资格与 `revise score` 未实现（`can_revise_score` 恒 false）；
+3. **盘 → 比赛适配器**：`team_rubbers.match_id` 未启用（原因见下节）；盘有自己的运行态比分。
+4. **异常结果与改分**：弃权/未到/取消资格与 `revise score` 未实现（`can_revise_score` 恒 false）；
    逐局小比分也不建（一团体的盘只记大比分，复用赛事 `games_to_win`）。
-6. **排程 / 球台 / 预计时间**：团体赛不进入调度器与 ETA。一场对抗是否占一张球台、各盘能否并行、
+5. **排程 / 球台 / 预计时间**：团体赛不进入调度器与 ETA。一场对抗是否占一张球台、各盘能否并行、
    兼项选手如何避免撞台——这些问题**尚未冻结**，`services/scheduling.py` 与 `services/eta.py` 未改动。
    当前同一对抗**串行**执行（同时最多一盘 PLAYING），这是简化而不是现场规则。
    （A6.1 生成的小组对抗同样不参与排程：`round`/`match_index` 只是编排序号，不是时间计划。）
-7. **团体排名与晋级**：`domain/ranking.py` 是单打/双打口径的胜场-净胜局-积分算法，没有团体赛排名。
+6. **团体排名与晋级**：`domain/ranking.py` 是单打/双打口径的胜场-净胜局-积分算法，没有团体赛排名。
    **A6.2 已提供团体小组排名**（见上文「团体小组排名」），但**出线/晋级写入、人工裁定、
    团体淘汰赛结构**仍未实现；得失分比率（points ratio）也不在 V1 范围内。
-8. **队伍种子**：团体赛种子规则未冻结；`entries.rating_points` 默认 0，只接受显式传入，
+7. **队伍种子**：团体赛种子规则未冻结；`entries.rating_points` 默认 0，只接受显式传入，
    绝不按队员积分求和或推导；打分赛的「按积分生成种子」对 TEAM / DOUBLES 都返回 409。
-9. **Demo 模拟**：`demo/finish-group-stage` 与小组赛/淘汰赛生成接口对 TEAM 一律 409，不伪造团体赛结果。
-10. **删除与审计**：删赛事会级联清掉 `team_ties` / `team_rubbers`（有测试）；
+8. **Demo 模拟**：`demo/finish-group-stage` 与小组赛/淘汰赛生成接口对 TEAM 一律 409，不伪造团体赛结果。
+9. **删除与审计**：删赛事会级联清掉 `team_ties` / `team_rubbers`（有测试）；
     但团体赛的归档与操作审计仍沿用 A1.1 的待办（尚未实现）。
 
 ## 小组归属不变量（PR #19 Reviewer 修正）
@@ -415,10 +430,11 @@ A6.1 的小组循环生成**同样不挂 stage 门禁**，也不推进 stage（�
 生成小组赛；而 TEAM 阶段推进规则必须与团体排名、晋级、排程一起冻结。
 生成小组对抗后赛事仍停在 `REGISTRATION`，这是**已知且刻意**的状态，不是 bug。
 
-关于 `roster_confirmed`：它是"名单已确认"的标记，既不是编辑锁也不是阶段门禁
-（见 `services/teams.py` 的边界说明）；现有 contract 里**没有**"未确认名单不能生成正式小组赛"
-这条规则，因此本批次**没有**新增它——凭空收紧会挡住当前可用的流程（手工分组后即可生成），
-而"名单是否准备好"已由"必须先有小组 + 队伍必须已分组"间接覆盖。
+关于 `roster_confirmed`：它是 TEAM **名单编辑写入的冻结锁**，确认后队伍/队员 CRUD、导入、
+种子和工作表保存都返回 409；但它**不是**小组对抗生成门禁，也不推进赛事阶段（见
+`services/teams.py` 的边界说明）。现有 contract 里没有"未确认名单不能生成正式小组赛"这条规则，
+因此本批次没有新增它——凭空收紧会挡住当前可用的流程（手工分组后即可生成），而"名单是否准备好"
+已由"必须先有小组 + 队伍必须已分组"间接覆盖。
 
 ## 验证
 

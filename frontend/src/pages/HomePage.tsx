@@ -162,8 +162,8 @@ export default function HomePage() {
             <span className={`badge mode-badge ${current.operation_mode === 'LIVE' ? 'live' : 'demo'}`} style={{ marginLeft: 6 }}>
               {current.operation_mode === 'LIVE' ? '正式' : '演示'}
             </span>
-            <Link className="btn small float-right" to={`/console?tid=${current.id}`}>
-              进入比赛控制台 →
+            <Link className="btn small float-right" to={current.event_type === 'TEAM' ? `/team-roster?tid=${current.id}` : `/console?tid=${current.id}`}>
+              {current.event_type === 'TEAM' ? '进入队伍与名单 →' : '进入比赛控制台 →'}
             </Link>
           </h2>
           <p className="muted">
@@ -181,6 +181,7 @@ export default function HomePage() {
             <p className="status-ok">🏓 正在进行 {dash.stats.playing} 场比赛</p>
           )}
           <div className="button-row">
+            {current.event_type === 'TEAM' && <Link className="btn primary" to={`/team-roster?tid=${current.id}`}>队伍与名单</Link>}
             <Link className="btn preflight-entry-btn" to={`/preflight?tid=${current.id}`}>
               赛前检查
             </Link>
@@ -390,10 +391,10 @@ export default function HomePage() {
                 <td>
                   <Link
                     className="btn small"
-                    to={`/players?tid=${t.id}`}
+                    to={t.event_type === 'TEAM' ? `/team-roster?tid=${t.id}` : `/players?tid=${t.id}`}
                     onClick={() => selectTournament(t.id)}
                   >
-                    进入赛事
+                    {t.event_type === 'TEAM' ? '进入队伍与名单' : '进入赛事'}
                   </Link>{' '}
                   <button className="btn small danger" onClick={() => removeTournament(t)}>
                     删除赛事

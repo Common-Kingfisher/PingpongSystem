@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import HomePage from './pages/HomePage'
 import PlayersPage from './pages/PlayersPage'
@@ -12,12 +13,26 @@ import OrderBookPage from './pages/OrderBookPage'
 import MatchPrintPage from './pages/MatchPrintPage'
 import TeamTiePage from './pages/TeamTiePage'
 import PreflightPage from './pages/PreflightPage'
+import TeamRosterPage from './pages/TeamRosterPage'
 import { getActiveTournamentId } from './activeTournament'
+import { api } from './api'
 
 function AppNav() {
   // 订阅路由变化：每次导航都重新读取当前赛事 id，保证顶部链接始终携带它
-  useLocation()
-  const tid = getActiveTournamentId()
+  const location = useLocation()
+  const urlTid = new URLSearchParams(location.search).get('tid')
+  const parsedUrlTid = urlTid && /^\d+$/.test(urlTid) ? Number(urlTid) : null
+  const tid = parsedUrlTid ?? getActiveTournamentId()
+  const [isTeamEvent, setIsTeamEvent] = useState(false)
+  useEffect(() => {
+    setIsTeamEvent(false)
+    if (tid === null) { setIsTeamEvent(false); return }
+    let active = true
+    api.getTournament(tid).then((tournament) => {
+      if (active) setIsTeamEvent(tournament.event_type === 'TEAM')
+    }).catch(() => { if (active) setIsTeamEvent(false) })
+    return () => { active = false }
+  }, [tid, location.key])
   const qs = tid !== null ? `?tid=${tid}` : ''
   const navItems = [
     { to: '/', label: '赛事首页', end: true },
@@ -32,6 +47,7 @@ function AppNav() {
     { to: `/register${qs}`, label: '在线报名' },
     { to: `/orderbook${qs}`, label: '秩序册' },
   ]
+  if (isTeamEvent) navItems.splice(2, 0, { to: `/team-roster${qs}`, label: '队伍与名单' })
   return (
     <nav>
       {navItems.map((item) => (
@@ -72,6 +88,7 @@ export default function App() {
           <Route path="/orderbook" element={<OrderBookPage />} />
           <Route path="/match-print" element={<MatchPrintPage />} />
           <Route path="/team-tie" element={<TeamTiePage />} />
+          <Route path="/team-roster" element={<TeamRosterPage />} />
         </Routes>
       </main>
     </div>

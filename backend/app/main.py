@@ -23,6 +23,7 @@ from .routers import (
     seeds,
     team_standings,
     team_ties,
+    team_roster,
     teams,
     tournaments,
 )
@@ -84,6 +85,7 @@ app.include_router(qualification_decisions.router)
 app.include_router(knockout.router)
 # 团体赛（A3）：队伍 + 团体对抗/盘骨架
 app.include_router(teams.router)
+app.include_router(team_roster.router)
 app.include_router(team_ties.router)
 app.include_router(team_standings.router)
 

@@ -9,7 +9,7 @@
   这里不会用队员积分自动求和或推导种子，只接受调用方显式传入的值。
 - 名单锁定分两层：
   1. **阶段锁**：进入 GROUP_STAGE 及以后禁止增删改队伍（与选手/名单服务一致）；
-     `roster_confirmed` 只表示"名单已确认"，不作为编辑锁（系统没有"取消确认"能力）。
+     `roster_confirmed` 为 TEAM 名单写入的额外冻结锁；仅允许在符合规则时通过撤销确认解除。
   2. **Runtime 锁（A4.1）**：队伍一旦有对抗进入 PLAYING/FINISHED，**队员名单冻结**——
      已开赛的对抗不能因为中途换人而让"已经不属于本队"的选手继续上场。
      改名与积分不受影响；对抗尚未开始时仍可修正名单，但已提交的 lineup 会在 start 时
@@ -89,6 +89,8 @@ def _team_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
         )
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise TeamError("赛事已进入比赛阶段，队伍名单已锁定", 409)
+    if tournament["roster_confirmed"]:
+        raise TeamError("名单已确认并冻结，请先撤销冻结后再修改队伍", 409)
     return tournament
 
 
@@ -150,7 +152,7 @@ def get_team_entry(conn: sqlite3.Connection, tournament_id: int, entry_id: int) 
     return entry
 
 
-def create_team_entry(
+def _create_team_entry_unlocked(
     conn: sqlite3.Connection,
     tournament_id: int,
     display_name: str,
@@ -178,8 +180,18 @@ def create_team_entry(
         members,
         seed_no=None,
     )
-    conn.commit()
     return entry
+
+
+def create_team_entry(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    display_name: str,
+    member_ids: list[int],
+    rating_points: int | None = None,
+) -> dict:
+    with _roster_write_tx(conn):
+        return _create_team_entry_unlocked(conn, tournament_id, display_name, member_ids, rating_points)
 
 
 def _apply_team_entry_update(
@@ -251,27 +263,21 @@ def update_team_entry(
         * PATCH 先取锁 → 成员替换提交；随后 start 重新校验 lineup 时会发现队员已离队 → 409；
         * start 先取锁 → 盘进入 PLAYING；随后 PATCH 会读到对抗已开始 → 409（名单锁定）。
     """
-    if member_ids is not None:
-        with _roster_write_tx(conn):
-            return _apply_team_entry_update(
-                conn, tournament_id, entry_id, display_name, member_ids, rating_points
-            )
-    result = _apply_team_entry_update(
-        conn, tournament_id, entry_id, display_name, None, rating_points
-    )
-    conn.commit()
-    return result
+    with _roster_write_tx(conn):
+        return _apply_team_entry_update(
+            conn, tournament_id, entry_id, display_name, member_ids, rating_points
+        )
 
 
 def delete_team_entry(conn: sqlite3.Connection, tournament_id: int, entry_id: int) -> None:
     """删除队伍。已被团体对抗引用的队伍禁止删除（否则会留下悬空引用）。"""
-    _team_tournament(conn, tournament_id)
-    get_team_entry(conn, tournament_id, entry_id)
-    tie = repo.find_tie_referencing_entry(conn, entry_id)
-    if tie is not None:
-        raise TeamError(f"该队伍已出现在团体对抗 #{tie['id']} 中，不能删除", 409)
-    repo.delete_entry(conn, entry_id)
-    conn.commit()
+    with _roster_write_tx(conn):
+        _team_tournament(conn, tournament_id)
+        get_team_entry(conn, tournament_id, entry_id)
+        tie = repo.find_tie_referencing_entry(conn, entry_id)
+        if tie is not None:
+            raise TeamError(f"该队伍已出现在团体对抗 #{tie['id']} 中，不能删除", 409)
+        repo.delete_entry(conn, entry_id)
 
 
 def validate_team_roster(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:

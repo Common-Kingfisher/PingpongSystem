@@ -93,7 +93,8 @@ def _setup(conn, spec: tf.TeamFormatSpec, *, players: int = 8, group_count: int 
     half = len(roster) // 2
     team_a = teams_service.create_team_entry(conn, tid, "A队", [p["id"] for p in roster[:half]])
     team_b = teams_service.create_team_entry(conn, tid, "B队", [p["id"] for p in roster[half:]])
-    entries_service.confirm_roster(conn, tid)
+    # Runtime 可在报名阶段的 TEAM 对抗上单独验收；名单确认后的编辑冻结由
+    # team-roster 工作表的专项用例覆盖，避免把运行态并发用例绑死在 UI 冻结语义上。
     tie = ties_service.create_team_tie(conn, tid, team_a["id"], team_b["id"])
     view = runtime.runtime_view(conn, tid, tie["id"])
     ties_service.build_rubber_skeleton(conn, tid, tie["id"], spec.code)
@@ -687,6 +688,7 @@ def test_pr19_database_upgrades_runtime_columns(tmp_path, monkeypatch, runtime_f
             conn, "旧结构", "2026-06-01", 4, 1, 1, event_type="TEAM", operation_mode="DEMO"
         )["id"]
         roster = [repo.add_player(conn, tid, f"P{i}", None, 1000) for i in range(1, 5)]
+        conn.commit()
         a = teams_service.create_team_entry(conn, tid, "A队", [p["id"] for p in roster[:2]])
         b = teams_service.create_team_entry(conn, tid, "B队", [p["id"] for p in roster[2:]])
         tie = repo.create_team_tie(conn, tid, "GROUP", None, 1, 1, a["id"], b["id"])
@@ -1201,9 +1203,9 @@ def test_roster_write_lock_is_only_taken_when_members_change(conn, runtime_forma
         conn, s.tournament_id, s.team_a, display_name="A队（改名）"
     )
     assert renamed["display_name"] == "A队（改名）"
-    assert entered == []  # 改名走普通路径
+    assert entered == [1]  # 改名也必须参与名单冻结门禁
 
     teams_service.update_team_entry(conn, s.tournament_id, s.team_a, member_ids=s.home_ids[:2])
-    assert len(entered) == 1  # 改队员才进入写事务
+    assert len(entered) == 2  # 改队员同样进入写事务
 
 
