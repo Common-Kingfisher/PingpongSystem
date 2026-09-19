@@ -391,10 +391,10 @@ export default function HomePage() {
                 <td>
                   <Link
                     className="btn small"
-                    to={`/players?tid=${t.id}`}
+                    to={t.event_type === 'TEAM' ? `/team-roster?tid=${t.id}` : `/players?tid=${t.id}`}
                     onClick={() => selectTournament(t.id)}
                   >
-                    进入赛事
+                    {t.event_type === 'TEAM' ? '进入队伍与名单' : '进入赛事'}
                   </Link>{' '}
                   <button className="btn small danger" onClick={() => removeTournament(t)}>
                     删除赛事

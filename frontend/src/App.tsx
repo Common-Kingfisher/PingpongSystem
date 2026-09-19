@@ -25,6 +25,7 @@ function AppNav() {
   const tid = parsedUrlTid ?? getActiveTournamentId()
   const [isTeamEvent, setIsTeamEvent] = useState(false)
   useEffect(() => {
+    setIsTeamEvent(false)
     if (tid === null) { setIsTeamEvent(false); return }
     let active = true
     api.getTournament(tid).then((tournament) => {
