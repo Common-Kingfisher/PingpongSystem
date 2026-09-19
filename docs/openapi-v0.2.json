@@ -2283,6 +2283,140 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/team-roster": {
+      "get": {
+        "tags": [
+          "team-roster"
+        ],
+        "summary": "Get Sheet",
+        "operationId": "get_sheet_api_tournaments__tournament_id__team_roster_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamRosterSheetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "team-roster"
+        ],
+        "summary": "Save Sheet",
+        "operationId": "save_sheet_api_tournaments__tournament_id__team_roster_put",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamRosterSaveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamRosterSheetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-roster/unconfirm": {
+      "post": {
+        "tags": [
+          "team-roster"
+        ],
+        "summary": "Unconfirm",
+        "operationId": "unconfirm_api_tournaments__tournament_id__team_roster_unconfirm_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamRosterSheetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}/team-ties": {
       "get": {
         "tags": [
@@ -3039,6 +3173,11 @@
           "rating_points": {
             "type": "integer",
             "title": "Rating Points"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order",
+            "default": 0
           },
           "group_id": {
             "anyOf": [
@@ -5926,6 +6065,207 @@
         ],
         "title": "TeamPermissionOut",
         "description": "后端计算的操作权限；前端按钮直接消费这些字段，不得自行推导状态机。"
+      },
+      "TeamRosterPlayerDraft": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "rating_points": {
+            "type": "integer",
+            "maximum": 99999.0,
+            "minimum": 0.0,
+            "title": "Rating Points",
+            "default": 1000
+          },
+          "team_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Key"
+          },
+          "member_order": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "name"
+        ],
+        "title": "TeamRosterPlayerDraft"
+      },
+      "TeamRosterSaveRequest": {
+        "properties": {
+          "base_revision": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Base Revision"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/TeamRosterTeamDraft"
+            },
+            "type": "array",
+            "title": "Teams"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/TeamRosterPlayerDraft"
+            },
+            "type": "array",
+            "title": "Players"
+          },
+          "deleted_team_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Deleted Team Ids",
+            "default": []
+          },
+          "deleted_player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Deleted Player Ids",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "base_revision",
+          "teams",
+          "players"
+        ],
+        "title": "TeamRosterSaveRequest"
+      },
+      "TeamRosterSheetOut": {
+        "properties": {
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Teams"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerOut"
+            },
+            "type": "array",
+            "title": "Players"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament",
+          "teams",
+          "players",
+          "revision"
+        ],
+        "title": "TeamRosterSheetOut"
+      },
+      "TeamRosterTeamDraft": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "rating_points": {
+            "type": "integer",
+            "maximum": 99999.0,
+            "minimum": 0.0,
+            "title": "Rating Points",
+            "default": 0
+          },
+          "sort_order": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sort Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "display_name",
+          "sort_order"
+        ],
+        "title": "TeamRosterTeamDraft"
       },
       "TeamRubberRecordOut": {
         "properties": {

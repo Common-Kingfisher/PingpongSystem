@@ -18,6 +18,7 @@ def _tournament(conn, *, players=8, group_count=4, ratings=None, event_type="SIN
     for index in range(players):
         rating = 1000 if ratings is None else ratings[index]
         created.append(repo.add_player(conn, tid, f"P{index + 1:02d}", None, rating))
+    conn.commit()
     return tid, created
 
 

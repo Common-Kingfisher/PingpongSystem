@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api, ApiError, Entry, Player, Tournament } from '../api'
 
 export default function RosterLaunch({
@@ -65,8 +66,7 @@ export default function RosterLaunch({
 
   if (tournament.stage !== 'REGISTRATION') return null
 
-  // 团体赛（TEAM）不走单打/双打这套"确认名单 → 抽签"流程：它的名单是一支支队伍，
-  // 需要队伍名单界面与团体对抗编排，本版本尚未提供，因此这里只做说明、不改动任何数据。
+  // 团体赛使用独立的队伍名单工作表；不走单打/双打的确认名单后自动抽签流程。
   if (tournament.event_type === 'TEAM') {
     return (
       <section className="card launch-card">
@@ -75,13 +75,13 @@ export default function RosterLaunch({
             <span className="eyebrow">TEAM EVENT</span>
             <h3>团体赛的名单由队伍组成</h3>
           </div>
-          <span className="readiness">尚未开放</span>
+          <span className="readiness ready">可编辑</span>
         </div>
         <p className="muted">
-          当前版本提供了团体赛的队伍与团体对抗接口（队伍即参赛实体，队员即参赛成员），
-          但界面还没有队伍名单编辑与团体对抗编排，因此这里不提供"确认名单并抽签"操作。
-          单打与双打赛事不受影响。
+          队伍即参赛实体，队员即队伍成员。请先在工作表中完成队伍录入、调换、排序和名单确认；
+          确认后名单冻结，仍可随时预览。
         </p>
+        <div className="button-row"><Link className="btn primary" to={`/team-roster?tid=${tournament.id}`}>进入队伍与名单 →</Link></div>
       </section>
     )
   }

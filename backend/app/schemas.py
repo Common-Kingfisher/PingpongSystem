@@ -94,6 +94,7 @@ class EntryOut(BaseModel):
     entry_type: EventType
     display_name: str
     rating_points: int
+    sort_order: int = 0
     group_id: int | None
     seed_no: int | None
     status: str
@@ -145,6 +146,39 @@ class TeamEntryUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=100)
     member_ids: list[int] | None = Field(default=None, min_length=1)
     rating_points: int | None = Field(default=None, ge=0, le=99999)
+
+
+class TeamRosterTeamDraft(BaseModel):
+    key: str = Field(min_length=1, max_length=100)
+    id: int | None = None
+    display_name: str = Field(min_length=1, max_length=100)
+    rating_points: int = Field(default=0, ge=0, le=99999)
+    sort_order: int = Field(ge=1)
+
+
+class TeamRosterPlayerDraft(BaseModel):
+    key: str = Field(min_length=1, max_length=100)
+    id: int | None = None
+    name: str = Field(min_length=1, max_length=50)
+    college: str | None = Field(default=None, max_length=100)
+    rating_points: int = Field(default=1000, ge=0, le=99999)
+    team_key: str | None = Field(default=None, max_length=100)
+    member_order: int | None = Field(default=None, ge=1)
+
+
+class TeamRosterSaveRequest(BaseModel):
+    base_revision: str = Field(min_length=1)
+    teams: list[TeamRosterTeamDraft]
+    players: list[TeamRosterPlayerDraft]
+    deleted_team_ids: list[int] = Field(default_factory=list)
+    deleted_player_ids: list[int] = Field(default_factory=list)
+
+
+class TeamRosterSheetOut(BaseModel):
+    tournament: TournamentOut
+    teams: list[EntryOut]
+    players: list[PlayerOut]
+    revision: str
 
 
 class TeamTieCreate(BaseModel):

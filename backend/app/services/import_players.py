@@ -12,7 +12,9 @@ import io
 import sqlite3
 
 from .. import repository as repo
-from ..models import TournamentStage
+from ..models import EventType, TournamentStage
+from . import teams as teams_service
+from .players import MAX_PLAYERS_PER_TOURNAMENT
 
 NAME_ALIASES = {"姓名", "选手姓名", "名字", "name", "player_name"}
 COLLEGE_ALIASES = {"学院", "学院/单位", "单位", "学校", "部门", "organization", "college"}
@@ -89,11 +91,23 @@ def import_players_file(
     conn: sqlite3.Connection, tournament_id: int, content: bytes, filename: str,
     commit: bool = True,
 ) -> dict:
+    if commit:
+        with teams_service._roster_write_tx(conn):
+            return _import_players_file_unlocked(conn, tournament_id, content, filename, commit=True)
+    return _import_players_file_unlocked(conn, tournament_id, content, filename, commit=False)
+
+
+def _import_players_file_unlocked(
+    conn: sqlite3.Connection, tournament_id: int, content: bytes, filename: str,
+    commit: bool = True,
+) -> dict:
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise ImportFileError("赛事不存在", 404)
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise ImportFileError("赛事已进入比赛阶段，选手名单已锁定", 409)
+    if tournament["event_type"] == EventType.TEAM.value and tournament["roster_confirmed"]:
+        raise ImportFileError("团体赛名单已确认并冻结，请先撤销冻结后再导入选手", 409)
 
     lower = filename.lower()
     if lower.endswith(".csv"):
@@ -128,10 +142,10 @@ def import_players_file(
 
     for row_no, row in enumerate(rows[1:], start=2):
         total_rows += 1
-        if len(existing) + imported >= 120:
+        if len(existing) + imported >= MAX_PLAYERS_PER_TOURNAMENT:
             skipped += 1
-            errors.append({"row": row_no, "message": "超过单场赛事 120 人上限"})
-            preview_rows.append({"row": row_no, "name": _cell(row, name_col), "college": _cell(row, college_col) or None, "rating_points": 1000, "seed_no": None, "status": "error", "message": "超过单场赛事 120 人上限"})
+            errors.append({"row": row_no, "message": f"超过单场赛事 {MAX_PLAYERS_PER_TOURNAMENT} 人上限"})
+            preview_rows.append({"row": row_no, "name": _cell(row, name_col), "college": _cell(row, college_col) or None, "rating_points": 1000, "seed_no": None, "status": "error", "message": f"超过单场赛事 {MAX_PLAYERS_PER_TOURNAMENT} 人上限"})
             continue
         name = _cell(row, name_col)
         if not name:
@@ -190,8 +204,6 @@ def import_players_file(
             "message": "；".join(row_messages) if row_messages else None,
         })
 
-    if commit:
-        conn.commit()
     return {
         "total_rows": total_rows,
         "imported": imported,

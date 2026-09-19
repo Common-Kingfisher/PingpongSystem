@@ -42,6 +42,8 @@ export type TeamTieDetail = Schemas['TeamTieRuntimeOut']
 export type TeamRubber = Schemas['TeamRubberRuntimeOut']
 export type TeamLineupOptions = Schemas['TeamLineupOptionsOut']
 export type TeamPermission = Schemas['TeamPermissionOut']
+export type TeamRosterSheet = Schemas['TeamRosterSheetOut']
+export type TeamRosterSaveRequest = Schemas['TeamRosterSaveRequest']
 export type GroupPlayer = Schemas['GroupPlayerOut']
 export type GroupInfo = Schemas['GroupOut']
 export type GroupingResult = Schemas['GroupingResult']
@@ -258,6 +260,15 @@ export const api = {
     }),
   deleteTeam: (tournamentId: number, entryId: number) =>
     request<void>(`/api/tournaments/${tournamentId}/teams/${entryId}`, { method: 'DELETE' }),
+
+  getTeamRoster: (tournamentId: number) =>
+    request<TeamRosterSheet>(`/api/tournaments/${tournamentId}/team-roster`),
+  saveTeamRoster: (tournamentId: number, body: TeamRosterSaveRequest) =>
+    request<TeamRosterSheet>(`/api/tournaments/${tournamentId}/team-roster`, {
+      method: 'PUT', body: JSON.stringify(body),
+    }),
+  unconfirmTeamRoster: (tournamentId: number) =>
+    request<TeamRosterSheet>(`/api/tournaments/${tournamentId}/team-roster/unconfirm`, { method: 'POST' }),
 
   // 团体对抗与盘骨架：A3 只能建"骨架"（每盘需要几个出场位置），不创建任何普通比赛。
   // 赛制必须来自后端已冻结的注册表，未登记的赛制会返回 422，前端不做任何本地兜底规则。

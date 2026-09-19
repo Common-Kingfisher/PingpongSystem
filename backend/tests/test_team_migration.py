@@ -18,6 +18,7 @@ import pytest
 from app import db as db_module
 from app import repository as repo
 from app.services import entries as entries_service
+from app.services import team_roster as team_roster_service
 from app.services import teams as teams_service
 
 # v0.2 的 tournaments：event_type 的 CHECK 只有 SINGLES / DOUBLES（这正是要迁移的对象）
@@ -304,7 +305,10 @@ def test_legacy_db_can_create_team_entry_through_service(tmp_path, monkeypatch):
         assert tournament["roster_confirmed"] == 1
         assert {e["id"] for e in entries} == {a["id"], b["id"]}
 
-        # 新赛事里可以自由增删队伍，旧赛事的 TEAM 相关表也在（team_ties/team_rubbers 由 SCHEMA 建）
+        # 确认会冻结名单；撤销冻结后，仍可验证旧库升级后的 TEAM 删除链路。
+        with pytest.raises(teams_service.TeamError, match="冻结"):
+            teams_service.delete_team_entry(conn, tid, b["id"])
+        team_roster_service.unconfirm_roster(conn, tid)
         teams_service.delete_team_entry(conn, tid, b["id"])
         assert repo.get_entry(conn, b["id"]) is None
 

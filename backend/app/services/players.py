@@ -10,12 +10,21 @@ import sqlite3
 
 from .. import repository as repo
 from ..models import EventType, TournamentStage
+from . import teams as teams_service
+
+MAX_PLAYERS_PER_TOURNAMENT = 120
 
 
 class PlayerError(Exception):
     def __init__(self, message: str, code: int = 409):
         super().__init__(message)
         self.code = code
+
+
+def ensure_player_capacity(current_count: int, additions: int = 0, deletions: int = 0) -> None:
+    """保证一次名单写入后的选手总数不超过赛事统一容量上限。"""
+    if current_count - deletions + additions > MAX_PLAYERS_PER_TOURNAMENT:
+        raise PlayerError(f"单场赛事最多支持 {MAX_PLAYERS_PER_TOURNAMENT} 名运动员", 409)
 
 
 def ensure_players_editable(conn: sqlite3.Connection, tournament_id: int) -> None:
@@ -25,17 +34,19 @@ def ensure_players_editable(conn: sqlite3.Connection, tournament_id: int) -> Non
         raise PlayerError("赛事不存在", 404)
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise PlayerError("赛事已进入比赛阶段，选手名单已锁定", 409)
+    if tournament["event_type"] == EventType.TEAM.value and tournament["roster_confirmed"]:
+        raise PlayerError("团体赛名单已确认并冻结，请先撤销冻结后再修改选手", 409)
 
 
 def delete_player(conn: sqlite3.Connection, tournament_id: int, player_id: int) -> None:
-    ensure_players_editable(conn, tournament_id)
-    player = repo.get_player(conn, player_id)
-    if player is None:
-        raise PlayerError("选手不存在", 404)
-    if player["group_id"] is not None:
-        raise PlayerError("选手已分组，请先解除分组后再删除", 409)
-    repo.delete_player(conn, player_id)
-    conn.commit()
+    with teams_service._roster_write_tx(conn):
+        ensure_players_editable(conn, tournament_id)
+        player = repo.get_player(conn, player_id)
+        if player is None:
+            raise PlayerError("选手不存在", 404)
+        if player["group_id"] is not None:
+            raise PlayerError("选手已分组，请先解除分组后再删除", 409)
+        repo.delete_player(conn, player_id)
 
 
 def _sync_singles_entry_seeds(
@@ -67,11 +78,20 @@ def set_seeds(
     conn: sqlite3.Connection, tournament_id: int, player_ids: list[int]
 ) -> list[dict]:
     """按给定顺序设置种子（1号、2号…N号），其余选手清空种子。返回更新后的选手列表。"""
+    with teams_service._roster_write_tx(conn):
+        return _set_seeds_unlocked(conn, tournament_id, player_ids)
+
+
+def _set_seeds_unlocked(
+    conn: sqlite3.Connection, tournament_id: int, player_ids: list[int]
+) -> list[dict]:
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise PlayerError("赛事不存在", 404)
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise PlayerError("赛事已进入比赛阶段，种子设置已锁定", 409)
+    if tournament["event_type"] == EventType.TEAM.value and tournament["roster_confirmed"]:
+        raise PlayerError("团体赛名单已确认并冻结，请先撤销冻结后再设置种子", 409)
 
     if len(set(player_ids)) != len(player_ids):
         raise PlayerError("种子选手不能重复", 409)
@@ -91,7 +111,6 @@ def set_seeds(
     for i, pid in enumerate(player_ids):
         repo.set_player_seed(conn, pid, i + 1)
     _sync_singles_entry_seeds(conn, tournament_id, player_ids)
-    conn.commit()
     return repo.list_players(conn, tournament_id)
 
 
@@ -130,17 +149,22 @@ def generate_demo_players(
 
     仅 REGISTRATION 阶段可用；追加在现有选手之后，不清空已有选手。
     """
+    with teams_service._roster_write_tx(conn):
+        return _generate_demo_players_unlocked(conn, tournament_id, count, with_seeds)
+
+
+def _generate_demo_players_unlocked(
+    conn: sqlite3.Connection, tournament_id: int, count: int, with_seeds: bool
+) -> list[dict]:
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise PlayerError("赛事不存在", 404)
-    if tournament["stage"] != TournamentStage.REGISTRATION.value:
-        raise PlayerError("赛事已进入比赛阶段，选手名单已锁定", 409)
+    ensure_players_editable(conn, tournament_id)
     if not (1 <= count <= 24):
         raise PlayerError("生成数量需在 1~24 之间", 422)
 
     existing = repo.list_players(conn, tournament_id)
-    if len(existing) + count > 120:
-        raise PlayerError(f"生成后将超过 120 人上限，当前已有 {len(existing)} 人", 409)
+    ensure_player_capacity(len(existing), additions=count)
     start = len(existing) + 1
     added: list[dict] = []
     for i in range(start, start + count):
@@ -159,5 +183,4 @@ def generate_demo_players(
         # 名单已确认时，Entry 种子必须跟着选手种子走（复用同一套同步逻辑，不新增实现）。
         _sync_singles_entry_seeds(conn, tournament_id, [p["id"] for p in seeded])
 
-    conn.commit()
     return repo.list_players(conn, tournament_id)
