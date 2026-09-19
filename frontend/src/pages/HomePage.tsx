@@ -181,37 +181,21 @@ export default function HomePage() {
             <p className="status-ok">🏓 正在进行 {dash.stats.playing} 场比赛</p>
           )}
           <div className="button-row">
-            {current.event_type === 'TEAM' && <Link className="btn primary" to={`/team-roster?tid=${current.id}`}>队伍与名单</Link>}
-            <Link className="btn preflight-entry-btn" to={`/preflight?tid=${current.id}`}>
-              赛前检查
-            </Link>
-            <Link className="btn" to={`/players?tid=${current.id}`}>
-              选手与分组
-            </Link>
-            <Link className="btn" to={`/console?tid=${current.id}`}>
-              比赛控制台
-            </Link>
-            <Link className="btn" to={`/rankings?tid=${current.id}`}>
-              小组排名
-            </Link>
-            <Link className="btn" to={`/knockout?tid=${current.id}`}>
-              淘汰赛
-            </Link>
-            <Link className="btn" to={`/schedule?tid=${current.id}`}>
-              选手赛程
-            </Link>
-            <Link className="btn" to={`/bigscreen?tid=${current.id}`}>
-              赛事大屏
-            </Link>
-            <Link className="btn" to={`/journey?tid=${current.id}`}>
-              冠军之路
-            </Link>
-            <Link className="btn" to={`/orderbook?tid=${current.id}`}>
-              秩序册
-            </Link>
-            <Link className="btn" to={`/register?tid=${current.id}`}>
-              在线报名
-            </Link>
+            {current.event_type === 'TEAM' ? <>
+              <Link className="btn primary" to={`/team-roster?tid=${current.id}`}>队伍与名单</Link>
+              <Link className="btn" to={`/team-ties?tid=${current.id}`}>团体对抗</Link>
+            </> : <>
+              <Link className="btn preflight-entry-btn" to={`/preflight?tid=${current.id}`}>赛前检查</Link>
+              <Link className="btn" to={`/players?tid=${current.id}`}>选手与分组</Link>
+              <Link className="btn" to={`/console?tid=${current.id}`}>比赛控制台</Link>
+              <Link className="btn" to={`/rankings?tid=${current.id}`}>小组排名</Link>
+              <Link className="btn" to={`/knockout?tid=${current.id}`}>淘汰赛</Link>
+              <Link className="btn" to={`/schedule?tid=${current.id}`}>选手赛程</Link>
+              <Link className="btn" to={`/bigscreen?tid=${current.id}`}>赛事大屏</Link>
+              <Link className="btn" to={`/journey?tid=${current.id}`}>冠军之路</Link>
+              <Link className="btn" to={`/orderbook?tid=${current.id}`}>秩序册</Link>
+              <Link className="btn" to={`/register?tid=${current.id}`}>在线报名</Link>
+            </>}
           </div>
         </div>
       )}

@@ -12,8 +12,10 @@ import ChampionJourneyPage from './pages/ChampionJourneyPage'
 import OrderBookPage from './pages/OrderBookPage'
 import MatchPrintPage from './pages/MatchPrintPage'
 import TeamTiePage from './pages/TeamTiePage'
+import TeamTiesPage from './pages/TeamTiesPage'
 import PreflightPage from './pages/PreflightPage'
 import TeamRosterPage from './pages/TeamRosterPage'
+import TeamRankingsPage from './pages/TeamRankingsPage'
 import { getActiveTournamentId } from './activeTournament'
 import { api } from './api'
 
@@ -23,10 +25,10 @@ function AppNav() {
   const urlTid = new URLSearchParams(location.search).get('tid')
   const parsedUrlTid = urlTid && /^\d+$/.test(urlTid) ? Number(urlTid) : null
   const tid = parsedUrlTid ?? getActiveTournamentId()
-  const [isTeamEvent, setIsTeamEvent] = useState(false)
+  const [isTeamEvent, setIsTeamEvent] = useState<boolean | null>(tid === null ? false : null)
   useEffect(() => {
-    setIsTeamEvent(false)
     if (tid === null) { setIsTeamEvent(false); return }
+    setIsTeamEvent(null)
     let active = true
     api.getTournament(tid).then((tournament) => {
       if (active) setIsTeamEvent(tournament.event_type === 'TEAM')
@@ -34,7 +36,7 @@ function AppNav() {
     return () => { active = false }
   }, [tid, location.key])
   const qs = tid !== null ? `?tid=${tid}` : ''
-  const navItems = [
+  const standardNavItems = [
     { to: '/', label: '赛事首页', end: true },
     { to: `/players${qs}`, label: '选手与分组' },
     { to: `/preflight${qs}`, label: '赛前检查' },
@@ -47,7 +49,13 @@ function AppNav() {
     { to: `/register${qs}`, label: '在线报名' },
     { to: `/orderbook${qs}`, label: '秩序册' },
   ]
-  if (isTeamEvent) navItems.splice(2, 0, { to: `/team-roster${qs}`, label: '队伍与名单' })
+  const teamNavItems = [
+    { to: '/', label: '赛事首页', end: true },
+    { to: `/team-roster${qs}`, label: '队伍与名单' },
+    { to: `/team-ties${qs}`, label: '团体对抗' },
+    { to: `/team-rankings${qs}`, label: '团体排名' },
+  ]
+  const navItems = isTeamEvent === null ? [{ to: '/', label: '赛事首页', end: true }] : isTeamEvent ? teamNavItems : standardNavItems
   return (
     <nav>
       {navItems.map((item) => (
@@ -88,7 +96,9 @@ export default function App() {
           <Route path="/orderbook" element={<OrderBookPage />} />
           <Route path="/match-print" element={<MatchPrintPage />} />
           <Route path="/team-tie" element={<TeamTiePage />} />
+          <Route path="/team-ties" element={<TeamTiesPage />} />
           <Route path="/team-roster" element={<TeamRosterPage />} />
+          <Route path="/team-rankings" element={<TeamRankingsPage />} />
         </Routes>
       </main>
     </div>

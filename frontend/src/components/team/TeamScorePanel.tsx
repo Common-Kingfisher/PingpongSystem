@@ -3,6 +3,7 @@ import { TeamRubberView, TeamTieView } from '../../team/types'
 const statusLabel: Record<TeamRubberView['status'], string> = {
   PENDING: '待阵容', READY: '可开始', PLAYING: '进行中', FINISHED: '已结束', SKIPPED: '不再进行',
 }
+const tieStatusLabel: Record<TeamTieView['status'], string> = { WAITING: '待开始', PLAYING: '进行中', FINISHED: '已结束' }
 
 export default function TeamScorePanel({ tie, busy, onLineup, onStart, onScore }: {
   tie: TeamTieView
@@ -13,7 +14,7 @@ export default function TeamScorePanel({ tie, busy, onLineup, onStart, onScore }
 }) {
   return (
     <section className="team-score-panel" aria-label="团体赛比分面板">
-      <div className="team-panel-heading"><div><span className="eyebrow">RUBBERS</span><h3>盘次列表</h3></div><span className={`team-status ${tie.status.toLowerCase()}`}>{tie.status}</span></div>
+      <div className="team-panel-heading"><div><span className="eyebrow">RUBBERS</span><h3>盘次列表</h3></div><span className={`team-status ${tie.status.toLowerCase()}`}>{tieStatusLabel[tie.status]}</span></div>
       {tie.rubbers.length === 0 ? <p className="muted">暂无盘次。真实数据到位后由后端返回顺序与状态。</p> : (
         <div className="rubber-list">{tie.rubbers.map((rubber) => <article className={`rubber-card ${rubber.status.toLowerCase()}`} key={rubber.id}>
           <div className="rubber-card-head"><strong>第 {rubber.sequence} 盘 · {rubber.rubber_type === 'SINGLES' ? '单打' : '双打'}</strong><span>{statusLabel[rubber.status]}</span></div>

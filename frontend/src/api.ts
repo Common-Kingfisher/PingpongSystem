@@ -42,6 +42,8 @@ export type TeamTieDetail = Schemas['TeamTieRuntimeOut']
 export type TeamRubber = Schemas['TeamRubberRuntimeOut']
 export type TeamLineupOptions = Schemas['TeamLineupOptionsOut']
 export type TeamPermission = Schemas['TeamPermissionOut']
+export type TeamGroupStandings = Schemas['TeamGroupStandingsOut']
+export type TeamStandingRow = Schemas['TeamStandingRowOut']
 export type TeamRosterSheet = Schemas['TeamRosterSheetOut']
 export type TeamRosterSaveRequest = Schemas['TeamRosterSaveRequest']
 export type GroupPlayer = Schemas['GroupPlayerOut']
@@ -290,6 +292,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  // 团体小组排名（A6.2）：只读事实，每次请求由后端从对抗/单盘事实重算。
+  getTeamGroupStandings: (tournamentId: number) =>
+    request<TeamGroupStandings[]>(`/api/tournaments/${tournamentId}/team-groups/standings`),
 
   // 团体赛 Runtime（A4.1）：形状与权限全部由后端计算，前端只消费 permissions 与返回的完整视图。
   getTeamLineupOptions: (tournamentId: number, tieId: number, rubberId: number) =>

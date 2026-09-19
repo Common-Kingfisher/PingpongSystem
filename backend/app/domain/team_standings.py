@@ -255,12 +255,8 @@ def _accumulate(facts: StandingsFacts, subset: Sequence[int]) -> list[_Totals]:
                 continue  # SKIPPED（以及 PENDING/READY/PLAYING）完全忽略
             if rubber.winner_entry_id == tie.entry_a_id:
                 rubber_winner, rubber_loser = a, b
-                a_games = rubber.home_score or 0
-                b_games = rubber.away_score or 0
             elif rubber.winner_entry_id == tie.entry_b_id:
                 rubber_winner, rubber_loser = b, a
-                a_games = rubber.away_score or 0
-                b_games = rubber.home_score or 0
             else:
                 raise TeamStandingsError(
                     f"盘 #{rubber.sequence}（对抗 #{tie.tie_id}）的胜者 {rubber.winner_entry_id} "
@@ -269,6 +265,9 @@ def _accumulate(facts: StandingsFacts, subset: Sequence[int]) -> list[_Totals]:
             rubber_winner.rubber_wins += 1
             rubber_loser.rubber_losses += 1
             # 局分按 home/away 归属到 A/B 两侧：home 列属于 entry_a_id，away 列属于 entry_b_id。
+            # 与该盘谁胜无关：胜者只决定 rubber_wins/rubber_losses，不得翻转局分列。
+            a_games = rubber.home_score or 0
+            b_games = rubber.away_score or 0
             a.games_won += a_games
             a.games_lost += b_games
             b.games_won += b_games
