@@ -12,18 +12,31 @@ A3 明确不做的事（避免后来人误以为漏了实现）：
    标记为占用，用它算球台会一次性占满整队。
    真正的"盘 → 球台/赛程"适配器属于 A4，届时 match_id 这一列才启用。
 2. 不实现比分状态机（WAITING → PLAYING → FINISHED）、不做赛制取胜判定、
-   不生成对抗对阵（抽签/循环编排）、不参与排程与 ETA。
+   **不生成对抗对阵（抽签/循环编排）**、不参与排程与 ETA。
+   （注：A6.1 已补上"小组内循环编排"，见本文件 `generate_group_ties()`；
+   "不生成"这一条现在只适用于 A3 当时的范围描述，其余边界不变。）
 3. 阶段门禁故意留空：TEAM 赛事目前没有任何 API 能把 stage 从 REGISTRATION
    推进到 GROUP_STAGE（generate_group_matches / generate_knockout 都会拒绝团体赛），
    若在这里要求"必须已开赛"，就等于永远无法创建对抗。阶段门禁必须与 A4 的
    团体赛排程一起设计，A3 只校验赛事是 TEAM 项目以及对抗双方合法。
+
+A6.1（Group Tie Generator）的边界，同样必须显式写清楚：
+- 只做**小组内单循环对阵编排**（每组一个独立的 round-robin，轮次从 1 开始）。
+- **不做**团体小组排名/积分/出线、团体淘汰赛、团体 Scheduler/ETA、TEAM 阶段推进；
+  生成完 TeamTie 之后 `tournaments.stage` 保持原样（TEAM 的 stage 推进规则尚未冻结）。
+- **不批量生成 Rubber skeleton**：批量初始化赛制是另一个业务动作，且
+  `build_rubber_skeleton()` 有自己独立的事务与安全契约（PR #22 复审），
+  在这里调用会造成嵌套写事务。生成后仍走既有接口逐个建盘。
+- **不做"补齐缺失赛程"**：只要该赛事已经存在任何 `stage=GROUP` 的对抗（手工的也算），
+  整个生成操作一律 409，绝不静默补齐/覆盖/重新生成。
+  （安全撤销团体小组赛是独立课题，本批次不实现。）
 """
 
 import json
 import sqlite3
 
 from .. import repository as repo
-from ..domain import team_formats
+from ..domain import round_robin, team_formats
 from ..domain.team_formats import TeamFormatError
 from ..models import EventType, MatchStage, TeamRubberStatus, TeamTieStatus
 from .teams import ENTRY_STATUS_ACTIVE
@@ -166,6 +179,147 @@ def create_team_tie(
     )
     conn.commit()
     return tie
+
+
+# ------------------------------------------------- A6.1：团体小组循环对阵生成
+#
+# 本批次只回答一个问题：**"已经分好组的 TEAM 队伍，小组内单循环怎么打"**。
+# 它不回答"谁出线"（团体小组积分/排名规则尚未冻结），也不回答"什么时候打"
+# （团体 Scheduler/ETA 尚未冻结）。因此这里没有任何 standings / qualification /
+# knockout / stage progression 代码——不是漏了，而是刻意不做。
+
+def _ungrouped_entries(entries: list[dict]) -> list[dict]:
+    """未分组的在赛队伍（按 id 稳定排序）。"""
+    return sorted(
+        (e for e in entries if e["group_id"] is None),
+        key=lambda e: e["id"],
+    )
+
+
+def generate_group_ties(
+    conn: sqlite3.Connection, tournament_id: int
+) -> dict:
+    """把一个 TEAM 赛事的**已分组**队伍按小组单循环生成全部 TeamTie（一个写事务）。
+
+    返回 `{"ties_generated": N, "per_group": {"A组": 6, "B组": 6}}`。
+
+    ## 编排列（确定性，无随机）
+
+    每组一个**独立**的 round-robin（复用 `domain/round_robin.py` 的固定轮转法，
+    不为团体赛复制第二份算法，也不为了复用去重构个人赛）：
+
+    - 输入顺序 = 该组 `ACTIVE` TeamEntry 按 **id 升序**（`entries` 没有 sort_order 列；
+      id 是插入顺序，与小组内既有稳定顺序一致，也是个人赛小组赛生成器用的口径）；
+    - `round`：组内轮次，从 1 开始（有 N 支队伍时，偶数 N → N-1 轮，奇数 N → N 轮）；
+    - `match_index`：**轮内**场序，从 1 开始，取 round-robin 在该轮的输出顺序；
+    - 每两支真实队伍恰好交手一次，奇数队伍那一轮只有一支队伍轮空——
+      轮空**不落库**（绝不创建 `TeamEntry vs NULL` 这种假对抗）。
+
+    4 支队伍 → 6 场 / 3 轮 / 每轮 2 场；两个 4 队小组 → 12 场。
+
+    ## 生成前校验（顺序与错误码）
+
+    1. 赛事不存在 → 404；
+    2. 不是 TEAM 项目 → 409（该接口仅用于团体赛事）；
+    3. 赛事还没有小组 → 409；
+    4. 有 `ACTIVE` 队伍 `group_id IS NULL` → 409，**整批拒绝**：
+       不"给已分组的队伍先生成一部分"，否则会留下一个看起来正常、
+       实际缺失部分对阵的小组赛（且事后无法与"手工赛程"区分）；
+    5. 赛事已有任何 `stage=GROUP` 的对抗（手工建立的也算）→ 409，不补齐、不覆盖、不重新生成；
+    6. `WITHDRAWN` 队伍不参与生成（与 `create_team_tie()` 的退赛口径一致：
+       已退赛的队伍不能被安排**新的**对抗）。退赛后某组可能只剩 1 支队伍，
+       那样的组不产生任何对抗（一场比赛需要两支队伍），这属于既有退赛语义，不是错误。
+
+    ## 原子性与并发（Reviewer 重点关注）
+
+    "检查是否已有 GROUP TeamTie → 创建一批 TeamTie" 与 PR #22 的建盘骨架是同一类
+    **read-check-write**，必须放进 `BEGIN IMMEDIATE` 写事务：
+
+    - 事务前的只读前置校验只是**快速失败**（请求明显不合法时不必去抢写锁）；
+    - **全部业务判断与全部写入都在写事务内**：拿到写锁后重新读取赛事、小组、队伍、
+      已有对抗——因此"读到的状态"与"写入的依据"是同一份事实；
+    - 两个并发生成请求只会有一个成功：后拿到写锁的请求一定能读到前者已提交的 GROUP 对抗，
+      从而稳定返回 **409**（业务冲突），而不会两边都插入（那会撞 `UNIQUE` 约束或留下两套赛程）。
+      锁等待超时同样是可读的 409，不会把 `sqlite3.OperationalError` 漏成 500。
+
+    生成出的 TeamTie 与 `create_team_tie()` 建出来的完全同构（同样默认 `WAITING`、
+    比分 0、未固化赛制），因此可以继续走既有链路：
+    选生产赛制 → `build_rubber_skeleton()` → A4.1 Runtime。
+    """
+    # ---- 事务外的快速失败（只读）----
+    _team_tournament(conn, tournament_id)
+
+    try:
+        with write_transaction(
+            conn,
+            busy_message="团体小组赛正在被另一个请求生成，请稍后重试",
+            conflict_message="生成团体小组赛时写入冲突，请稍后重试",
+        ):
+            # ---- 取到写锁之后的权威校验：这里的结论才是可以安全写入的依据 ----
+            _team_tournament(conn, tournament_id)
+
+            groups = repo.list_groups(conn, tournament_id)
+            if not groups:
+                raise TeamTieError("请先完成分组，再生成团体小组赛", 409)
+
+            entries = [
+                entry
+                for entry in repo.list_entries_by_type(
+                    conn, tournament_id, EventType.TEAM.value
+                )
+                if entry["status"] == ENTRY_STATUS_ACTIVE
+            ]
+
+            ungrouped = _ungrouped_entries(entries)
+            if ungrouped:
+                names = "、".join(e["display_name"] for e in ungrouped[:3])
+                raise TeamTieError(
+                    f"仍有 {len(ungrouped)} 支队伍未完成分组（例如：{names}），"
+                    f"不能生成团体小组赛——请先完成分组，再整体生成",
+                    409,
+                )
+
+            existing = repo.count_team_ties(conn, tournament_id, stage=MatchStage.GROUP.value)
+            if existing:
+                raise TeamTieError(
+                    f"团体小组赛已经生成（现有 {existing} 场小组对抗），不能重复生成；"
+                    f"本版本不支持补齐、覆盖或重新生成",
+                    409,
+                )
+
+            by_group: dict[int, list[dict]] = {}
+            for entry in entries:
+                by_group.setdefault(entry["group_id"], []).append(entry)
+
+            per_group: dict[str, int] = {}
+            total = 0
+            for group in groups:  # list_groups 已按 sort_order 排序
+                members = sorted(by_group.get(group["id"], []), key=lambda e: e["id"])
+                schedule = round_robin.round_robin([e["id"] for e in members])
+                per_group[group["name"]] = len(schedule)
+                # round-robin 的输出顺序是确定的：同一轮内按 round 逐场累加 match_index，
+                # 因此 round / match_index 稳定、可解释、可测试（不写随机值）。
+                indexes: dict[int, int] = {}
+                for round_num, entry_a_id, entry_b_id in schedule:
+                    indexes[round_num] = indexes.get(round_num, 0) + 1
+                    repo.create_team_tie(
+                        conn,
+                        tournament_id,
+                        MatchStage.GROUP.value,
+                        group["id"],
+                        round_num,
+                        indexes[round_num],
+                        entry_a_id,
+                        entry_b_id,
+                    )
+                total += len(schedule)
+    except TransactionBusyError as exc:
+        # 业务冲突保持 409；"写事务嵌套"是内部错误，按 500 上报（与 Runtime 同一口径）。
+        raise TeamTieError(str(exc), exc.code) from None
+
+    # 刻意不修改 `tournaments.stage`：TEAM 的阶段推进规则尚未冻结
+    # （要与团体排名 / 晋级 / 排程一起设计），本批次只生成对抗。
+    return {"ties_generated": total, "per_group": per_group}
 
 
 def build_rubber_skeleton(

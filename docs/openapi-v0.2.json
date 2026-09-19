@@ -2379,6 +2379,49 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/team-ties/generate-group-ties": {
+      "post": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Generate Group Ties",
+        "description": "按小组单循环生成该 TEAM 赛事的全部小组对抗（A6.1）。\n\n- 使用**子路径**而不是新的 `/team-group-ties` 命名空间：与同一 router 里的\n  `.../team-ties/{tie_id}/rubber-skeleton` 一样，动作挂在资源下面，命名空间保持一处。\n- 路由只做参数解析、调 service、错误映射；编排与全部业务校验在\n  `services/team_ties.py::generate_group_ties()`（一个写事务，全成或全不成）。\n- 返回 200 + `{\"ties_generated\", \"per_group\"}`（不返回对抗明细：需要明细请调\n  `GET /team-ties`；不返回赛事对象：本操作**不推进赛事阶段**）。",
+        "operationId": "generate_group_ties_api_tournaments__tournament_id__team_ties_generate_group_ties_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateTeamGroupTiesResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}/team-ties/{tie_id}": {
       "get": {
         "tags": [
@@ -3179,6 +3222,28 @@
           "tournament"
         ],
         "title": "GenerateMatchesResult"
+      },
+      "GenerateTeamGroupTiesResult": {
+        "properties": {
+          "ties_generated": {
+            "type": "integer",
+            "title": "Ties Generated"
+          },
+          "per_group": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Per Group"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ties_generated",
+          "per_group"
+        ],
+        "title": "GenerateTeamGroupTiesResult",
+        "description": "团体小组循环对阵生成结果（A6.1）。\n\n刻意保持最小：只回答\"生成了多少场、每个组多少场\"。\n这里**没有**排名、积分、出线、stage 等字段——团体小组积分与晋级规则尚未冻结，\n生成器也不推进赛事阶段，返回一个看起来像\"小组赛已完成\"的 DTO 会误导消费方。"
       },
       "GroupOut": {
         "properties": {

@@ -388,6 +388,39 @@ def list_team_ties(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def count_team_ties(
+    conn: sqlite3.Connection, tournament_id: int, stage: str | None = None
+) -> int:
+    """某赛事（可选：某赛段）的对抗数量。
+
+    只回答"有没有"，不解释业务含义：重复生成的判定写在 services/team_ties.py，
+    repository 不参与任何编排或业务规则。
+    """
+    if stage is None:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM team_ties WHERE tournament_id = ?", (tournament_id,)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM team_ties WHERE tournament_id = ? AND stage = ?",
+            (tournament_id, stage),
+        ).fetchone()
+    return int(row["n"])
+
+
+def list_group_team_ties(
+    conn: sqlite3.Connection, tournament_id: int, group_id: int
+) -> list[dict]:
+    """某小组的对抗（按 round, match_index, id 稳定排序），供生成器按组校验与统计。"""
+    rows = conn.execute(
+        f"SELECT {_TIE_COLS} FROM team_ties "
+        "WHERE tournament_id = ? AND group_id = ? "
+        "ORDER BY round, COALESCE(match_index, 0), id",
+        (tournament_id, group_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def set_team_tie_format(
     conn: sqlite3.Connection,
     tie_id: int,
