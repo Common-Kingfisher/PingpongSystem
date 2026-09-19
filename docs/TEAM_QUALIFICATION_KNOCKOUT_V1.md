@@ -1,0 +1,205 @@
+# 团体晋级与淘汰签规则 V1（Team Qualification & Knockout）
+
+状态：**A6.3 / A6.4 冻结**。
+实现位置：`backend/app/domain/team_qualification.py`、`backend/app/domain/team_knockout.py`、
+`backend/app/services/team_qualification.py`、`backend/app/services/team_knockout.py`。
+
+本文件是团体**晋级判定**与**淘汰签生成**的唯一业务规则源：代码不得根据"常见乒乓球规则"、
+个人赛 `domain/ranking.py` / `domain/knockout.py` 的口径或任何未写入本文的惯例自行补规则。
+**改规则先改本文。**
+
+上游：小组排名规则见 [团体小组排名规则 V1](TEAM_GROUP_RULES_V1.md)（A6.2）。
+本文的晋级判定**只消费** A6.2 的排名事实，**不重新排名**。
+
+> 关于"冻结"的诚实说明：本文由 A6.3/A6.4 开发任务书逐条固化而成。任务书未明确、
+> 但实现必须定下来的点列在 §7「待 Reviewer 确认」，确认后应移入正文并去掉标记。
+
+---
+
+## 0. 适用范围与边界
+
+TEAM 赛事从小组赛走到淘汰签的完整链路：
+
+```
+Group Stage 完成
+      │
+      ▼
+Team Standings（A6.2：事实）
+      │
+      ▼
+Qualification Decision（A6.3：确认结果）
+      │
+      ▼
+Team Knockout Bracket（A6.4：首轮对抗）
+```
+
+- 只服务 `EventType.TEAM`。非 TEAM 赛事一律 409。
+- **不做**：Scheduler（自动排台 / ETA）、实时运行态 UI、高级种子算法
+  （rating / 历史积分 / 跨赛事排名）、**自动**处理并列晋级。
+- **不复用**个人赛的排名与淘汰逻辑：不调用 `services/knockout.py`，
+  不创建任何 `matches` 行，不使用个人赛的配对/名次规则。
+  （唯一复用是 `domain/knockout.build_bracket()` 的纯**结构**能力，见 §4.3。）
+
+## 1. 晋级判定（A6.3）
+
+### 1.1 默认规则：每组前 N
+
+- N = `groups.qualify_count`，为空时回退赛事 `tournaments.qualify_per_group`
+  （与 A6.2 / 个人赛 `/rankings` 同一口径）。
+- 每组的晋级队伍只能来自**本组**；跨组拼凑不是晋级。
+
+### 1.2 名次区间与晋级线的关系（三种情形）
+
+A6.2 用 `rank_start` / `rank_end` 表示名次（并列共享区间）。设晋级线为 `N`：
+
+| 情形 | 判定 |
+|---|---|
+| `rank_end <= N`（完全在晋级线内） | **自动晋级**（`auto_qualified`） |
+| `rank_start > N`（完全在晋级线外） | 不晋级 |
+| `rank_start <= N < rank_end`（**跨越**晋级线） | 该块并列 → `requires_manual_resolution = true` |
+
+**禁止**用任何方式自动打破并列：不按数据库 id、不按展示顺序、不随机、不取"第一个"。
+跨线并列的队伍全部进入 `boundary_tied_team_ids`，由人工决定谁拿到剩余席位。
+
+`boundary_slots_remaining = N − len(auto_qualified)`：并列块要填补的席位数。
+
+### 1.3 硬性前置（不满足则禁止确认，也禁止生成淘汰签）
+
+1. **排名必须在晋级线上无并列**（`requires_manual_resolution == false`）才允许"系统直接确认"；
+2. **组内比赛必须全部结束**（A6.2 的 `provisional == false`）；
+   provisional 时 `can_confirm = false`，`blocked_reasons` 给出可读原因；
+3. **已退赛队伍不可晋级**（A6.2 的 `eligible_for_qualification == false`）：
+   既不出现在候选里，也不能被确认。
+
+### 1.4 人工确认（`POST .../qualification/confirm`）
+
+请求给出**全部**小组的晋级队伍（全量替换）。校验（全部在写事务内基于最新排名重新执行）：
+
+1. 不允许重复队伍；
+2. **每个小组必须恰好选出 `qualify_count` 支**；
+3. 选出的队伍必须属于本赛事，且是该组的**候选**（名次在晋级线内或跨线并列）；
+4. 存在跨线并列时，从并列块中选出的数量必须**正好等于** `boundary_slots_remaining`
+   （少选会留下空席位，多选会挤掉已确定晋级的队伍）；
+5. 已退赛队伍不能被确认。
+
+任何一项不满足 → 整体回滚，**原有确认保持原样**。全部通过 → 落库为
+`team_qualifications` 记录（`status = 'QUALIFIED'`）。
+
+### 1.5 保存策略（刻意最小）
+
+- **排名事实不落库**：需要排名时永远从 `team_ties` / `team_rubbers` 现算（A6.2）；
+- **不保存** rank / 积分 / 排名快照——避免出现"第二真相源"；
+- `team_qualifications` 只回答"哪些队伍被确认晋级"。
+
+## 2. 淘汰签生成（A6.4）
+
+### 2.1 输入
+
+**只使用 A6.3 已确认**的晋级队伍（`team_qualifications`）。
+未确认 → 409，**绝不**从 standings 猜测晋级者。
+每个小组必须恰好确认 `qualify_count` 支，否则 409。
+
+### 2.2 首轮配对：相邻组交叉
+
+把小组按 `groups.sort_order` 两两分组；每一对小组 `(g1, g2)` 生成两场：
+
+```
+g1 第 1 名 vs g2 第 2 名
+g2 第 1 名 vs g1 第 2 名
+```
+
+- 4 组 × 每组前 2：`QF1 = A1-B2, QF2 = B1-A2, QF3 = C1-D2, QF4 = D1-C2`
+- 2 组 × 每组前 2：`SF1 = A1-B2, SF2 = B1-A2`
+
+首轮各场的先后即上面的顺序；后续轮次由**相邻两场**的胜者会合
+（第 1、2 场胜者进同一场半决赛）。由此保证：
+
+- 同一小组的两支队伍**分处不同半区**，最早在决赛相遇；
+- 同名次之间不会首轮相遇（每组第 1 名只打另一组的第 2 名）。
+
+**种子规则 V1 = 小组顺序 + 组内晋级名次**。禁止 random、禁止按数据库 id 排序、
+禁止随机抽签、禁止任何形式的 id 兜底。
+
+### 2.3 V1 支持的规模（未冻结部分一律拒绝，而不是猜）
+
+支持：各组晋级人数相同、**每组 2 支**、**偶数个小组**（≥ 2）、总数是 2 的幂。
+因此 4 / 8 / 16 支可生成。
+
+以下配置**当前拒绝**（409，可读错误），因为规则尚未冻结：
+
+- 奇数个小组；
+- 每组晋级人数 ≠ 2，或各组晋级人数不一致；
+- 总数不是 2 的幂（需要**轮空**，而团体赛轮空落位未冻结）。
+
+### 2.4 数据模型：复用 `team_ties`
+
+- 团体淘汰赛的最小比赛单位仍是 **TeamTie**，`stage = 'KNOCKOUT'`，
+  `group_id` 恒为 `NULL`（与 `create_team_tie` 的既有 guard 一致）。
+- **不新建** `team_knockout_ties`，也不引入第二套对抗系统。
+- **不创建任何普通 `matches` 行**。
+- 盘骨架仍由既有 `services/team_ties.py::build_rubber_skeleton()` 按需创建；
+  本批次**不**自动批量建盘（属于另一个业务动作，且有自己的事务契约）。
+  淘汰赛的 TeamTie 与小组赛同构，因此可直接使用 `LOCAL_CLASSIC_5_V1` 并进入 A4.1 Runtime。
+
+### 2.5 本版本建立到哪一层（重要）
+
+生成时只写入**可以立刻进行的首轮对抗**（双方都已确认）：8 支队伍即 4 场 Quarter Final。
+后续轮次（Semi Final / Final）在**读取时**按签表几何补全为"待定槽位"：
+
+- `rounds[i].match_count` = 该轮**应有**场次数；
+- `rounds[i].matches` 只包含**已建立**的对抗，因此后续轮次为 `match_count > 0` 但 `matches == []`。
+
+**为什么不预建空对抗**：`team_ties.entry_a_id / entry_b_id` 是 `NOT NULL`，
+且该表没有 `prev` 依赖列（个人赛 `matches` 两者都有）。只放开 NULL 而不加依赖列，
+仍然无法把胜者推进到下一轮，只会留下一批**没有含义也无法消费**的空行。
+因此本版本**不伪造**空槽位对抗；"允许待定槽位 + 上游依赖"（需要 `team_ties`
+表迁移）作为后续独立批次。**这也是本批次最明显的未完成项**，见 §6。
+
+### 2.6 重复生成与并发
+
+- 赛事已有任何 `stage='KNOCKOUT'` 对抗 → 409，**不**补齐、**不**覆盖、**不**重新生成。
+- 生成是 read-check-write，整个操作在 `BEGIN IMMEDIATE` 写事务内：
+  写锁内重新检查已有对抗，因此两个并发生成请求只会一个成功，另一个得到可读 409；
+  失败整体回滚，不留半套签表。
+
+### 2.7 赛事阶段
+
+**不修改** `tournaments.stage`：TEAM 的阶段推进规则尚未冻结（见 `docs/TEAM_DOMAIN.md`）。
+
+## 3. 接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/tournaments/{id}/qualification` | 每组候选、当前排名事实、是否需要人工处理、是否可以确认、已确认名单 |
+| POST | `/api/tournaments/{id}/qualification/confirm` | 人工确认晋级名单（全量替换；校验见 §1.4） |
+| POST | `/api/tournaments/{id}/team-knockout/generate` | 按已确认晋级生成淘汰签（首轮对抗） |
+| GET | `/api/tournaments/{id}/team-knockout` | 查询淘汰签（未生成时 `generated=false`） |
+
+错误码：赛事不存在 → 404；非 TEAM 项目 → 409；小组/队伍不存在或不属于本赛事 → 404；
+未确认晋级 / 已有签表 / 并列未解决 / 规模不受支持 → 409；
+名单数量、重复、并列取舍不合法 → 422。
+
+## 4. 明确未实现（后续批次）
+
+1. **淘汰签的胜者晋级**：后续轮次目前只是"待定槽位"，没有把首轮胜者推进到 Semi Final
+   的机制（需要 `team_ties` 支持待定槽位 + 上游依赖列，见 §2.5）。
+2. **Scheduler**：自动排台、ETA、一场对抗是否占一张台、多盘能否并行——全部未实现。
+3. **实时运行态 UI**：本批次只有后端接口；阵容/比分的实时调整沿用 A4.1 Runtime。
+4. **高级种子算法**：rating、历史积分、跨赛事排名一律不做；V1 只用"小组顺序 + 组内名次"。
+5. **自动处理并列晋级**：必须人工确认，系统不提供任何推荐。
+6. **轮空 / 奇数组 / 每组晋级数 ≠ 2**：未冻结，当前拒绝。
+7. **团体淘汰赛的撤销 / 重建**：未实现（与 A6.1 的"不支持补齐/撤销"一致）。
+8. **TEAM 阶段推进**：未冻结，`Tournament.stage` 不变。
+
+## 5. 待 Reviewer 确认（V1 采用的取值）
+
+任务书未明确、但实现必须定下来的点：
+
+1. **候选的定义**：`candidates` = "名次在晋级线内 **或** 跨线并列，且可晋级"；
+   名次在晋级线外的队伍不是候选，因此不能被人工确认（避免用人工确认绕过晋级线）。
+2. **晋级线内无并列时不接受改动**：系统直接确认即为唯一合法名单（第 §1.4 条 3 的必然结果）。
+3. **`qualify_count` 为空**时回退赛事 `qualify_per_group`（沿用 A6.2 口径）。
+4. **首轮配对的轮次命名**：4 场 → `Quarter Final`；2 场 → `Semi Final`；1 场 → `Final`。
+5. **退赛与已确认名单冲突**：已确认队伍在生成前退赛 → 409，要求先重新确认（§1.3 第 3 条的延伸）。
+6. **后续轮次只给骨架**：见 §2.5 的理由；若 Reviewer 要求"预建空对抗"，
+   需先做 `team_ties` 表迁移（允许 NULL 槽位 + prev 依赖），属独立批次。

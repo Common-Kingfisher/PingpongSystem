@@ -930,6 +930,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/qualification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Qualification */
+        get: operations["get_qualification_api_tournaments__tournament_id__qualification_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/qualification/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Qualification */
+        post: operations["confirm_qualification_api_tournaments__tournament_id__qualification_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/team-knockout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Team Knockout */
+        get: operations["get_team_knockout_api_tournaments__tournament_id__team_knockout_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/team-knockout/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Team Knockout */
+        post: operations["generate_team_knockout_api_tournaments__tournament_id__team_knockout_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -1949,6 +2017,36 @@ export interface components {
             rubbers_to_win?: number | null;
         };
         /**
+         * TeamGroupQualificationOut
+         * @description 一个小组的晋级状态（A6.3，只读计算 + 已确认结果）。
+         */
+        TeamGroupQualificationOut: {
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Qualify Count */
+            qualify_count: number;
+            /** Provisional */
+            provisional: boolean;
+            /** Requires Manual Resolution */
+            requires_manual_resolution: boolean;
+            /** Can Confirm */
+            can_confirm: boolean;
+            /** Auto Qualified Team Ids */
+            auto_qualified_team_ids: number[];
+            /** Boundary Tied Team Ids */
+            boundary_tied_team_ids: number[];
+            /** Boundary Slots Remaining */
+            boundary_slots_remaining: number;
+            /** Blocked Reasons */
+            blocked_reasons: string[];
+            /** Confirmed Team Ids */
+            confirmed_team_ids: number[];
+            /** Candidates */
+            candidates: components["schemas"]["TeamQualificationCandidateOut"][];
+        };
+        /**
          * TeamGroupStandingsOut
          * @description 一个小组的团体排名（A6.2，只读、每次从真实事实重算）。
          *
@@ -1969,6 +2067,78 @@ export interface components {
             qualify_count: number;
             /** Standings */
             standings: components["schemas"]["TeamStandingRowOut"][];
+        };
+        /**
+         * TeamKnockoutMatchOut
+         * @description 团体淘汰签的一场比赛（复用 TeamTie，`stage='KNOCKOUT'`）。
+         *
+         *     本版本生成的对抗都是**首轮**（双方已确认）；后续轮次的槽位在读取时补全，
+         *     不进 `ties`，等上游胜者产生后再建立。
+         */
+        TeamKnockoutMatchOut: {
+            /** Tie Id */
+            tie_id: number;
+            /** Round */
+            round: number;
+            /** Round Name */
+            round_name: string;
+            /** Match Index */
+            match_index: number | null;
+            /** Teams Decided */
+            teams_decided: boolean;
+            team_a: components["schemas"]["TeamKnockoutTeamOut"] | null;
+            team_b: components["schemas"]["TeamKnockoutTeamOut"] | null;
+            status: components["schemas"]["TeamTieStatus"];
+            /** Team A Score */
+            team_a_score: number;
+            /** Team B Score */
+            team_b_score: number;
+            /** Winner Entry Id */
+            winner_entry_id: number | null;
+        };
+        /**
+         * TeamKnockoutOut
+         * @description 团体淘汰签（A6.4）。
+         *
+         *     比赛单位仍是 TeamTie（`stage='KNOCKOUT'`），**不创建**任何普通 Match；
+         *     `generated=false` 表示尚未生成（`rounds` / `ties` 为空）。
+         */
+        TeamKnockoutOut: {
+            /** Tournament Id */
+            tournament_id: number;
+            /** Generated */
+            generated: boolean;
+            /** Rounds */
+            rounds: components["schemas"]["TeamKnockoutRoundOut"][];
+            /** Ties */
+            ties: components["schemas"]["TeamKnockoutMatchOut"][];
+        };
+        /**
+         * TeamKnockoutRoundOut
+         * @description 淘汰签的一轮。
+         *
+         *     `match_count` 是**应有场次数**（按签表几何推导）；`matches` 只包含已经建立的对抗，
+         *     因此后续轮次会出现 `match_count > len(matches)`（尚未产生参赛者）。
+         */
+        TeamKnockoutRoundOut: {
+            /** Round */
+            round: number;
+            /** Round Name */
+            round_name: string;
+            /** Match Count */
+            match_count: number;
+            /** Matches */
+            matches: components["schemas"]["TeamKnockoutMatchOut"][];
+        };
+        /**
+         * TeamKnockoutTeamOut
+         * @description 淘汰签里的一支队伍（后续轮次尚未产生参赛者时为 null）。
+         */
+        TeamKnockoutTeamOut: {
+            /** Team Entry Id */
+            team_entry_id: number;
+            /** Team Name */
+            team_name: string;
         };
         /**
          * TeamLineupOptionOut
@@ -2019,6 +2189,76 @@ export interface components {
             can_record_score: boolean;
             /** Can Revise Score */
             can_revise_score: boolean;
+        };
+        /**
+         * TeamQualificationCandidateOut
+         * @description 某组的晋级候选队伍（A6.3）。
+         *
+         *     `auto_qualified`：名次完全落在晋级线内（不需要人工判断）。
+         *     `on_boundary_tie`：名次区间**跨越**晋级线 → 该块并列无法由系统决定，必须人工确认。
+         *     刻意不提供"推荐晋级"这类字段：系统不认识任何打破并列的规则。
+         */
+        TeamQualificationCandidateOut: {
+            /** Team Entry Id */
+            team_entry_id: number;
+            /** Team Name */
+            team_name: string;
+            /** Auto Qualified */
+            auto_qualified: boolean;
+            /** On Boundary Tie */
+            on_boundary_tie: boolean;
+        };
+        /**
+         * TeamQualificationConfirmRequest
+         * @description 人工确认晋级名单（A6.3）。
+         *
+         *     全量替换：请求要给出**所有**小组的晋级队伍。校验（数量、候选范围、
+         *     跨线并列的取舍）全部在服务层基于最新排名执行。
+         */
+        TeamQualificationConfirmRequest: {
+            /** Qualified Team Ids */
+            qualified_team_ids: number[];
+        };
+        /**
+         * TeamQualificationConfirmedOut
+         * @description 一条已确认的团体晋级记录（A6.3）。
+         */
+        TeamQualificationConfirmedOut: {
+            /** Team Entry Id */
+            team_entry_id: number;
+            /** Team Name */
+            team_name: string;
+            /** Group Id */
+            group_id: number | null;
+            /** Group Name */
+            group_name: string | null;
+            /** Status */
+            status: string;
+            /** Confirmed At */
+            confirmed_at: string;
+        };
+        /**
+         * TeamQualificationOut
+         * @description 团体晋级状态（A6.3）。
+         *
+         *     `standings`（A6.2）永远是**事实**；本结构回答的是"谁能晋级、是否需要人工确认"。
+         *     `confirmed` 是**人工/系统确认过的结果**，为空表示尚未确认。
+         */
+        TeamQualificationOut: {
+            /** Tournament Id */
+            tournament_id: number;
+            /** Provisional */
+            provisional: boolean;
+            /** Requires Manual Resolution */
+            requires_manual_resolution: boolean;
+            /** Can Confirm */
+            can_confirm: boolean;
+            /** Blocked Reasons */
+            blocked_reasons: string[];
+            /** Groups */
+            groups: components["schemas"]["TeamGroupQualificationOut"][];
+            /** Confirmed */
+            confirmed: components["schemas"]["TeamQualificationConfirmedOut"][];
         };
         /** TeamRosterPlayerDraft */
         TeamRosterPlayerDraft: {
@@ -4559,6 +4799,134 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TeamGroupStandingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_qualification_api_tournaments__tournament_id__qualification_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamQualificationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_qualification_api_tournaments__tournament_id__qualification_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamQualificationConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamQualificationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_team_knockout_api_tournaments__tournament_id__team_knockout_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamKnockoutOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_team_knockout_api_tournaments__tournament_id__team_knockout_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamKnockoutOut"];
                 };
             };
             /** @description Validation Error */
