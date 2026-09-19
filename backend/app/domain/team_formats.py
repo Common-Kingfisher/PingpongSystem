@@ -258,14 +258,33 @@ PRODUCTION_FORMATS: dict[str, TeamFormatSpec] = {
 }
 
 
-def register_format_spec(spec: TeamFormatSpec) -> None:
-    """登记一个赛制版本（同一 code 视为同一赛制，用 version 区分版本）。
+def register_format_spec(spec: TeamFormatSpec, *, allow_version_bump: bool = False) -> None:
+    """登记一个赛制版本；**已经存在的 code 一律拒绝覆盖**。
 
-    注意：**不要用新语义覆盖已发布的 code**。已创建的对抗虽然靠快照自保，
-    但同一 code 出现两种含义会让导出、审计与人工排查都产生歧义。
-    规则变化一律新增 `..._V2` 或新的 code。
+    为什么不再静默覆盖：`TeamFormat` 是版本化不可变定义。已创建的对抗虽然靠
+    `format_snapshot` 自保，但同一个 code 出现两种含义会让导出、审计与人工排查产生歧义
+    （"LOCAL_CLASSIC_5_V1 到底是 5 盘还是 7 盘？"）。因此规则变化必须**新增**新 code
+    （例如 `..._V2`），而不是改写已发布的 code。
+
+    - 新 code：登记成功。
+    - 已存在同一 code：抛 `TeamFormatError`（继承 `ValueError`），**注册表保持原样**；
+      即使传入更高的 version 也拒绝，除非显式 `allow_version_bump=True`
+      （只有确认要修订同一 code 时才用，正常发版不走这条路）。
+    - code 相同且对象就是同一个（幂等重复登记）：视为无操作，避免脚本/测试重复登记时误伤。
     """
     validate_format_spec(spec)
+    existing = PRODUCTION_FORMATS.get(spec.code)
+    if existing is not None and existing is not spec:
+        if not allow_version_bump:
+            raise TeamFormatError(
+                f"赛制「{spec.code}」已登记（version={existing.version}），不能覆盖；"
+                f"规则变化请新增版本化 code（例如 {spec.code}_V{spec.version}）"
+            )
+        if spec.version <= existing.version:
+            raise TeamFormatError(
+                f"赛制「{spec.code}」版本必须递增才能替换："
+                f"已有 version={existing.version}，收到 version={spec.version}"
+            )
     PRODUCTION_FORMATS[spec.code] = spec
 
 

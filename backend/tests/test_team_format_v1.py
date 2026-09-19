@@ -14,11 +14,14 @@
 4. 对抗一旦进入 Runtime（有盘 READY/PLAYING/FINISHED/SKIPPED），就再也不能换赛制或重建骨架。
 """
 
+import concurrent.futures
 import json
 import re
+import sqlite3
 
 import pytest
 
+from app import db as db_module
 from app import repository as repo
 from app.domain import team_formats as tf
 from app.services import entries as entries_service
@@ -53,10 +56,11 @@ class Setup:
         self.__dict__.update(kwargs)
 
 
-def _setup(conn, *, players: int = 8, format_code: str = FORMAT_CODE) -> Setup:
+def _setup(conn, *, players: int = 8, format_code: str = FORMAT_CODE,
+           name_suffix: str = "") -> Setup:
     """TEAM 赛事 → 选手 → A/B 两队 → 确认名单 → 对抗 → 生产赛制建盘。"""
     tournament = repo.create_tournament(
-        conn, f"生产赛制 {format_code}", "2026-07-01", 4, 1, 1,
+        conn, f"生产赛制 {format_code}{name_suffix}", "2026-07-01", 4, 1, 1,
         event_type="TEAM", operation_mode="DEMO",
     )
     tid = tournament["id"]
@@ -159,6 +163,106 @@ def test_production_spec_rejects_invalid_versions_of_itself():
         tf.register_format_spec(broken[0])
     # 注册失败不得污染生产注册表
     assert tf.PRODUCTION_FORMATS[FORMAT_CODE] is _production_spec()
+
+
+# --------------------------------- Review P3：register_format_spec 不得静默覆盖
+
+def test_register_format_spec_refuses_to_overwrite_existing_code(monkeypatch):
+    """同一 code 第二次注册（哪怕 version 更高）必须失败，且不能改写已有规格。
+
+    修复前：`PRODUCTION_FORMATS[spec.code] = spec` 直接覆盖 —— 代码行为与
+    "已发布 code 不应被覆盖"的文档承诺不一致。
+    """
+    monkeypatch.setattr(tf, "PRODUCTION_FORMATS", {})
+    first = tf.TeamFormatSpec(
+        code="REGISTRY_GUARD_V1",
+        version=1,
+        display_name="第一版",
+        rubbers_to_win=1,
+        rubbers=(tf.RubberTemplate(1, S, ("HOME_R1",), ("AWAY_R1",)),),
+    )
+    tf.register_format_spec(first)
+    assert tf.get_format_spec(first.code) is first
+
+    # 同一 code、不同语义：必须拒绝
+    conflicting = tf.TeamFormatSpec(
+        code="REGISTRY_GUARD_V1",
+        version=1,
+        display_name="被改写过的同名赛制",
+        rubbers_to_win=1,
+        rubbers=(tf.RubberTemplate(1, D, ("HOME_R1", "HOME_R2"), ("AWAY_R1", "AWAY_R2")),),
+    )
+    with pytest.raises(tf.TeamFormatError) as excinfo:
+        tf.register_format_spec(conflicting)
+    assert "已登记" in str(excinfo.value) and "不能覆盖" in str(excinfo.value)
+    # TeamFormatError 必须是 ValueError（项目既有约定），便于调用方按 ValueError 捕获
+    assert isinstance(excinfo.value, ValueError)
+    # 旧规格完好无损
+    assert tf.PRODUCTION_FORMATS[first.code] is first
+    assert tf.get_format_spec(first.code).display_name == "第一版"
+
+    # 即使 version 更高也不允许直接覆盖（必须先显式声明版本升级）
+    higher = tf.TeamFormatSpec(
+        code="REGISTRY_GUARD_V1",
+        version=2,
+        display_name="第二版",
+        rubbers_to_win=1,
+        rubbers=(tf.RubberTemplate(1, S, ("HOME_R1",), ("AWAY_R1",)),),
+    )
+    with pytest.raises(tf.TeamFormatError):
+        tf.register_format_spec(higher)
+    assert tf.PRODUCTION_FORMATS[first.code] is first
+
+    # 显式允许版本升级时才可替换；且版本必须真的递增
+    tf.register_format_spec(higher, allow_version_bump=True)
+    assert tf.get_format_spec(first.code) is higher
+    with pytest.raises(tf.TeamFormatError) as downgrade:
+        tf.register_format_spec(
+            tf.TeamFormatSpec(
+                code="REGISTRY_GUARD_V1",
+                version=1,
+                display_name="想回退版本",
+                rubbers_to_win=1,
+                rubbers=(tf.RubberTemplate(1, S, ("HOME_R1",), ("AWAY_R1",)),),
+            ),
+            allow_version_bump=True,
+        )
+    assert "递增" in str(downgrade.value)
+    assert tf.get_format_spec(first.code) is higher
+
+
+def test_register_format_spec_is_idempotent_for_identical_object(monkeypatch):
+    """同一个规格对象重复登记视为无操作（脚本/夹具重复登记不该炸）。"""
+    monkeypatch.setattr(tf, "PRODUCTION_FORMATS", {})
+    spec = tf.TeamFormatSpec(
+        code="REGISTRY_IDEMPOTENT_V1",
+        version=1,
+        display_name="幂等登记",
+        rubbers_to_win=1,
+        rubbers=(tf.RubberTemplate(1, S, ("HOME_R1",), ("AWAY_R1",)),),
+    )
+    tf.register_format_spec(spec)
+    tf.register_format_spec(spec)
+    assert tf.PRODUCTION_FORMATS[spec.code] is spec
+
+
+def test_register_format_spec_does_not_touch_production_registry_on_conflict():
+    """在生产注册表上直接验证：重复登记不会改写已冻结的 LOCAL_CLASSIC_5_V1。"""
+    before = tf.PRODUCTION_FORMATS[FORMAT_CODE]
+    conflicting = tf.TeamFormatSpec(
+        code=FORMAT_CODE,
+        version=2,
+        display_name="想覆盖生产赛制",
+        rubbers_to_win=1,
+        rubbers=(tf.RubberTemplate(1, S, ("HOME_R1",), ("AWAY_R1",)),),
+    )
+    with pytest.raises(tf.TeamFormatError):
+        tf.register_format_spec(conflicting)
+    assert tf.PRODUCTION_FORMATS[FORMAT_CODE] is before
+    assert before.version == 1 and before.rubbers_to_win == 3
+    assert len(before.rubbers) == 5
+    # 未显式声明升级时，生产注册表内容仍然只有确认过的模板
+    assert set(tf.PRODUCTION_FORMATS) == {FORMAT_CODE}
 
 
 # ------------------------------------------------- Test 2：盘序与位置代号（已冻结的边界）
@@ -496,6 +600,98 @@ def test_replace_is_refused_when_tie_is_in_flight_but_rubbers_untouched(conn):
     assert len(repo.list_team_rubbers(conn, s.tie_id)) == 5
 
 
+# --------------------------------- Review P1：并发重复建盘必须是 409，不能是 500
+
+def _run_build_skeleton(worker_conn, tournament_id, tie_id, **kwargs):
+    """在给定连接上建盘，把 (结果 or 异常) 原样返回给测试线程。"""
+    try:
+        return ("ok", ties_service.build_rubber_skeleton(
+            worker_conn, tournament_id, tie_id, FORMAT_CODE, **kwargs
+        ))
+    except Exception as exc:  # noqa: BLE001 - 并发测试需要同时收集成功与业务错误
+        return ("err", exc)
+
+
+def test_concurrent_duplicate_skeleton_is_conflict_not_server_error(conn):
+    """两个连接同时建盘：一个 200、另一个 409，最终只有 5 条 Rubber。
+
+    修复前：两次请求都能读到 existing == []，各自插入 5 盘，后提交者撞上
+    `UNIQUE (team_tie_id, sequence)` 抛 sqlite3.IntegrityError → 接口 500。
+    修复后：建盘走 `BEGIN IMMEDIATE` 写事务（services/transaction.py），
+    后来者先拿写锁再读状态，必然看到已有的 5 盘 → 409。
+    """
+    s = _setup(conn, format_code=FORMAT_CODE)
+    # _setup 已经建过一次盘，这里换一场新对抗，确保并发双方都从"空骨架"起跑。
+    tie = ties_service.create_team_tie(conn, s.tournament_id, s.team_a, s.team_b)
+    assert repo.list_team_rubbers(conn, tie["id"]) == []
+    conn.commit()
+
+    connections = [db_module.connect() for _ in range(2)]
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [
+                pool.submit(_run_build_skeleton, c, s.tournament_id, tie["id"])
+                for c in connections
+            ]
+            results = [f.result() for f in futures]
+    finally:
+        for c in connections:
+            c.close()
+
+    oks = [value for kind, value in results if kind == "ok"]
+    errs = [value for kind, value in results if kind == "err"]
+    assert len(oks) == 1, f"应当恰好一个请求成功，实际成功 {len(oks)} 个"
+    assert len(errs) == 1, f"应当恰好一个请求被拒绝，实际 {len(errs)} 个"
+
+    error = errs[0]
+    assert not isinstance(error, sqlite3.IntegrityError), f"IntegrityError 漏给了调用方：{error}"
+    assert isinstance(error, ties_service.TeamTieError), f"异常类型不对：{type(error)!r} ({error})"
+    assert error.code == 409, f"重复建盘必须是 409，实际 {error.code}：{error}"
+
+    # 落库结果：5 条，不是 10 条；赛制快照只被写过一次且完整
+    rubbers = repo.list_team_rubbers(conn, tie["id"])
+    assert len(rubbers) == 5
+    assert [r["sequence"] for r in rubbers] == [1, 2, 3, 4, 5]
+    stored = repo.get_team_tie(conn, tie["id"])
+    assert stored["format_code"] == FORMAT_CODE
+    assert tf.load_snapshot(stored["format_snapshot"]) == _production_spec()
+
+    # 再验一次单连接行为：重复建盘依旧 409，而不是 500
+    with pytest.raises(ties_service.TeamTieError) as again:
+        ties_service.build_rubber_skeleton(conn, s.tournament_id, tie["id"], FORMAT_CODE)
+    assert again.value.code == 409
+    assert len(repo.list_team_rubbers(conn, tie["id"])) == 5
+
+
+def test_concurrent_skeleton_never_leaks_integrity_error(conn):
+    """多轮并发重复建盘都不允许出现 500（IntegrityError 直接漏给调用方）。"""
+    for round_index in range(4):
+        s = _setup(conn, format_code=FORMAT_CODE, name_suffix=str(round_index))
+        tie = ties_service.create_team_tie(conn, s.tournament_id, s.team_a, s.team_b)
+        conn.commit()
+
+        connections = [db_module.connect() for _ in range(3)]
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                futures = [
+                    pool.submit(_run_build_skeleton, c, s.tournament_id, tie["id"])
+                    for c in connections
+                ]
+                results = [f.result() for f in futures]
+        finally:
+            for c in connections:
+                c.close()
+
+        oks = [v for k, v in results if k == "ok"]
+        errs = [v for k, v in results if k == "err"]
+        assert len(oks) == 1, f"第 {round_index} 轮：成功 {len(oks)} 个，期望 1 个"
+        assert len(errs) == 2, f"第 {round_index} 轮：被拒 {len(errs)} 个，期望 2 个"
+        for error in errs:
+            assert isinstance(error, ties_service.TeamTieError), f"{type(error)!r}: {error}"
+            assert error.code == 409
+        assert len(repo.list_team_rubbers(conn, tie["id"])) == 5
+
+
 # ------------------------------------------------- Test 10：开赛后不能换赛制 / 重建
 
 def test_format_cannot_change_or_rebuild_after_lineup_and_start(conn):
@@ -620,6 +816,30 @@ def test_api_production_skeleton_endpoint(client):
         json={"format_code": FORMAT_CODE},
     )
     assert again.status_code == 409
+    assert len(client.get(f"/api/tournaments/{tid}/team-ties/{tie}").json()["rubbers"]) == 5
+
+
+def test_api_duplicate_skeleton_is_business_conflict_not_server_error(client):
+    """HTTP 边界：重复建盘必须是可读的 409 业务冲突，绝不能变成 500。
+
+    这是 Reviewer P1 的用户可见面：并发/重复 POST 过去会撞 `UNIQUE (team_tie_id, sequence)`
+    抛出 sqlite3.IntegrityError，FastAPI 默认把它变成 500。现在服务层用写事务串行化，
+    后来者读到已有盘 → TeamTieError(409)。
+    """
+    tid, tie, _a, _b, body = _api_setup(client)
+    assert len(body["rubbers"]) == 5
+
+    for _ in range(3):  # 重复请求始终是 409，不会时不时变成 500
+        again = client.post(
+            f"/api/tournaments/{tid}/team-ties/{tie}/rubber-skeleton",
+            json={"format_code": FORMAT_CODE},
+        )
+        assert again.status_code == 409, f"{again.status_code}: {again.text}"
+        detail = again.json()["detail"]
+        assert "已生成 5 盘骨架" in detail
+        # 不能把数据库错误文案漏给用户
+        assert "IntegrityError" not in detail and "UNIQUE constraint" not in detail
+
     assert len(client.get(f"/api/tournaments/{tid}/team-ties/{tie}").json()["rubbers"]) == 5
 
 

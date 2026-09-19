@@ -27,6 +27,7 @@ from ..domain import team_formats
 from ..domain.team_formats import TeamFormatError
 from ..models import EventType, MatchStage, TeamRubberStatus, TeamTieStatus
 from .teams import ENTRY_STATUS_ACTIVE
+from .transaction import TransactionBusyError, write_transaction
 
 TIE_STAGES = (MatchStage.GROUP.value, MatchStage.KNOCKOUT.value)
 
@@ -183,48 +184,74 @@ def build_rubber_skeleton(
       换句话说：**对抗一旦进入 Runtime（有盘 READY/PLAYING/FINISHED/SKIPPED），
       就永远不能再换赛制或重建骨架**，否则会破坏已有阵容、比分与历史区间。
     - 生成的所有盘都是 PENDING 且 match_id=NULL。
+
+    ## 并发（Reviewer P1）
+
+    "查已有盘 → 判断是否重复 → 插入"同样是 read-check-write，必须与 Runtime 写操作
+    上同一把写锁（`services/transaction.write_transaction`）。否则两个并发
+    POST /rubber-skeleton 都能读到 existing == []，各自插入 5 盘，后提交者撞上
+    `UNIQUE (team_tie_id, sequence)` 抛 sqlite3.IntegrityError → 接口变成 500。
+
+    现在：`BEGIN IMMEDIATE` 在读取之前就取写锁，后来者一定能看到前者已提交的盘，
+    因此重复请求稳定返回 **409**（业务冲突），而不是 500。
+    读取与判断整体在写事务内，所以"读到的状态"与"写入的依据"是同一份。
     """
+    try:
+        spec = team_formats.get_format_spec(format_code)
+    except TeamFormatError as exc:
+        raise TeamTieError(str(exc), 422) from None
+
+    # 事务外的只读前置校验：请求本身不合法时不必去抢写锁。
     _team_tournament(conn, tournament_id)
     tie = repo.get_team_tie(conn, tie_id)
     if tie is None or tie["tournament_id"] != tournament_id:
         raise TeamTieError("团体对抗不存在", 404)
 
     try:
-        spec = team_formats.get_format_spec(format_code)
-    except TeamFormatError as exc:
-        raise TeamTieError(str(exc), 422) from None
-
-    existing = repo.list_team_rubbers(conn, tie_id)
-    if existing:
-        if not replace:
-            raise TeamTieError(
-                f"该对抗已生成 {len(existing)} 盘骨架，如需重来请显式要求重建", 409
-            )
-        # 重建只在"整场对抗还完全没有进入 Runtime"时成立。除盘状态外，把对抗
-        # 自身的状态与"盘是否已绑定 Match"也纳入判断：运维/脚本直接改库留下
-        # PLAYING 对抗、但盘还是 PENDING 时，绝不静默删掉这些盘重建。
-        started = [
-            r for r in existing
-            if r["status"] != TeamRubberStatus.PENDING.value or r["match_id"] is not None
-        ]
-        if started or tie["status"] != TeamTieStatus.WAITING.value:
-            raise TeamTieError("对抗已有开打的盘，不能重建骨架", 409)
-        repo.delete_team_rubbers_for_tie(conn, tie_id)
-
-    skeleton = team_formats.build_rubber_skeleton(spec)
-    for item in skeleton:
-        repo.create_team_rubber(
+        with write_transaction(
             conn,
-            tie_id,
-            item["sequence"],
-            item["rubber_type"],
-            json.dumps(item["home_slots"], ensure_ascii=False),
-            json.dumps(item["away_slots"], ensure_ascii=False),
-        )
-    repo.set_team_tie_format(
-        conn, tie_id, spec.code, spec.version, team_formats.dump_snapshot(spec)
-    )
-    conn.commit()
+            busy_message="该对抗正在被另一个请求处理，请稍后重试",
+            conflict_message="写入冲突，请稍后重试",
+        ):
+            # 取到写锁之后重新读对抗与已有盘：这里的判断才是可以安全写入的依据。
+            tie = repo.get_team_tie(conn, tie_id)
+            if tie is None:
+                # 极小概率：事务外的校验通过后对抗被删除（会级联删盘）。这里再确认一次，
+                # 避免拿 None 去判断状态。
+                raise TeamTieError("团体对抗不存在", 404)
+            existing = repo.list_team_rubbers(conn, tie_id)
+            if existing:
+                if not replace:
+                    raise TeamTieError(
+                        f"该对抗已生成 {len(existing)} 盘骨架，如需重来请显式要求重建", 409
+                    )
+                # 重建只在"整场对抗还完全没有进入 Runtime"时成立。除盘状态外，把对抗
+                # 自身的状态与"盘是否已绑定 Match"也纳入判断：运维/脚本直接改库留下
+                # PLAYING 对抗、但盘还是 PENDING 时，绝不静默删掉这些盘重建。
+                started = [
+                    r for r in existing
+                    if r["status"] != TeamRubberStatus.PENDING.value or r["match_id"] is not None
+                ]
+                if started or tie["status"] != TeamTieStatus.WAITING.value:
+                    raise TeamTieError("对抗已有开打的盘，不能重建骨架", 409)
+                repo.delete_team_rubbers_for_tie(conn, tie_id)
+
+            skeleton = team_formats.build_rubber_skeleton(spec)
+            for item in skeleton:
+                repo.create_team_rubber(
+                    conn,
+                    tie_id,
+                    item["sequence"],
+                    item["rubber_type"],
+                    json.dumps(item["home_slots"], ensure_ascii=False),
+                    json.dumps(item["away_slots"], ensure_ascii=False),
+                )
+            repo.set_team_tie_format(
+                conn, tie_id, spec.code, spec.version, team_formats.dump_snapshot(spec)
+            )
+    except TransactionBusyError as exc:
+        # 业务冲突保持 409；"写事务嵌套"是内部错误，按 500 上报（与 Runtime 同一口径）。
+        raise TeamTieError(str(exc), exc.code) from None
 
     updated = repo.get_team_tie(conn, tie_id)
     return _tie_with_rubbers(conn, updated)
