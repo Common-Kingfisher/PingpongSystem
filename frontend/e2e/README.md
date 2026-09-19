@@ -16,3 +16,21 @@ python e2e/test_placement_bracket.py
 ```
 
 默认使用本机 Microsoft Edge；可通过 `PLAYWRIGHT_CHANNEL` 改为其他已安装的 Chromium 通道。
+
+## 团体名单真实联调
+
+另开一个终端启动独立数据库与后端：
+
+```powershell
+cd backend
+python run_team_roster_demo.py --fresh
+```
+
+再启动 `pnpm dev`，把启动器输出的赛事 id 填入后运行：
+
+```powershell
+$env:TEAM_ROSTER_E2E_TID = "<赛事 id>"
+python e2e/test_team_roster_live.py
+```
+
+该验收不拦截 API；它验证浏览器分配未归队队员、保存工作表与确认冻结的真实 FastAPI/SQLite 链路。
