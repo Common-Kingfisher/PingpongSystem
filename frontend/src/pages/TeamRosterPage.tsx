@@ -246,7 +246,7 @@ export default function TeamRosterPage() {
       ...current,
       teams: current.teams.filter((item) => item.key !== team.key),
       players: current.players.map((player) => player.team_key === team.key ? { ...player, team_key: null, member_order: null } : player),
-      deleted_team_ids: team.id ? [...current.deleted_team_ids, team.id] : current.deleted_team_ids,
+      deleted_team_ids: team.id ? [...(current.deleted_team_ids ?? []), team.id] : current.deleted_team_ids,
     }))
   }
   const deleteEmptyTeam = (teamKey: string) => mutate((current) => {
@@ -255,12 +255,12 @@ export default function TeamRosterPage() {
     return {
       ...current,
       teams: current.teams.filter((item) => item.key !== teamKey),
-      deleted_team_ids: team.id ? [...current.deleted_team_ids, team.id] : current.deleted_team_ids,
+      deleted_team_ids: team.id ? [...(current.deleted_team_ids ?? []), team.id] : current.deleted_team_ids,
     }
   })
   const deletePlayers = () => {
     if (!selected.size || !editable || !window.confirm('永久删除选中的队员？此操作不可恢复。')) return
-    mutate((current) => ({ ...current, players: current.players.filter((player) => !selected.has(player.key)), deleted_player_ids: [...current.deleted_player_ids, ...current.players.filter((player) => selected.has(player.key) && player.id).map((player) => player.id!)] }))
+    mutate((current) => ({ ...current, players: current.players.filter((player) => !selected.has(player.key)), deleted_player_ids: [...(current.deleted_player_ids ?? []), ...current.players.filter((player) => selected.has(player.key) && player.id).map((player) => player.id!)] }))
     setSelected(new Set())
   }
   const openPreview = async () => {

@@ -2048,16 +2048,10 @@ export interface components {
             teams: components["schemas"]["TeamRosterTeamDraft"][];
             /** Players */
             players: components["schemas"]["TeamRosterPlayerDraft"][];
-            /**
-             * Deleted Team Ids
-             * @default []
-             */
-            deleted_team_ids: number[];
-            /**
-             * Deleted Player Ids
-             * @default []
-             */
-            deleted_player_ids: number[];
+            /** Deleted Team Ids */
+            deleted_team_ids?: number[];
+            /** Deleted Player Ids */
+            deleted_player_ids?: number[];
         };
         /** TeamRosterSheetOut */
         TeamRosterSheetOut: {

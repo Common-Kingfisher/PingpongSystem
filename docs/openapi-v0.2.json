@@ -6330,16 +6330,14 @@
               "type": "integer"
             },
             "type": "array",
-            "title": "Deleted Team Ids",
-            "default": []
+            "title": "Deleted Team Ids"
           },
           "deleted_player_ids": {
             "items": {
               "type": "integer"
             },
             "type": "array",
-            "title": "Deleted Player Ids",
-            "default": []
+            "title": "Deleted Player Ids"
           }
         },
         "type": "object",
