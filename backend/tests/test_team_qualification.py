@@ -413,12 +413,159 @@ def test_withdrawn_team_is_not_a_candidate(conn):
     assert target not in candidates
     # 该组现在只剩 1 个自动晋级者（名额 2 但退赛者被排除）
     assert target not in after["groups"][0]["auto_qualified_team_ids"]
-
+    # 候选因此只剩 1 支 < 名额 2 → 整组进入阻塞状态（409），且不落库
+    assert after["groups"][0]["blocked_reasons"]
     picks = [t for g in after["groups"] for t in g["auto_qualified_team_ids"]]
     with pytest.raises(qual_service.ServiceError) as excinfo:
         qual_service.confirm_qualification(conn, tid, picks + [target])
-    assert excinfo.value.code in (404, 422)
+    assert excinfo.value.code == 409
     assert repo.list_team_qualifications(conn, tid) == []
+
+
+# --------------------------------------------------- Reviewer issue 2：候选不足
+
+def _two_team_group(conn, *, name: str, qualify_per_group: int = 2) -> tuple[int, dict]:
+    """2 队 1 组 + 一场已打完的对抗 → 名次唯一（第 1、第 2 名各一支）。
+
+    这是"候选恰好等于名额"的最小场景：任何一支退赛都会让候选少于名额。
+    """
+    tid = _team_tournament(
+        conn, teams=2, group_count=1, per_group=2, name=name,
+        qualify_per_group=qualify_per_group,
+    )
+    tie_service.generate_group_ties(conn, tid)
+    group = repo.list_groups(conn, tid)[0]
+    _finish_group(conn, tid, group["id"], transitive=True)
+    return tid, group
+
+
+def test_candidate_shortage_after_withdrawal_blocks_confirmation(conn):
+    """Reviewer issue 2 / Case A：退赛导致候选不足 → blocked_reasons、can_confirm=false、
+    **不自动顺延**（第 2 名之后的队伍不会被提升为候选）。"""
+    tid, group = _two_team_group(conn, name="候选不足 CaseA")
+    before = qual_service.get_qualification(conn, tid)
+    assert before["can_confirm"] is True
+    assert before["groups"][0]["qualify_count"] == 2
+    # 2 队组里"晋级线内"就是全部 2 支，没有线外队伍可谈顺延
+    assert len(before["groups"][0]["candidates"]) == 2
+    teams = _group_teams(conn, tid, group["id"])
+    rank1 = before["groups"][0]["auto_qualified_team_ids"][0]
+    assert rank1 == teams[0]
+
+    repo.withdraw_entry(conn, rank1, "主裁判", "伤病退赛")
+    conn.commit()
+
+    after = qual_service.get_qualification(conn, tid)
+    view = after["groups"][0]
+    assert len(view["candidates"]) == 1
+    assert view["candidates"][0]["team_entry_id"] == teams[1]
+    assert view["qualify_count"] == 2
+    # 明确：不自动顺延（这里也没有线外队伍可顺延；规则本身也不允许）
+    assert view["can_confirm"] is False
+    assert after["can_confirm"] is False
+    assert view["blocked_reasons"], "候选不足必须产生 blocked_reasons"
+    reason = "；".join(view["blocked_reasons"])
+    assert "可晋级候选只有 1 支" in reason
+    assert "自动顺延" in reason
+
+    # Reviewer issue 2 / Case B：POST confirm → 409（不是 422），且不落库
+    with pytest.raises(qual_service.ServiceError) as excinfo:
+        qual_service.confirm_qualification(conn, tid, teams)
+    assert excinfo.value.code == 409
+    assert "自动顺延" in str(excinfo.value)
+    assert repo.list_team_qualifications(conn, tid) == []
+
+
+def test_candidate_shortage_does_not_promote_out_of_line_teams(conn):
+    """候选不足时**不得**把晋级线外的队伍自动提升为候选（V1 不定义顺延）。"""
+    tid, groups = _setup_finished(
+        conn, teams=16, group_count=4, per_group=4, name="不顺延"
+    )
+    state = qual_service.get_qualification(conn, tid)
+    group = groups[0]
+    teams = _group_teams(conn, tid, group["id"])
+    top2 = teams[:2]
+
+    repo.withdraw_entry(conn, top2[0], "主裁判", "伤病退赛")
+    conn.commit()
+
+    after = qual_service.get_qualification(conn, tid)
+    view = after["groups"][0]
+    candidates = [c["team_entry_id"] for c in view["candidates"]]
+    # 只有第 2 名仍是候选；第 3、4 名**没有**被顺延进来
+    assert candidates == [top2[1]]
+    assert teams[2] not in candidates
+    assert teams[3] not in candidates
+    assert after["can_confirm"] is False
+    assert view["blocked_reasons"]
+    assert state["can_confirm"] is True  # 退赛前是正常的
+
+
+def test_withdrawal_after_confirmation_blocks_reconfirm_and_knockout(conn):
+    """Reviewer issue 2 / Case C：已确认后退赛 → can_confirm=false；
+    重新 confirm → 409；原有确认记录保留；knockout generate 仍必须拒绝。"""
+    from app.services import team_knockout as knockout_service
+
+    tid, group = _two_team_group(conn, name="确认后退赛 CaseC")
+    teams = _group_teams(conn, tid, group["id"])
+    qual_service.confirm_qualification(conn, tid, teams)
+    assert len(repo.list_team_qualifications(conn, tid)) == 2
+
+    repo.withdraw_entry(conn, teams[0], "主裁判", "伤病退赛")
+    conn.commit()
+
+    after = qual_service.get_qualification(conn, tid)
+    assert after["can_confirm"] is False
+    assert after["groups"][0]["blocked_reasons"]
+    assert "自动顺延" in "；".join(after["groups"][0]["blocked_reasons"])
+    # 原有确认记录保留（本 PR 不做自动清除 / 审计状态机）
+    assert len(repo.list_team_qualifications(conn, tid)) == 2
+
+    # 重新确认 → 409
+    with pytest.raises(qual_service.ServiceError) as excinfo:
+        qual_service.confirm_qualification(conn, tid, teams)
+    assert excinfo.value.code == 409
+
+    # knockout generate 仍必须拒绝，且不创建任何对抗
+    with pytest.raises(knockout_service.ServiceError) as ko:
+        knockout_service.generate_team_knockout(conn, tid)
+    assert ko.value.code == 409
+    assert repo.count_team_ties(conn, tid, stage="KNOCKOUT") == 0
+
+
+def test_boundary_tie_manual_confirmation_still_works(conn):
+    """Reviewer issue 2 / Case D：普通 boundary tie 的人工确认**不受**本次修复影响。
+
+    `requires_manual_resolution = true` 时 `can_confirm` 本来就是 false，
+    但只要有足够候选，人工选择合法队伍就必须能确认成功 —— 本次修复只按
+    `blocked_reasons`（状态阻塞）拒绝，绝不因为 `can_confirm == false` 而误杀人工裁定。
+    """
+    tid = _team_tournament(
+        conn, teams=8, group_count=2, per_group=4, name="边界并列不受影响",
+        qualify_per_group=2,
+    )
+    tie_service.generate_group_ties(conn, tid)
+    groups = repo.list_groups(conn, tid)
+    _finish_group(conn, tid, groups[0]["id"], transitive=False)
+    _finish_group(conn, tid, groups[1]["id"], transitive=True)
+
+    state = qual_service.get_qualification(conn, tid)
+    tie_group = state["groups"][0]
+    assert tie_group["requires_manual_resolution"] is True
+    assert tie_group["can_confirm"] is False
+    assert tie_group["blocked_reasons"] == []          # 并列不是"状态阻塞"
+    assert state["blocked_reasons"] == []
+    # 候选充足（1 支自动 + 3 支并列 = 4 ≥ 名额 2），因此人工可以确认
+    assert len(tie_group["candidates"]) == 4
+
+    picks = (
+        list(state["groups"][1]["auto_qualified_team_ids"])
+        + list(tie_group["auto_qualified_team_ids"])
+        + sorted(tie_group["boundary_tied_team_ids"])[:1]
+    )
+    result = qual_service.confirm_qualification(conn, tid, picks)
+    assert {row["team_entry_id"] for row in result["confirmed"]} == set(picks)
+    assert len(repo.list_team_qualifications(conn, tid)) == 4
 
 
 # ==================================================================== 错误路径 / API

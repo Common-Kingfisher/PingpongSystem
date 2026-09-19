@@ -172,6 +172,20 @@ def resolve_group(group: GroupStandingFact) -> GroupQualification:
         # 理论上不会发生（跨线并列必然意味着席位没填满），保守处理为需要人工。
         result.blocked_reasons.append(f"{group.group_name} 的并列晋级席位无法自动确定")
 
+    # 候选不足：退赛队伍不可晋级，但仍占原名次。V1 **不定义顺延**
+    # （不会把晋级线外的队伍自动提升为候选），因此当可晋级候选少于名额时，
+    # 任何请求都不可能选出合法名单 —— 这是"赛事状态无法形成合法名单"，
+    # 必须显式阻塞，而不是让 GET 报 can_confirm=true、POST 永远失败。
+    if len(result.candidates) < group.qualify_count:
+        result.blocked_reasons.append(
+            f"{group.group_name} 可晋级候选只有 {len(result.candidates)} 支，"
+            f"少于晋级名额 {group.qualify_count}；"
+            f"当前规则未定义退赛后的自动顺延"
+        )
+
+    # `can_confirm` 表示"系统可直接确认"：无阻塞且无并列。
+    # 注意它与"能否人工确认"不是同一件事：存在跨线并列时 can_confirm 为 false，
+    # 但人工仍可确认（见 validate_selection 只对 blocked_reasons 返回 409）。
     result.can_confirm = not result.blocked_reasons and not result.requires_manual_resolution
     return result
 
@@ -208,24 +222,35 @@ def validate_selection(
 ) -> list[int]:
     """校验人工确认的晋级名单（返回去重后的稳定顺序）。
 
-    校验项：
-    1. 不允许重复队伍；
-    2. 每个小组必须恰好选出 `qualify_count` 支；
-    3. 选出的队伍必须在该组的**候选**里（即在晋级线内或跨线并列，且可晋级）；
-    4. 跨线并列时，从并列块里选出的数量必须正好等于剩余席位
-       （既不能少选——那会留下空席位，也不能多选——那会挤掉已确定晋级的队伍）。
+    校验分两类，**错误码不同**：
+
+    A. **赛事状态无法形成合法名单**（`blocked_reasons` 非空：小组未打完、候选不足等）
+       → 409。这不是请求参数写错，而是当前赛事状态本身无法确认，人工也无从选择。
+
+    B. **请求参数不合法** → 422。校验项：
+       1. 不允许重复队伍；
+       2. 每个小组必须恰好选出 `qualify_count` 支；
+       3. 选出的队伍必须在该组的**候选**里（即在晋级线内或跨线并列，且可晋级）；
+       4. 跨线并列时，从并列块里选出的数量必须正好等于剩余席位
+          （既不能少选——那会留下空席位，也不能多选——那会挤掉已确定晋级的队伍）。
+
+    **注意 A 与"需要人工处理并列"是两回事**：`requires_manual_resolution = true` 时
+    `can_confirm` 为 false，但只要有足够候选，人工恰恰**应该**能从并列块中选择并确认。
+    因此这里只按 `blocked_reasons` 阻断，绝不因为 `can_confirm == false` 就拒绝。
     """
     if not selected_team_ids:
         raise TeamQualificationError("请提供晋级队伍", 422)
     if len(set(selected_team_ids)) != len(selected_team_ids):
         raise TeamQualificationError("晋级名单中存在重复队伍", 422)
 
+    # A. 状态层面的阻塞优先于参数校验，给出 409 而不是"某组必须选 N 支"的 422。
+    if outcome.blocked_reasons:
+        raise TeamQualificationError(
+            "；".join(outcome.blocked_reasons) + "；当前状态无法确认晋级名单", 409
+        )
+
     remaining = list(selected_team_ids)
     for group in outcome.groups:
-        if group.provisional:
-            raise TeamQualificationError(
-                f"{group.group_name} 的比赛尚未全部结束，不能确认晋级", 409
-            )
         candidates = set(group.candidates)
         tied = set(group.boundary_tied_team_ids)
         picked = [team_id for team_id in remaining if team_id in candidates]

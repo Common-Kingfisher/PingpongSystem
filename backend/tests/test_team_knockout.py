@@ -23,6 +23,7 @@ from app.models import EventType, MatchStage
 from app.services import team_knockout as knockout_service
 from app.services import team_qualification as qual_service
 from app.services import team_runtime as runtime
+from app.services import team_standings as standings_service
 from app.services import team_ties as tie_service
 from app.services import teams as teams_service
 
@@ -36,9 +37,14 @@ GET_KO_URL = "/api/tournaments/{tid}/team-knockout"
 # ------------------------------------------------------------------ 夹具
 
 def _team_tournament(
-    conn, *, teams: int, group_count: int, per_group: int, name: str,
+    conn, *, teams: int, group_count: int, per_group: int | tuple[int, ...], name: str,
     qualify_per_group: int = 2,
 ) -> int:
+    """建 TEAM 赛事。
+
+    `per_group` 可以传整数（各组等人数）或元组（各组不等人数，例如 `(3, 4)`）——
+    后者用于构造"某组 3 队全并列、另一组名次唯一"的种子歧义场景。
+    """
     tournament = repo.create_tournament(
         conn, name, "2026-11-01", 4, group_count, qualify_per_group,
         event_type=EventType.TEAM.value, operation_mode="DEMO",
@@ -56,8 +62,16 @@ def _team_tournament(
     entries = sorted(
         repo.list_entries_by_type(conn, tid, EventType.TEAM.value), key=lambda e: e["id"]
     )
-    for index, entry in enumerate(entries):
-        repo.set_entry_group(conn, entry["id"], groups[index // per_group]["id"])
+    if isinstance(per_group, int):
+        sizes = [per_group] * group_count
+    else:
+        sizes = list(per_group)
+    assert sum(sizes) == teams, f"每组人数之和 {sum(sizes)} != 队伍数 {teams}"
+    index = 0
+    for group, size in zip(groups, sizes):
+        for entry in entries[index : index + size]:
+            repo.set_entry_group(conn, entry["id"], group["id"])
+        index += size
     conn.commit()
     return tid
 
@@ -89,11 +103,48 @@ def _finish_tie(conn, tid: int, tie_id: int, winner: int) -> None:
             break
 
 
-def _finish_group(conn, tid: int, group_id: int) -> None:
-    """强者通吃：计算顺序在前者获胜 → 组内名次唯一（无并列）。"""
+def _finish_group(conn, tid: int, group_id: int, *, transitive: bool = True) -> None:
+    """把某组全部对抗打完。
+
+    `transitive=True`：计算顺序在前者通吃 → 组内名次唯一（无并列）。
+    `transitive=False`：**第 1 名通吃其余三队，其余三队两两循环** →
+        standings[0] 独自第 1 名，standings[1..3] 三项统计完全相同（并列 2–4 名）。
+        用于构造"第 2 名（甚至第 1 名）不唯一"的种子歧义场景。
+    """
+    if transitive:
+        for tie in repo.list_group_team_ties(conn, tid, group_id):
+            a, b = tie["entry_a_id"], tie["entry_b_id"]
+            _finish_tie(conn, tid, tie["id"], a if a < b else b)
+        return
+
+    members = _group_teams(conn, tid, group_id)
+    assert len(members) == 4, "并列构造需要 4 支队伍（1 强 + 3 循环）"
+    first, rest = members[0], members[1:]
+    winners: dict[frozenset, int] = {frozenset((first, other)): first for other in rest}
+    winners[frozenset((rest[0], rest[1]))] = rest[0]
+    winners[frozenset((rest[1], rest[2]))] = rest[1]
+    winners[frozenset((rest[0], rest[2]))] = rest[2]
     for tie in repo.list_group_team_ties(conn, tid, group_id):
-        a, b = tie["entry_a_id"], tie["entry_b_id"]
-        _finish_tie(conn, tid, tie["id"], a if a < b else b)
+        pair = frozenset((tie["entry_a_id"], tie["entry_b_id"]))
+        _finish_tie(conn, tid, tie["id"], winners[pair])
+
+
+def _finish_cycle_group(conn, tid: int, group_id: int, *, teams: int) -> None:
+    """循环构造：`teams` 支队伍首尾相接循环（T1>T2>T3>…>T1），每场 3:0。
+
+    每支队伍"赢一场 3:0、输一场 0:3"，因此整组**三项统计完全相同** →
+    名次区间覆盖整组（例如 3 队 → 全部并列 1–3 名），用于构造种子歧义场景。
+    """
+    members = _group_teams(conn, tid, group_id)
+    assert len(members) == teams
+    winners: dict[frozenset, int] = {}
+    for index in range(teams):
+        winner = members[index]
+        loser = members[(index + 1) % teams]
+        winners[frozenset((winner, loser))] = winner
+    for tie in repo.list_group_team_ties(conn, tid, group_id):
+        pair = frozenset((tie["entry_a_id"], tie["entry_b_id"]))
+        _finish_tie(conn, tid, tie["id"], winners[pair])
 
 
 def _setup_confirmed(
@@ -445,6 +496,280 @@ def test_domain_rejects_unfrozen_configurations():
     with pytest.raises(TeamKnockoutError) as dup:
         build_first_round_pairs([[1, 2], [2, 3]])
     assert "重复" in str(dup.value)
+
+
+# ==================================================================== Reviewer issue 1：种子顺序
+
+def _no_knockout_ties(conn, tid: int) -> bool:
+    return repo.count_team_ties(conn, tid, stage=MatchStage.KNOCKOUT.value) == 0
+
+
+def test_issue1_ambiguous_seed_order_rejects_generation_case_a(conn):
+    """Reviewer issue 1 / Case A：**任一晋级名次不唯一**就必须拒绝生成（不创建任何对抗）。
+
+    说明：Reviewer 给的"rank 1–2 并列"只是并列的一种形态。本测试用同一判据下
+    **服务层可稳定构造**的形态覆盖同一条规则：第 1 名唯一、第 2–4 名并列。
+    判据本身与并列发生在第 1 名还是第 2 名无关 —— 只要 `rank_start/rank_end`
+    不能唯一确定某个晋级名次，生成就必须 409（见 `_qualified_by_group`）。
+
+    第 1 名与第 2 名都并列的情形见
+    `test_issue1_both_seed_ranks_ambiguous_guard_covers_all_rank_positions`
+    （用规范化的 standings 事实直接驱动，不依赖"运行时能否造出完全相同的统计"）。
+    """
+    tid = _team_tournament(
+        conn, teams=8, group_count=2, per_group=4, name="Issue1 CaseA",
+        qualify_per_group=2,
+    )
+    tie_service.generate_group_ties(conn, tid)
+    groups = repo.list_groups(conn, tid)
+    # A 组：1 强 + 3 循环 → 第 1 名唯一、第 2–4 名并列；B 组名次唯一
+    _finish_group(conn, tid, groups[0]["id"], transitive=False)
+    _finish_group(conn, tid, groups[1]["id"])
+
+    state = qual_service.get_qualification(conn, tid)
+    tie_group = state["groups"][0]
+    assert len(tie_group["auto_qualified_team_ids"]) == 1     # 第 1 名唯一
+    assert len(tie_group["boundary_tied_team_ids"]) == 3      # 第 2–4 名并列
+    assert tie_group["blocked_reasons"] == []                 # 候选充足，不是状态阻塞
+
+    chosen = sorted(tie_group["boundary_tied_team_ids"])[0]
+    picks = (
+        list(tie_group["auto_qualified_team_ids"]) + [chosen]
+        + list(state["groups"][1]["auto_qualified_team_ids"])
+    )
+    qual_service.confirm_qualification(conn, tid, picks)      # qualification 可以确认
+
+    with pytest.raises(knockout_service.ServiceError) as excinfo:
+        knockout_service.generate_team_knockout(conn, tid)
+    assert excinfo.value.code == 409
+    message = str(excinfo.value)
+    assert "种子顺序仍存在并列" in message
+    assert "第 2 名" in message          # 歧义位置正是第 2 名
+    assert "不支持人工指定淘汰种子顺序" in message
+    assert _no_knockout_ties(conn, tid), "被拒绝时不得留下任何淘汰对抗"
+
+
+def test_issue1_both_seed_ranks_ambiguous_guard_covers_all_rank_positions(conn):
+    """Reviewer issue 1 / Case A 的直接覆盖：**第 1 名与第 2 名都不唯一** → 409。
+
+    运行时无法稳定构造"两支队伍三项统计完全相同"的小组（5 盘制提前结束会让局分不对称，
+    2 队小组又必然分出胜负），因此这里直接给出 A6.2 形态的 standings 事实，
+    验证判据对"并列发生在第 1 名"同样成立 —— 且**绝不用展示顺序 / entry id 兜底**。
+    """
+    from app.services import team_knockout as ko
+
+    # 两支队伍并列 1–2（区间都是 1–2）：任何名次都无法唯一确定
+    ambiguous_group = {
+        "group_id": 7,
+        "group_name": "A组",
+        "qualify_count": 2,
+        "provisional": False,
+        "blocked_reasons": [],
+        "candidates": [
+            {"team_entry_id": 11}, {"team_entry_id": 12},
+        ],
+        "standings": [
+            {"team_entry_id": 11, "rank_start": 1, "rank_end": 2,
+             "eligible_for_qualification": True, "status": "ACTIVE"},
+            {"team_entry_id": 12, "rank_start": 1, "rank_end": 2,
+             "eligible_for_qualification": True, "status": "ACTIVE"},
+        ],
+    }
+    with pytest.raises(knockout_service.ServiceError) as excinfo:
+        ko._seed_order_for_group(ambiguous_group, confirmed_ids={11, 12})
+    assert excinfo.value.code == 409
+    assert "第 1 名" in str(excinfo.value) and "第 2 名" in str(excinfo.value)
+    assert "不支持人工指定淘汰种子顺序" in str(excinfo.value)
+
+    # 对照：同样的两支队伍但名次唯一 → 允许按名次返回 [rank1, rank2]
+    unique_group = dict(
+        ambiguous_group,
+        standings=[
+            {"team_entry_id": 11, "rank_start": 1, "rank_end": 1,
+             "eligible_for_qualification": True, "status": "ACTIVE"},
+            {"team_entry_id": 12, "rank_start": 2, "rank_end": 2,
+             "eligible_for_qualification": True, "status": "ACTIVE"},
+        ],
+    )
+    assert ko._seed_order_for_group(unique_group, confirmed_ids={11, 12}) == [11, 12]
+    # 顺序来自名次，而不是传参顺序
+    assert ko._seed_order_for_group(unique_group, confirmed_ids={12, 11}) == [11, 12]
+
+
+def test_issue1_ambiguous_seed_order_rejects_generation_case_b(conn):
+    """Reviewer issue 1 / Case B：`rank 1 唯一`、`rank 2-3 并列`，人工从并列块选一支晋级。
+
+    虽然"谁晋级"已确认，但被选中那支的区间仍是 2–3，**第 2 种子不唯一** →
+    knockout generate 409（不得静默把它当成 A2）。
+    """
+    tid = _team_tournament(
+        conn, teams=8, group_count=2, per_group=4, name="Issue1 CaseB",
+        qualify_per_group=2,
+    )
+    tie_service.generate_group_ties(conn, tid)
+    groups = repo.list_groups(conn, tid)
+    # A 组：1 强 + 3 循环 → 第 1 名唯一，第 2–4 名并列；B 组名次唯一
+    _finish_group(conn, tid, groups[0]["id"], transitive=False)
+    _finish_group(conn, tid, groups[1]["id"])
+
+    state = qual_service.get_qualification(conn, tid)
+    tie_group = state["groups"][0]
+    assert tie_group["requires_manual_resolution"] is True
+    assert len(tie_group["auto_qualified_team_ids"]) == 1     # 第 1 名唯一
+    assert len(tie_group["boundary_tied_team_ids"]) == 3      # 第 2–4 名并列
+    assert tie_group["boundary_slots_remaining"] == 1
+
+    chosen = sorted(tie_group["boundary_tied_team_ids"])[0]
+    picks = (
+        list(tie_group["auto_qualified_team_ids"]) + [chosen]
+        + list(state["groups"][1]["auto_qualified_team_ids"])
+    )
+    qual_service.confirm_qualification(conn, tid, picks)      # 人工裁定可以确认
+
+    with pytest.raises(knockout_service.ServiceError) as excinfo:
+        knockout_service.generate_team_knockout(conn, tid)
+    assert excinfo.value.code == 409
+    # 第 1 名是唯一的，因此报出的歧义位置正是第 2 名；不得静默把 chosen 当成 A2
+    assert "第 2 名" in str(excinfo.value)
+    assert "不支持人工指定淘汰种子顺序" in str(excinfo.value)
+    assert _no_knockout_ties(conn, tid)
+
+
+def test_issue1_rank_positions_map_span_ties(conn):
+    """Reviewer issue 1 的机制回归：并列队伍的区间**覆盖多个名次位置**。
+
+    `_qualified_by_group` 依据 A6.2 的 rank_start / rank_end 判断"该位置是否唯一"，
+    而不再照抄确认结果的展示顺序。这条测试锁死该判断所依赖的事实：
+    第 1 名只有 1 支队伍占位，第 2 名有 3 支并列队伍占位。
+    """
+    tid = _team_tournament(
+        conn, teams=8, group_count=2, per_group=4, name="Issue1 位置映射",
+        qualify_per_group=2,
+    )
+    tie_service.generate_group_ties(conn, tid)
+    groups = repo.list_groups(conn, tid)
+    _finish_group(conn, tid, groups[0]["id"], transitive=False)
+    _finish_group(conn, tid, groups[1]["id"])
+
+    payload = standings_service.get_team_group_standings(conn, tid, groups[0]["id"])
+    rows = payload["standings"]
+    assert [row["rank_start"] for row in rows] == [1, 2, 2, 2]
+    assert [row["rank_end"] for row in rows] == [1, 4, 4, 4]
+
+    # 第 1 个位置只有一支队伍；第 2 个位置有三支 → 第 2 名不唯一
+    at_rank_1 = [row["team_entry_id"] for row in rows if row["rank_start"] <= 1 <= row["rank_end"]]
+    at_rank_2 = [row["team_entry_id"] for row in rows if row["rank_start"] <= 2 <= row["rank_end"]]
+    assert len(at_rank_1) == 1
+    assert len(at_rank_2) == 3
+
+
+def test_issue1_unique_rank_order_still_generates_normally_case_c(conn):
+    """Reviewer issue 1 / Case C：名次完全唯一时正常生成，现有场景不回归。"""
+    tid, groups, picks = _setup_confirmed(
+        conn, teams=16, group_count=4, per_group=4, name="Issue1 CaseC"
+    )
+    payload = knockout_service.generate_team_knockout(conn, tid)
+    assert payload["generated"] is True
+    assert len(payload["ties"]) == 4
+
+    g = [_group_teams(conn, tid, group["id"]) for group in groups]
+    actual = [
+        (m["team_a"]["team_entry_id"], m["team_b"]["team_entry_id"])
+        for m in payload["rounds"][0]["matches"]
+    ]
+    # 名次唯一（强者通吃）→ A1-B2, B1-A2, C1-D2, D1-C2
+    assert actual == [(g[0][0], g[1][1]), (g[1][0], g[0][1]), (g[2][0], g[3][1]), (g[3][0], g[2][1])]
+
+
+def test_issue1_confirmed_submission_order_does_not_decide_seeds(conn):
+    """确认的**提交顺序 / 展示顺序**不得影响种子：以相反顺序确认，签表形态必须一致。"""
+    tid, groups, picks = _setup_confirmed(
+        conn, teams=16, group_count=4, per_group=4, name="Issue1 顺序无关 A"
+    )
+    first = knockout_service.generate_team_knockout(conn, tid)
+
+    tid2 = _team_tournament(
+        conn, teams=16, group_count=4, per_group=4, name="Issue1 顺序无关 B",
+        qualify_per_group=2,
+    )
+    tie_service.generate_group_ties(conn, tid2)
+    for group in repo.list_groups(conn, tid2):
+        _finish_group(conn, tid2, group["id"])
+    state2 = qual_service.get_qualification(conn, tid2)
+    picks2 = [t for g in state2["groups"] for t in g["auto_qualified_team_ids"]]
+    qual_service.confirm_qualification(conn, tid2, list(reversed(picks2)))
+    second = knockout_service.generate_team_knockout(conn, tid2)
+
+    def shape(conn, tid: int, payload) -> list[tuple[int, int, int, int]]:
+        """(A 组序, A 组内名次, B 组序, B 组内名次) —— 与绝对 id 无关的形态。"""
+        groups = repo.list_groups(conn, tid)
+        rank_of = {
+            team_id: rank
+            for group in groups
+            for rank, team_id in enumerate(_group_teams(conn, tid, group["id"]), start=1)
+        }
+        group_of = {
+            team_id: index
+            for index, group in enumerate(groups)
+            for team_id in _group_teams(conn, tid, group["id"])
+        }
+        return [
+            (group_of[m["team_a"]["team_entry_id"]], rank_of[m["team_a"]["team_entry_id"]],
+             group_of[m["team_b"]["team_entry_id"]], rank_of[m["team_b"]["team_entry_id"]])
+            for m in payload["rounds"][0]["matches"]
+        ]
+
+    assert len(first["ties"]) == 4
+    assert shape(conn, tid, first) == shape(conn, tid2, second)
+
+
+# ==================================================================== Reviewer issue 3：场序
+
+def test_issue3_knockout_match_index_is_one_based(conn):
+    """Reviewer issue 3：淘汰签 `match_index` 必须从 **1** 开始（与 A6.1 一致）。
+
+    直接调用 repository 会绕过 `create_team_tie` 的 `match_index >= 1` 守卫，
+    因此这里显式锁死首场 == 1，而不是只断言"排序稳定"。
+    """
+    # 8 队 → 首轮 4 场 → [1, 2, 3, 4]
+    tid, groups, picks = _setup_confirmed(
+        conn, teams=16, group_count=4, per_group=4, name="Issue3 8 队"
+    )
+    payload = knockout_service.generate_team_knockout(conn, tid)
+    indexes = [m["match_index"] for m in payload["rounds"][0]["matches"]]
+    assert indexes == [1, 2, 3, 4]
+    assert indexes[0] == 1
+    stored = sorted(t["match_index"] for t in _knockout_ties(conn, tid))
+    assert stored == [1, 2, 3, 4]
+    assert all(index >= 1 for index in stored)
+
+    # 4 队 → 首轮 2 场 → [1, 2]
+    tid2, groups2, picks2 = _setup_confirmed(
+        conn, teams=8, group_count=2, per_group=4, name="Issue3 4 队"
+    )
+    payload2 = knockout_service.generate_team_knockout(conn, tid2)
+    assert [m["match_index"] for m in payload2["rounds"][0]["matches"]] == [1, 2]
+    assert sorted(t["match_index"] for t in _knockout_ties(conn, tid2)) == [1, 2]
+
+
+def test_issue3_match_index_matches_group_stage_convention(conn):
+    """小组赛（A6.1）与淘汰赛的 `match_index` 口径一致：都是 1-based。"""
+    tid, groups, picks = _setup_confirmed(
+        conn, teams=16, group_count=4, per_group=4, name="Issue3 口径一致"
+    )
+    knockout_service.generate_team_knockout(conn, tid)
+    group_indexes = {
+        tie["match_index"]
+        for tie in repo.list_team_ties(conn, tid)
+        if tie["stage"] == MatchStage.GROUP.value
+    }
+    knockout_indexes = {
+        tie["match_index"]
+        for tie in repo.list_team_ties(conn, tid)
+        if tie["stage"] == MatchStage.KNOCKOUT.value
+    }
+    assert min(group_indexes) == 1 and min(knockout_indexes) == 1
+    assert 0 not in group_indexes and 0 not in knockout_indexes
 
 
 # ==================================================================== 端到端 + API
