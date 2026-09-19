@@ -81,3 +81,22 @@ def test_team_roster_preview_freezes_editor():
         expect(page.get_by_role("heading", name="名单预览")).to_be_visible()
         expect(page.get_by_role("button", name="名单已冻结")).to_be_disabled()
         browser.close()
+
+
+def test_team_roster_warns_before_leaving_unsaved_draft():
+    base_url = os.getenv("PINGPONG_E2E_URL", "http://127.0.0.1:4173")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(channel=os.getenv("PLAYWRIGHT_CHANNEL", "msedge"), headless=True)
+        page = browser.new_page()
+        page.route("**/api/tournaments/42/team-roster", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(sheet(), ensure_ascii=False)))
+        page.goto(f"{base_url}/team-roster?tid=42")
+        page.get_by_label("张三 姓名").fill("张三丰")
+
+        page.once("dialog", lambda dialog: dialog.dismiss())
+        page.locator(".roster-title-actions a").click()
+        expect(page).to_have_url(f"{base_url}/team-roster?tid=42")
+
+        page.once("dialog", lambda dialog: dialog.accept())
+        page.locator(".roster-title-actions a").click()
+        expect(page).to_have_url(f"{base_url}/team-ties?tid=42")
+        browser.close()
