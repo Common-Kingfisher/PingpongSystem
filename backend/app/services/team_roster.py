@@ -186,15 +186,15 @@ def save_sheet(conn: sqlite3.Connection, tournament_id: int, payload: dict) -> d
 
 
 def unconfirm_roster(conn: sqlite3.Connection, tournament_id: int) -> dict:
-    sheet = _sheet(conn, tournament_id)
-    tournament = sheet["tournament"]
-    if tournament["stage"] != TournamentStage.REGISTRATION.value:
-        raise _error("赛事已进入比赛阶段，不能撤销名单冻结")
-    if not tournament["roster_confirmed"]:
-        raise _error("名单尚未确认，无需撤销冻结")
-    started = [tie for tie in repo.list_team_ties(conn, tournament_id) if tie["status"] in ("PLAYING", "FINISHED")]
-    if started:
-        raise _error("已有团体对抗开始或结束，不能撤销名单冻结")
-    repo.unconfirm_tournament_roster(conn, tournament_id)
-    conn.commit()
+    with teams._roster_write_tx(conn):
+        sheet = _sheet(conn, tournament_id)
+        tournament = sheet["tournament"]
+        if tournament["stage"] != TournamentStage.REGISTRATION.value:
+            raise _error("赛事已进入比赛阶段，不能撤销名单冻结")
+        if not tournament["roster_confirmed"]:
+            raise _error("名单尚未确认，无需撤销冻结")
+        started = [tie for tie in repo.list_team_ties(conn, tournament_id) if tie["status"] in ("PLAYING", "FINISHED")]
+        if started:
+            raise _error("已有团体对抗开始或结束，不能撤销名单冻结")
+        repo.unconfirm_tournament_roster(conn, tournament_id)
     return _sheet(conn, tournament_id)

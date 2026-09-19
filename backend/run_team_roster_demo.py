@@ -65,7 +65,10 @@ def main() -> int:
     parser.add_argument("--fresh", action="store_true", help="重置本测试数据库中的测试赛事")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
-    os.environ.setdefault("DEMO_DB_PATH", str(DEFAULT_DB))
+    configured_db = Path(os.environ.get("TEAM_ROSTER_DEMO_DB_PATH", str(DEFAULT_DB))).resolve()
+    if configured_db == (ROOT / "data" / "demo.db").resolve():
+        raise SystemExit("TEAM_ROSTER_DEMO_DB_PATH 不能指向默认 demo.db")
+    os.environ["DEMO_DB_PATH"] = str(configured_db)
     tournament_id = seed(args.fresh)
     print(f"[OK] 测试后端：http://127.0.0.1:{args.port}/api/health")
     print(f"[OK] 名单页面：http://127.0.0.1:5173/team-roster?tid={tournament_id}")

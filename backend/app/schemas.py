@@ -170,8 +170,8 @@ class TeamRosterSaveRequest(BaseModel):
     base_revision: str = Field(min_length=1)
     teams: list[TeamRosterTeamDraft]
     players: list[TeamRosterPlayerDraft]
-    deleted_team_ids: list[int] = []
-    deleted_player_ids: list[int] = []
+    deleted_team_ids: list[int] = Field(default_factory=list)
+    deleted_player_ids: list[int] = Field(default_factory=list)
 
 
 class TeamRosterSheetOut(BaseModel):

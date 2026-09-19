@@ -83,6 +83,14 @@ def test_confirmation_freezes_writes_until_unconfirmed(client):
     assert sheet["tournament"]["roster_confirmed"] is True
     blocked = client.post(f"/api/tournaments/{tid}/players", json={"name": "冻结后新增"})
     assert blocked.status_code == 409
+    team_id = client.get(f"/api/tournaments/{tid}/team-roster").json()["teams"][0]["id"]
+    assert client.patch(f"/api/tournaments/{tid}/teams/{team_id}", json={"display_name": "冻结后改名"}).status_code == 409
+    assert client.delete(f"/api/tournaments/{tid}/teams/{team_id}").status_code == 409
+    imported = client.post(
+        f"/api/tournaments/{tid}/players/import",
+        files={"file": ("players.csv", "姓名,单位\n冻结导入,测试学院\n", "text/csv")},
+    )
+    assert imported.status_code == 409
     blocked_seed = client.put(f"/api/tournaments/{tid}/seeds", json={"player_ids": []})
     assert blocked_seed.status_code == 409
     restored = client.post(f"/api/tournaments/{tid}/team-roster/unconfirm")
@@ -97,6 +105,7 @@ def test_sheet_cannot_change_members_of_team_with_started_tie(conn):
     )
     tid = tournament["id"]
     players = [repo.add_player(conn, tid, f"P{i}", None) for i in range(1, 5)]
+    conn.commit()
     first = teams.create_team_entry(conn, tid, "甲队", [players[0]["id"], players[1]["id"]])
     second = teams.create_team_entry(conn, tid, "乙队", [players[2]["id"], players[3]["id"]])
     tie = repo.create_team_tie(conn, tid, "GROUP", None, 1, 1, first["id"], second["id"])

@@ -20,7 +20,9 @@ import { api } from './api'
 function AppNav() {
   // 订阅路由变化：每次导航都重新读取当前赛事 id，保证顶部链接始终携带它
   const location = useLocation()
-  const tid = getActiveTournamentId()
+  const urlTid = new URLSearchParams(location.search).get('tid')
+  const parsedUrlTid = urlTid && /^\d+$/.test(urlTid) ? Number(urlTid) : null
+  const tid = parsedUrlTid ?? getActiveTournamentId()
   const [isTeamEvent, setIsTeamEvent] = useState(false)
   useEffect(() => {
     if (tid === null) { setIsTeamEvent(false); return }

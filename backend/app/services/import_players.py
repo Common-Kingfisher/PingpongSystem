@@ -13,6 +13,7 @@ import sqlite3
 
 from .. import repository as repo
 from ..models import EventType, TournamentStage
+from . import teams as teams_service
 
 NAME_ALIASES = {"姓名", "选手姓名", "名字", "name", "player_name"}
 COLLEGE_ALIASES = {"学院", "学院/单位", "单位", "学校", "部门", "organization", "college"}
@@ -86,6 +87,16 @@ def _parse_xlsx(content: bytes) -> list[list[str]]:
 
 
 def import_players_file(
+    conn: sqlite3.Connection, tournament_id: int, content: bytes, filename: str,
+    commit: bool = True,
+) -> dict:
+    if commit:
+        with teams_service._roster_write_tx(conn):
+            return _import_players_file_unlocked(conn, tournament_id, content, filename, commit=True)
+    return _import_players_file_unlocked(conn, tournament_id, content, filename, commit=False)
+
+
+def _import_players_file_unlocked(
     conn: sqlite3.Connection, tournament_id: int, content: bytes, filename: str,
     commit: bool = True,
 ) -> dict:
@@ -192,8 +203,6 @@ def import_players_file(
             "message": "；".join(row_messages) if row_messages else None,
         })
 
-    if commit:
-        conn.commit()
     return {
         "total_rows": total_rows,
         "imported": imported,

@@ -152,7 +152,7 @@ def get_team_entry(conn: sqlite3.Connection, tournament_id: int, entry_id: int) 
     return entry
 
 
-def create_team_entry(
+def _create_team_entry_unlocked(
     conn: sqlite3.Connection,
     tournament_id: int,
     display_name: str,
@@ -180,8 +180,18 @@ def create_team_entry(
         members,
         seed_no=None,
     )
-    conn.commit()
     return entry
+
+
+def create_team_entry(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    display_name: str,
+    member_ids: list[int],
+    rating_points: int | None = None,
+) -> dict:
+    with _roster_write_tx(conn):
+        return _create_team_entry_unlocked(conn, tournament_id, display_name, member_ids, rating_points)
 
 
 def _apply_team_entry_update(
@@ -253,27 +263,21 @@ def update_team_entry(
         * PATCH 先取锁 → 成员替换提交；随后 start 重新校验 lineup 时会发现队员已离队 → 409；
         * start 先取锁 → 盘进入 PLAYING；随后 PATCH 会读到对抗已开始 → 409（名单锁定）。
     """
-    if member_ids is not None:
-        with _roster_write_tx(conn):
-            return _apply_team_entry_update(
-                conn, tournament_id, entry_id, display_name, member_ids, rating_points
-            )
-    result = _apply_team_entry_update(
-        conn, tournament_id, entry_id, display_name, None, rating_points
-    )
-    conn.commit()
-    return result
+    with _roster_write_tx(conn):
+        return _apply_team_entry_update(
+            conn, tournament_id, entry_id, display_name, member_ids, rating_points
+        )
 
 
 def delete_team_entry(conn: sqlite3.Connection, tournament_id: int, entry_id: int) -> None:
     """删除队伍。已被团体对抗引用的队伍禁止删除（否则会留下悬空引用）。"""
-    _team_tournament(conn, tournament_id)
-    get_team_entry(conn, tournament_id, entry_id)
-    tie = repo.find_tie_referencing_entry(conn, entry_id)
-    if tie is not None:
-        raise TeamError(f"该队伍已出现在团体对抗 #{tie['id']} 中，不能删除", 409)
-    repo.delete_entry(conn, entry_id)
-    conn.commit()
+    with _roster_write_tx(conn):
+        _team_tournament(conn, tournament_id)
+        get_team_entry(conn, tournament_id, entry_id)
+        tie = repo.find_tie_referencing_entry(conn, entry_id)
+        if tie is not None:
+            raise TeamError(f"该队伍已出现在团体对抗 #{tie['id']} 中，不能删除", 409)
+        repo.delete_entry(conn, entry_id)
 
 
 def validate_team_roster(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:

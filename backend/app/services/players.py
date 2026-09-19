@@ -10,6 +10,7 @@ import sqlite3
 
 from .. import repository as repo
 from ..models import EventType, TournamentStage
+from . import teams as teams_service
 
 
 class PlayerError(Exception):
@@ -30,14 +31,14 @@ def ensure_players_editable(conn: sqlite3.Connection, tournament_id: int) -> Non
 
 
 def delete_player(conn: sqlite3.Connection, tournament_id: int, player_id: int) -> None:
-    ensure_players_editable(conn, tournament_id)
-    player = repo.get_player(conn, player_id)
-    if player is None:
-        raise PlayerError("选手不存在", 404)
-    if player["group_id"] is not None:
-        raise PlayerError("选手已分组，请先解除分组后再删除", 409)
-    repo.delete_player(conn, player_id)
-    conn.commit()
+    with teams_service._roster_write_tx(conn):
+        ensure_players_editable(conn, tournament_id)
+        player = repo.get_player(conn, player_id)
+        if player is None:
+            raise PlayerError("选手不存在", 404)
+        if player["group_id"] is not None:
+            raise PlayerError("选手已分组，请先解除分组后再删除", 409)
+        repo.delete_player(conn, player_id)
 
 
 def _sync_singles_entry_seeds(
@@ -69,6 +70,13 @@ def set_seeds(
     conn: sqlite3.Connection, tournament_id: int, player_ids: list[int]
 ) -> list[dict]:
     """按给定顺序设置种子（1号、2号…N号），其余选手清空种子。返回更新后的选手列表。"""
+    with teams_service._roster_write_tx(conn):
+        return _set_seeds_unlocked(conn, tournament_id, player_ids)
+
+
+def _set_seeds_unlocked(
+    conn: sqlite3.Connection, tournament_id: int, player_ids: list[int]
+) -> list[dict]:
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise PlayerError("赛事不存在", 404)
@@ -95,7 +103,6 @@ def set_seeds(
     for i, pid in enumerate(player_ids):
         repo.set_player_seed(conn, pid, i + 1)
     _sync_singles_entry_seeds(conn, tournament_id, player_ids)
-    conn.commit()
     return repo.list_players(conn, tournament_id)
 
 
@@ -134,6 +141,13 @@ def generate_demo_players(
 
     仅 REGISTRATION 阶段可用；追加在现有选手之后，不清空已有选手。
     """
+    with teams_service._roster_write_tx(conn):
+        return _generate_demo_players_unlocked(conn, tournament_id, count, with_seeds)
+
+
+def _generate_demo_players_unlocked(
+    conn: sqlite3.Connection, tournament_id: int, count: int, with_seeds: bool
+) -> list[dict]:
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise PlayerError("赛事不存在", 404)
@@ -162,5 +176,4 @@ def generate_demo_players(
         # 名单已确认时，Entry 种子必须跟着选手种子走（复用同一套同步逻辑，不新增实现）。
         _sync_singles_entry_seeds(conn, tournament_id, [p["id"] for p in seeded])
 
-    conn.commit()
     return repo.list_players(conn, tournament_id)
