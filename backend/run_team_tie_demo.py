@@ -71,6 +71,7 @@ def main() -> int:
     print(f"[OK] 后端：http://127.0.0.1:{args.port}/api/health")
     print(f"[OK] 对抗：http://127.0.0.1:5173/team-tie?tid={tid}&tie={tie_id}")
     print(f"[OK] 排名：http://127.0.0.1:5173/team-rankings?tid={tid}")
+    print(f"[OK] E2E：$env:TEAM_TIE_E2E_TID = \"{tid}\"; $env:TEAM_TIE_E2E_TIE_ID = \"{tie_id}\"")
     import uvicorn
     uvicorn.run("app.main:app", host="127.0.0.1", port=args.port, reload=False)
     return 0
