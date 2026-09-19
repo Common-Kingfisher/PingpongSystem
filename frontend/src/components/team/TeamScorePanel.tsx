@@ -5,6 +5,11 @@ const statusLabel: Record<TeamRubberView['status'], string> = {
 }
 const tieStatusLabel: Record<TeamTieView['status'], string> = { WAITING: '待开始', PLAYING: '进行中', FINISHED: '已结束' }
 
+function unavailableReason(busy: boolean): string {
+  if (busy) return '正在提交其他操作，请稍候'
+  return '当前服务端规则不允许此操作，请刷新后重试'
+}
+
 export default function TeamScorePanel({ tie, busy, onLineup, onStart, onScore }: {
   tie: TeamTieView
   busy: boolean
@@ -21,6 +26,14 @@ export default function TeamScorePanel({ tie, busy, onLineup, onStart, onScore }
           <div className="rubber-sides"><div><small>{tie.home_team.display_name}</small><b>{rubber.home_players.join(' / ') || '阵容待确认'}</b></div><em>{rubber.home_score ?? '—'} : {rubber.away_score ?? '—'}</em><div><small>{tie.away_team.display_name}</small><b>{rubber.away_players.join(' / ') || '阵容待确认'}</b></div></div>
           {!rubber.lineup_valid && rubber.lineup_invalid_reason && <p className="status-error">{rubber.lineup_invalid_reason}</p>}
           <div className="rubber-actions"><button className="btn small" disabled={busy || !rubber.permissions.can_edit_lineup} onClick={(event) => onLineup(rubber, event.currentTarget)}>设置阵容</button><button className="btn small" disabled={busy || !rubber.permissions.can_start} onClick={(event) => onStart(rubber, event.currentTarget)}>开始本盘</button><button className="btn small primary" disabled={busy || !rubber.permissions.can_record_score} onClick={(event) => onScore(rubber, event.currentTarget)}>录入比分</button></div>
+          {(() => {
+            const reasons = [
+              (busy || !rubber.permissions.can_edit_lineup) && `设置阵容：${unavailableReason(busy)}`,
+              (busy || !rubber.permissions.can_start) && `开始本盘：${unavailableReason(busy)}`,
+              (busy || !rubber.permissions.can_record_score) && `录入比分：${unavailableReason(busy)}`,
+            ].filter(Boolean)
+            return reasons.length > 0 ? <p className="rubber-action-hint" role="status">{reasons.join('；')}</p> : null
+          })()}
         </article>)}</div>
       )}
     </section>

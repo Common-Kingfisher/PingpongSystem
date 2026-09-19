@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
@@ -37,6 +38,7 @@ export default function TeamTiePage() {
   const restoreFocus = useRef<HTMLButtonElement | null>(null)
   const lineupClose = useRef<HTMLButtonElement | null>(null)
   const scoreClose = useRef<HTMLButtonElement | null>(null)
+  const modalRoot = useRef<HTMLDivElement | null>(null)
 
   const load = useCallback(async () => {
     if (tid === null || !Number.isInteger(tid) || tieId === null || !Number.isInteger(tieId)) return
@@ -49,17 +51,35 @@ export default function TeamTiePage() {
   const returnFocus = () => requestAnimationFrame(() => restoreFocus.current?.focus())
   const closeLineup = () => { setLineupRubber(null); returnFocus() }
   const closeScore = () => { setScoreRubber(null); returnFocus() }
+  const dialogOpen = Boolean(lineupRubber || scoreRubber)
+  useEffect(() => {
+    if (!dialogOpen) return
+    const app = document.querySelector<HTMLElement>('.app')
+    if (!app) return
+    app.inert = true
+    return () => { app.inert = false }
+  }, [dialogOpen])
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      if (lineupRubber) closeLineup()
-      if (scoreRubber) closeScore()
+      if (!dialogOpen) return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        if (lineupRubber) closeLineup()
+        if (scoreRubber) closeScore()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = modalRoot.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [href]')
+      if (!focusable?.length) return
+      const first = focusable[0], last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
     }
     window.addEventListener('keydown', closeOnEscape)
     if (lineupRubber) lineupClose.current?.focus()
     if (scoreRubber) scoreClose.current?.focus()
     return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [lineupRubber, scoreRubber])
+  }, [dialogOpen, lineupRubber, scoreRubber])
 
   const openLineup = (rubber: TeamRubberView, trigger: HTMLButtonElement) => {
     restoreFocus.current = trigger
@@ -72,6 +92,13 @@ export default function TeamTiePage() {
     setHomeScore(rubber.home_score?.toString() ?? '')
     setAwayScore(rubber.away_score?.toString() ?? '')
     setScoreRubber(rubber)
+  }
+  const startRubber = (rubber: TeamRubberView, trigger: HTMLButtonElement) => {
+    if (!window.confirm(`确定开始第 ${rubber.sequence} 盘吗？开始后将按已确认阵容和服务端规则进行。`)) {
+      trigger.focus()
+      return
+    }
+    void run(() => api.startTeamRubber(tid!, tie!.id, rubber.id))
   }
   const run = async (work: () => Promise<TeamTieView>, done?: () => void) => {
     setBusy(true); setError(null)
@@ -89,9 +116,9 @@ export default function TeamTiePage() {
     <section className="team-tie-hero"><div><span className="eyebrow">TEAM TIE · {tie.stage}</span><h1>{tie.home_team.display_name} <i>VS</i> {tie.away_team.display_name}</h1><p>{tie.format.display_name ?? '赛制信息暂未登记'} · {tieStatusLabel[tie.status]} · 盘次顺序由服务端返回</p></div><div className="team-total-score"><small>当前总比分</small><b>{tie.home_score} : {tie.away_score}</b><span>{tie.target_wins == null ? '目标胜场暂不可用' : `先达 ${tie.target_wins} 胜`}</span></div></section>
     {error && <p className="status-error">{error}</p>}
     {tie.status === 'FINISHED' && <p className="status-warn">团体对抗结束。未进行盘次已按后端状态锁定。</p>}
-    <TeamScorePanel tie={tie} busy={busy} onLineup={openLineup} onStart={(rubber) => void run(() => api.startTeamRubber(tid, tie.id, rubber.id))} onScore={openScore} />
+    <TeamScorePanel tie={tie} busy={busy} onLineup={openLineup} onStart={startRubber} onScore={openScore} />
     <div className="button-row"><button className="btn" disabled={busy} onClick={() => void load()}>刷新</button><Link className="btn" to={`/team-ties?tid=${tid}`}>返回对抗列表</Link></div>
-    {lineupRubber && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="team-lineup-title"><div className="modal team-modal"><button ref={lineupClose} className="modal-close" onClick={closeLineup} aria-label="关闭">×</button><h3 id="team-lineup-title">设置阵容 · 第 {lineupRubber.sequence} 盘</h3><p className="muted">候选范围与不可选原因均来自后端；提交后会以服务端返回的完整对抗状态替换页面。</p>{error && <p className="status-error" role="alert">{error}</p>}{(['home', 'away'] as const).map((side) => <div key={side}><h4>{side === 'home' ? tie.home_team.display_name : tie.away_team.display_name}</h4>{lineupRubber.lineup_options[side].map((option) => { const selected = side === 'home' ? homeIds : awayIds; const setSelected = side === 'home' ? setHomeIds : setAwayIds; return <label className="lineup-option" key={option.player_id}><input type="checkbox" disabled={!option.available || busy} checked={selected.includes(option.player_id)} onChange={() => toggle(option.player_id, selected, setSelected)} /><span>{option.name}</span><small>{option.available ? '可选择' : option.unavailable_reason}</small></label> })}</div>)}<div className="modal-actions"><button className="btn" onClick={closeLineup}>取消</button><button className="btn primary" disabled={busy || !lineupRubber.permissions.can_confirm_lineup} onClick={() => void run(() => api.setTeamLineup(tid, tie.id, lineupRubber.id, { home_player_ids: homeIds, away_player_ids: awayIds }), closeLineup)}>确认阵容</button></div></div></div>}
-    {scoreRubber && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="team-score-title"><div className="modal team-modal"><button ref={scoreClose} className="modal-close" onClick={closeScore} aria-label="关闭">×</button><h3 id="team-score-title">录入比分 · 第 {scoreRubber.sequence} 盘</h3><p className="muted">请输入本盘大比分。合法性由后端根据赛事局制校验。</p>{error && <p className="status-error" role="alert">{error}</p>}<div className="team-score-shell"><input aria-label="主队比分" inputMode="numeric" type="number" min="0" value={homeScore} onChange={(event) => setHomeScore(event.target.value)} disabled={busy} /><b>:</b><input aria-label="客队比分" inputMode="numeric" type="number" min="0" value={awayScore} onChange={(event) => setAwayScore(event.target.value)} disabled={busy} /></div><div className="modal-actions"><button className="btn" onClick={closeScore}>取消</button><button className="btn primary" disabled={busy || homeScore === '' || awayScore === ''} onClick={() => void run(() => api.recordTeamRubberScore(tid, tie.id, scoreRubber.id, { home_score: Number(homeScore), away_score: Number(awayScore) }), closeScore)}>提交比分</button></div></div></div>}
+    {lineupRubber && createPortal(<div ref={modalRoot} className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="team-lineup-title"><div className="modal team-modal"><button ref={lineupClose} className="modal-close" onClick={closeLineup} aria-label="关闭">×</button><h3 id="team-lineup-title">设置阵容 · 第 {lineupRubber.sequence} 盘</h3><p className="muted">候选范围与不可选原因均来自后端；提交后会以服务端返回的完整对抗状态替换页面。</p>{error && <p className="status-error" role="alert">{error}</p>}{(['home', 'away'] as const).map((side) => <div key={side}><h4>{side === 'home' ? tie.home_team.display_name : tie.away_team.display_name}</h4>{lineupRubber.lineup_options[side].map((option) => { const selected = side === 'home' ? homeIds : awayIds; const setSelected = side === 'home' ? setHomeIds : setAwayIds; return <label className="lineup-option" key={option.player_id}><input type="checkbox" disabled={!option.available || busy} checked={selected.includes(option.player_id)} onChange={() => toggle(option.player_id, selected, setSelected)} /><span>{option.name}</span><small>{option.available ? '可选择' : option.unavailable_reason}</small></label> })}</div>)}<div className="modal-actions"><button className="btn" onClick={closeLineup}>取消</button><button className="btn primary" disabled={busy || !lineupRubber.permissions.can_confirm_lineup} onClick={() => void run(() => api.setTeamLineup(tid, tie.id, lineupRubber.id, { home_player_ids: homeIds, away_player_ids: awayIds }), closeLineup)}>确认阵容</button></div></div></div>, document.body)}
+    {scoreRubber && createPortal(<div ref={modalRoot} className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="team-score-title"><div className="modal team-modal"><button ref={scoreClose} className="modal-close" onClick={closeScore} aria-label="关闭">×</button><h3 id="team-score-title">录入比分 · 第 {scoreRubber.sequence} 盘</h3><p className="muted">请输入本盘大比分。合法性由后端根据赛事局制校验。</p>{error && <p className="status-error" role="alert">{error}</p>}<div className="team-score-shell"><input aria-label="主队比分" inputMode="numeric" type="number" min="0" value={homeScore} onChange={(event) => setHomeScore(event.target.value)} disabled={busy} /><b>:</b><input aria-label="客队比分" inputMode="numeric" type="number" min="0" value={awayScore} onChange={(event) => setAwayScore(event.target.value)} disabled={busy} /></div><div className="modal-actions"><button className="btn" onClick={closeScore}>取消</button><button className="btn primary" disabled={busy || homeScore === '' || awayScore === ''} onClick={() => void run(() => api.recordTeamRubberScore(tid, tie.id, scoreRubber.id, { home_score: Number(homeScore), away_score: Number(awayScore) }), closeScore)}>提交比分</button></div></div></div>, document.body)}
   </div>
 }

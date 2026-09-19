@@ -16,3 +16,23 @@ python e2e/test_placement_bracket.py
 ```
 
 默认使用本机 Microsoft Edge；可通过 `PLAYWRIGHT_CHANNEL` 改为其他已安装的 Chromium 通道。
+
+## 团体赛真实联调
+
+另开一个终端启动独立数据库与后端（不会写入 `backend/data/demo.db`）：
+
+```powershell
+cd backend
+python run_team_tie_demo.py --fresh
+```
+
+再启动 `pnpm dev`，然后运行真实浏览器链路：
+
+```powershell
+$env:PINGPONG_E2E_URL = "http://127.0.0.1:5173"
+$env:TEAM_TIE_E2E_TID = "<启动器输出的赛事 id>"
+$env:TEAM_TIE_E2E_TIE_ID = "<启动器输出的对抗 id>"
+python e2e/test_team_tie_live.py
+```
+
+该验收不拦截 API；它验证真实后端的已分组对抗、阵容确认、逐盘录分、提前结束与团体排名展示。
