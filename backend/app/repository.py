@@ -447,6 +447,42 @@ def list_group_team_ties(
     return [dict(r) for r in rows]
 
 
+def list_group_team_ties_with_rubbers(
+    conn: sqlite3.Connection, tournament_id: int, group_id: int
+) -> list[dict]:
+    """某小组的对抗**连同各盘的排名相关字段**（团体小组排名用，一次 JOIN 查询）。
+
+    只取排名需要的列：盘序、状态、胜者与局分。`home_score` / `away_score` 就是该对抗
+    A 队 / B 队视角的局分（不新增任何逐局小表）。排序稳定：对抗按 round/match_index/id，
+    盘按 sequence。这里只做 SQL，不解释业务含义。
+    """
+    ties = conn.execute(
+        f"SELECT {_TIE_COLS} FROM team_ties "
+        "WHERE tournament_id = ? AND group_id = ? AND stage = 'GROUP' "
+        "ORDER BY round, COALESCE(match_index, 0), id",
+        (tournament_id, group_id),
+    ).fetchall()
+    rubbers = conn.execute(
+        "SELECT r.team_tie_id, r.id, r.sequence, r.status, r.winner_entry_id, "
+        "r.home_score, r.away_score "
+        "FROM team_rubbers r JOIN team_ties t ON t.id = r.team_tie_id "
+        "WHERE t.tournament_id = ? AND t.group_id = ? AND t.stage = 'GROUP' "
+        "ORDER BY r.team_tie_id, r.sequence",
+        (tournament_id, group_id),
+    ).fetchall()
+    by_tie: dict[int, list[dict]] = {}
+    for row in rubbers:
+        item = dict(row)
+        by_tie.setdefault(item["team_tie_id"], []).append(item)
+
+    result = []
+    for row in ties:
+        tie = dict(row)
+        tie["rubbers"] = by_tie.get(tie["id"], [])
+        result.append(tie)
+    return result
+
+
 def set_team_tie_format(
     conn: sqlite3.Connection,
     tie_id: int,

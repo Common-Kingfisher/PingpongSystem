@@ -1,6 +1,21 @@
 # 开发路线与风险清单
 
-最近维护：2026-09-18（A6.1）；集成分支 `develop/field-demo-v02`。路线图按每个功能 PR 更新，完成状态以代码、测试和对应 PR 为准。
+最近维护：2026-09-18（A6.2）；集成分支 `develop/field-demo-v02`。路线图按每个功能 PR 更新，完成状态以代码、测试和对应 PR 为准。
+
+## 2026-09-18 状态更新（A6.2 Team Group Standings V1）
+
+- 团体赛新增**小组排名（只读）**：`GET /api/tournaments/{id}/team-groups/standings` 与
+  `GET /api/tournaments/{id}/team-groups/{group_id}/standings`。
+  工作链路推进为 **建队 → 分组 → 生成小组循环对抗 → 打完 → 查看团体小组排名**。
+- 规则**完全按 `docs/TEAM_GROUP_RULES_V1.md`**（该文档在本批次新增，是团体小组排名的唯一规则源）：
+  比赛积分（胜 2 / 负 1，未完成对抗不计入）→ 同分时**只保留同分队伍之间的对抗并重算子集积分** →
+  盘胜负比 → 局胜负比 → 仍无法区分则返回**并列名次区间**（`rank_start`/`rank_end`）。
+- 关键边界：**不建 standings 表**（每次查询从真实对抗与盘重算）、**不新增逐局小分表**
+  （局分直接用 `team_rubbers.home_score`/`away_score`）、**不写任何晋级结果**
+  （DTO 没有 `qualified`，只有事实位）、**绝不按 id 打破同分**、
+  组内还有未完成对抗时整组 `provisional` 且禁止自动晋级判定。
+- 仍未实现（A6.2 明确不做）：**A6.3 qualification（出线/晋级写入）**、**A6.4 团体淘汰赛**、
+  人工裁定 API、抽签、points ratio、团体 Scheduler/ETA、TEAM 阶段推进、正式 TEAM 前端入口。
 
 ## 2026-09-18 状态更新（A6.1 Team Group Tie Generator）
 
@@ -14,6 +29,7 @@
   也不批量生成盘骨架。
 - 下一步仍是 **team group standings（团体小组积分与排名）+ qualification（出线与晋级）**，
   以及团体淘汰赛、团体 Scheduler/ETA、TEAM 阶段推进——这些规则尚未冻结，本批次不实现。
+  （注：**standings 已由 A6.2 完成**，见上一节；qualification 仍未实现。）
 
 ## 2026-09-18 状态更新（A5 Production Team Format V1）
 
@@ -44,7 +60,7 @@
 
 先修“结果会错、流程会卡”的问题，再补现场操作和输出，最后打磨动画。继续保留当前视觉与技术栈，不重新搭一套前端。
 
-## 团体赛（TEAM）状态：A3 领域基础 + A4.1 Runtime + A5 生产赛制 + A6.1 小组循环生成已完成，仍缺排名与晋级
+## 团体赛（TEAM）状态：A3 + A4.1 + A5 + A6.1 + A6.2 已完成，仍缺 qualification 与淘汰赛
 
 A3 批次已落地（详见 `docs/TEAM_DOMAIN.md`）：`EventType.TEAM` 与旧库迁移（`tournaments.event_type`
 与 `entries.entry_type` 两张表的 CHECK，PR #19 复审补齐）、队伍复用 `entries`/`entry_members`、
@@ -100,26 +116,46 @@ PR #22 复审后补强（follow-up）：建盘骨架 `build_rubber_skeleton()` �
 - **明确不推进 `Tournament.stage`**，也不批量生成 rubber skeleton（建盘属于另一个业务动作，
   且 `build_rubber_skeleton()` 有自己的事务与安全契约）。
 - **未冻结规则一条都没有写进代码**：没有团体小组积分、排名、出线/晋级、淘汰赛结构、场序唯一索引。
+  （注：**A6.2 之后**排名规则已按 `docs/TEAM_GROUP_RULES_V1.md` 冻结并实现，见下条。）
+
+**A6.2 批次已完成（Team Group Standings V1）**：团体小组有了**只读排名**。要点：
+
+- 规则源是新增的 [`docs/TEAM_GROUP_RULES_V1.md`](TEAM_GROUP_RULES_V1.md)（唯一），
+  实现分三层：`domain/team_standings.py`（纯算法，不访问数据库）→
+  `services/team_standings.py`（校验 + 查库 + 组装 DTO）→ `routers/team_standings.py`（只读接口）。
+- 排序：比赛积分（胜 2 / 负 1，未完成对抗不计入）→ 同分子集**重算**子集积分 → 盘胜负比 → 局胜负比
+  → 仍不可分则并列；比率比较用**交叉乘法**（`wins_a * losses_b`），并区分"+∞（全胜）"
+  与"0/0（没数据，不可比较）"。
+- **并列用区间表示**：`rank_start` / `rank_end` 共享，`ambiguous=true`，**绝不按 id 破同分**。
+- **不落库**：没有 `team_standings` 表，每次查询从真实 `team_ties` / `team_rubbers` 重算；
+  **不新增逐局表**：局 W/L 直接用 `team_rubbers.home_score` / `away_score`。
+- **只给事实，不给结论**：DTO 没有 `qualified`，只有 `eligible_for_qualification` 与
+  `qualification_position_state`；`provisional` 为真时 `automatic_qualification_allowed=false`。
+- **仍然没有**：A6.3 qualification（出线/晋级写入）、A6.4 团体淘汰赛、人工裁定、抽签、
+  points ratio、团体 Scheduler/ETA、TEAM 阶段推进。
 
 仍未实现、且多为"必须等规则冻结"的（按建议顺序）：
 
 1. **队伍名单界面与正式 TEAM 入口**：队伍增删改与队员归属（前端，B 工作线；后端接口与契约已就绪）。
-   `HomePage` 的 TEAM 入口在"后端 + B 界面 + E2E"全部完成前保持禁用，不由 A5 / A6.1 解禁。
-2. **团体小组排名与出线/晋级（下一阶段主线）**：小组循环对阵生成已由 A6.1 完成；
-   仍然缺 **team group standings（团体小组积分与排名）** 与 **qualification（出线与晋级）**，
-   以及团体淘汰赛结构、`round`/`match_index` 的数据库层唯一约束、安全撤销/重建团体小组赛。
-   团体小组积分规则未冻结，**本批次不实现**，代码里也不存在任何"胜一场 2 分"之类猜测规则。
+   `HomePage` 的 TEAM 入口在"后端 + B 界面 + E2E"全部完成前保持禁用，不由 A5 / A6.1 / A6.2 解禁。
+2. **A6.3 qualification（出线与晋级）+ A6.4 团体淘汰赛（下一阶段主线）**：
+   小组循环对阵（A6.1）与团体小组排名（A6.2）已完成；
+   仍然缺 **晋级写入与出线名单**、**人工裁定 API**、**抽签**、**团体淘汰赛结构**、
+   `round`/`match_index` 的数据库层唯一约束、安全撤销/重建团体小组赛，
+   以及 **points ratio**（得失分比率，V1 在局比率后即判并列）。
+   A6.2 **没有**写入任何晋级结果，也没有 `team_standings` 表（排名每次从事实重算）。
 3. **盘 ↔ 比赛适配器**：启用 `team_rubbers.match_id`。需要独立设计球台占用（一场对抗是否占一张台）、
    各盘并行策略、兼项选手的撞台与休息校验；**不能**直接复用现有 Match（`entry_members` 对 player 全局唯一，
    且调度器会把整队成员标记为占用）。
 4. **异常结果与改分**：弃权/未到/取消资格、盘的比分修改（含"已提前结束的对抗恢复剩余盘"）与
    比分审计（操作人/理由/快照）需要与 A2 口径统一。
 5. **团体排程与 ETA 接入**（含"一场对抗是否固定占一张台 / 多盘并行"的现场规则）、
-   **团体排名与晋级**、**队伍种子规则**（当前 `entries.rating_points` 默认 0，不做队员积分推导）。
+   已完成的团体小组排名如何与排程联动、**队伍种子规则**（当前 `entries.rating_points` 默认 0，
+   不做队员积分推导）。
 6. **Demo 模拟与阶段推进**：TEAM 赛事仍然**无法**从 `REGISTRATION` 推进 stage——
    `generate-group-matches` / `generate-knockout` 对它 409，A6.1 的
-   `generate-group-ties` **只生成对抗、也不推进 stage**（这是刻意行为，不是遗漏）。
-   推进规则要与第 2、3、5 项一起设计。
+   `generate-group-ties` **只生成对抗、也不推进 stage**，A6.2 的排名接口是**只读**、同样不推进
+   （这些都是刻意行为，不是遗漏）。推进规则要与第 2、3、5 项一起设计。
 
 ## 本轮确认的问题
 
@@ -223,8 +259,8 @@ PR #22 复审后补强（follow-up）：建盘骨架 `build_rubber_skeleton()` �
 | M4 后续扩展 | 独立赛制、区域/休息/时段、通用来源、官方模板、团体结构 | 双方按合同分工 | 每个扩展单独规格与验收，不破坏默认流程 |
 
 M4 的"团体结构"已由 A3 完成领域基础（枚举/表/赛制规格/守卫），A4.1 完成一场对抗的 Runtime，
-A5 完成第一版生产赛制与建盘闭环，A6.1 完成小组循环对阵生成；
-**成员界面、团体小组排名/出线晋级、团体淘汰赛与团体排程仍未开始**，见上一节清单。
+A5 完成第一版生产赛制与建盘闭环，A6.1 完成小组循环对阵生成，A6.2 完成团体小组排名；
+**成员界面、qualification（出线/晋级）、团体淘汰赛与团体排程仍未开始**，见上一节清单。
 
 顺序依赖：M0 → M1 → M2/M3 → 发布候选 → M4。M1 必须补齐当前季军/排位的具体来源保护；M4 的“通用来源”指可扩展的完整 MatchSlot 架构，不能以此为由推迟 P0 修复。M2 的纯视觉部分可与后端 M1 同期做，但共享字段必须先冻结。不将全部 M4 塞回“三天交付”。
 

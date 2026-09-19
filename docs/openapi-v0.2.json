@@ -2928,6 +2928,121 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/team-groups/standings": {
+      "get": {
+        "tags": [
+          "team-standings"
+        ],
+        "summary": "List Team Group Standings",
+        "operationId": "list_team_group_standings_api_tournaments__tournament_id__team_groups_standings_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只看某个小组",
+              "title": "Group Id"
+            },
+            "description": "只看某个小组"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamGroupStandingsOut"
+                  },
+                  "title": "Response List Team Group Standings Api Tournaments  Tournament Id  Team Groups Standings Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-groups/{group_id}/standings": {
+      "get": {
+        "tags": [
+          "team-standings"
+        ],
+        "summary": "Get Team Group Standings",
+        "operationId": "get_team_group_standings_api_tournaments__tournament_id__team_groups__group_id__standings_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamGroupStandingsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "summary": "Health",
@@ -5947,6 +6062,53 @@
         "title": "TeamFormatRuntimeOut",
         "description": "对抗当前使用的赛制（未建盘/未登记时全部为 null，前端不得据此推算盘序）。"
       },
+      "TeamGroupStandingsOut": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "provisional": {
+            "type": "boolean",
+            "title": "Provisional"
+          },
+          "ambiguous": {
+            "type": "boolean",
+            "title": "Ambiguous"
+          },
+          "automatic_qualification_allowed": {
+            "type": "boolean",
+            "title": "Automatic Qualification Allowed"
+          },
+          "qualify_count": {
+            "type": "integer",
+            "title": "Qualify Count"
+          },
+          "standings": {
+            "items": {
+              "$ref": "#/components/schemas/TeamStandingRowOut"
+            },
+            "type": "array",
+            "title": "Standings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "provisional",
+          "ambiguous",
+          "automatic_qualification_allowed",
+          "qualify_count",
+          "standings"
+        ],
+        "title": "TeamGroupStandingsOut",
+        "description": "一个小组的团体排名（A6.2，只读、每次从真实事实重算）。\n\n**刻意不包含** `qualified: true/false`：晋级写入属于 A6.3。"
+      },
       "TeamLineupOptionOut": {
         "properties": {
           "player_id": {
@@ -6168,16 +6330,14 @@
               "type": "integer"
             },
             "type": "array",
-            "title": "Deleted Team Ids",
-            "default": []
+            "title": "Deleted Team Ids"
           },
           "deleted_player_ids": {
             "items": {
               "type": "integer"
             },
             "type": "array",
-            "title": "Deleted Player Ids",
-            "default": []
+            "title": "Deleted Player Ids"
           }
         },
         "type": "object",
@@ -6637,6 +6797,95 @@
         ],
         "title": "TeamSide",
         "description": "团体对抗的两边（主队 / 客队）；用于盘结果与权限表达，不是球队身份。"
+      },
+      "TeamStandingRowOut": {
+        "properties": {
+          "team_entry_id": {
+            "type": "integer",
+            "title": "Team Entry Id"
+          },
+          "team_name": {
+            "type": "string",
+            "title": "Team Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "match_points": {
+            "type": "integer",
+            "title": "Match Points"
+          },
+          "ties_played": {
+            "type": "integer",
+            "title": "Ties Played"
+          },
+          "ties_won": {
+            "type": "integer",
+            "title": "Ties Won"
+          },
+          "ties_lost": {
+            "type": "integer",
+            "title": "Ties Lost"
+          },
+          "rubber_wins": {
+            "type": "integer",
+            "title": "Rubber Wins"
+          },
+          "rubber_losses": {
+            "type": "integer",
+            "title": "Rubber Losses"
+          },
+          "games_won": {
+            "type": "integer",
+            "title": "Games Won"
+          },
+          "games_lost": {
+            "type": "integer",
+            "title": "Games Lost"
+          },
+          "rank_start": {
+            "type": "integer",
+            "title": "Rank Start"
+          },
+          "rank_end": {
+            "type": "integer",
+            "title": "Rank End"
+          },
+          "ambiguous": {
+            "type": "boolean",
+            "title": "Ambiguous"
+          },
+          "eligible_for_qualification": {
+            "type": "boolean",
+            "title": "Eligible For Qualification"
+          },
+          "qualification_position_state": {
+            "type": "string",
+            "title": "Qualification Position State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "team_entry_id",
+          "team_name",
+          "status",
+          "match_points",
+          "ties_played",
+          "ties_won",
+          "ties_lost",
+          "rubber_wins",
+          "rubber_losses",
+          "games_won",
+          "games_lost",
+          "rank_start",
+          "rank_end",
+          "ambiguous",
+          "eligible_for_qualification",
+          "qualification_position_state"
+        ],
+        "title": "TeamStandingRowOut",
+        "description": "团体小组排名的一行（A6.2）。\n\n名次用**区间**表示：`rank_start == rank_end` 表示名次唯一；\n并列时同组所有队伍共享同一区间且 `ambiguous = true`（绝不按 id 打破同分）。"
       },
       "TeamSummaryOut": {
         "properties": {

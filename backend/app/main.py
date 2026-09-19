@@ -21,6 +21,7 @@ from .routers import (
     scheduling,
     scores,
     seeds,
+    team_standings,
     team_ties,
     team_roster,
     teams,
@@ -86,6 +87,7 @@ app.include_router(knockout.router)
 app.include_router(teams.router)
 app.include_router(team_roster.router)
 app.include_router(team_ties.router)
+app.include_router(team_standings.router)
 
 
 @app.get("/api/health")

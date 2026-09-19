@@ -1,8 +1,9 @@
-# 团体赛（TEAM）领域基础与边界（A3 + A4.1 + A5 + A6.1）
+# 团体赛（TEAM）领域基础与边界（A3 + A4.1 + A5 + A6.1 + A6.2）
 
-最近维护：A6.1（Group Tie Generator）。本文只描述**已经落地**的团体赛能力，以及**刻意没做**的部分和原因。
+最近维护：A6.2（Team Group Standings V1）。本文只描述**已经落地**的团体赛能力，以及**刻意没做**的部分和原因。
 若与代码冲突，以 `backend/app/` 的 Pydantic 契约、SQLite DDL 与测试为准，并在同一 PR 修正本文。
-运行态字段、状态机与权限的消费契约见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md)。
+运行态字段、状态机与权限的消费契约见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md)；
+**团体小组排名的业务规则**（唯一规则源）见 [团体小组排名规则 V1](TEAM_GROUP_RULES_V1.md)。
 
 ## 一句话结论
 
@@ -21,10 +22,35 @@
   **它只是平台第一版生产模板，不声明等同于任何官方规则**，详见下一节。
 - A6.1 交付"团体小组循环对阵生成"：已经分好组的 TEAM 队伍可以**一次性生成组内单循环的全部对抗**
   （`POST .../team-ties/generate-group-ties`），不再需要手工一场一场建对抗。
+- A6.2 交付"团体小组排名"（只读）：小组现在有**比赛积分 → 同分子集重算 → 盘比率 → 局比率 → 并列区间**
+  的排名事实，并给出"能否自动晋级"的标记位。它**只计算与展示**，不写入任何晋级结果。
 
-它仍**不是**完整的团体赛赛事功能：**没有团体小组积分与排名、没有出线/晋级、没有团体淘汰赛**、
-不参与排程与预计时间、
-赛事阶段 `stage` 也不会因生成对抗而推进。`team_rubbers.match_id` 仍恒为 NULL。
+它仍**不是**完整的团体赛赛事功能：没有正式 TEAM 前端入口（B 工作线在推进）、
+**没有出线/晋级写入与人工裁定、没有团体淘汰赛**、不参与排程与预计时间、
+赛事阶段 `stage` 也不会因生成对抗或查看排名而推进。`team_rubbers.match_id` 仍恒为 NULL。
+
+## 团体小组排名（A6.2）
+
+规则全文见 [团体小组排名规则 V1](TEAM_GROUP_RULES_V1.md)（**唯一业务规则源**，改规则先改该文档）。
+这里只记录**实现边界**：
+
+- 纯算法在 `domain/team_standings.py`（**不访问数据库**，输入是标准化事实），
+  服务在 `services/team_standings.py`（校验 + 查库 + 组装 DTO），路由在 `routers/team_standings.py`。
+- **不复用**个人赛 `domain/ranking.py` 的排序规则：个人赛是"胜场 → 净胜局 → 积分"，
+  团体赛是"比赛积分(2/1) → 子集重算 → 盘比率 → 局比率 → 并列区间"，两者各自独立表达。
+- **不建 `team_standings` 表**：每次查询都从真实 `team_ties` / `team_rubbers` 重算，
+  没有第二真相源，改分与新完成的比赛天然整体重算。
+- **不读取逐局小分**：局 W/L 直接用 `team_rubbers.home_score` / `away_score`，
+  不新增 `MatchGame` / `TeamGame` / 任何逐局表，A6.2 也不需要数据库迁移。
+- **不写入任何晋级结果**：DTO 里没有 `qualified`，只有 `eligible_for_qualification`
+  与 `qualification_position_state` 这类"事实描述"。
+- **并列绝不按 id 打破**：无法区分的队伍共享同一个 `rank_start` / `rank_end` 区间并标 `ambiguous=true`；
+  行内展示顺序按 `entries.id` 升序，但那是展示顺序，不是名次。
+- **provisional**：组内只要还有任何未完成的对抗（含涉及已退赛队伍的），
+  `provisional=true` 且 `automatic_qualification_allowed=false`——
+  V1 不做结果可能性分析，不判断"某队是否已锁定出线"。
+- **退赛**：`WITHDRAWN` 队伍的已完成比赛继续计入排名并占用名次区间，
+  但 `eligible_for_qualification=false`；若它仍有未完成对抗则整个小组都不能自动晋级。
 
 ## 团体小组循环对阵生成（A6.1）
 
@@ -98,9 +124,8 @@
   必须与团体排名、晋级、排程一起设计；本批次只生成对抗，赛事阶段保持原样。
 - **不批量生成 rubber skeleton**：`build_rubber_skeleton()` 有自己独立的事务与安全契约
   （PR #22 复审），批量调用会造成嵌套写事务；生成后仍按既有接口逐个"选生产赛制 → 建盘"。
-- **不做团体小组积分/排名/出线、团体淘汰赛、团体 Scheduler/ETA**：
-  这些规则 Reviewer 尚未冻结，代码里**不存在**任何 `team standings` / `qualification` /
-  `team knockout` 实现，也没有"胜一场 2 分、负一场 1 分"这类看起来常见但未确认的规则。
+- **A6.1 本批次不做团体小组积分/排名/出线、团体淘汰赛、团体 Scheduler/ETA**：
+  后续 A6.2 已在独立规则冻结后实现只读 `team standings`；`qualification` / `team knockout` 仍未实现。
 - **不做安全撤销/重建团体小组赛**（以后独立设计）。
 
 ## Production Team Format V1（A5）
@@ -261,6 +286,8 @@ A4.1 给 `team_rubbers` 追加运行态列时**不重建表**（CHECK 没变）�
 | GET | `/api/tournaments/{id}/team-ties` | 对抗列表（轻量 `TeamTieOut`，不含阵容/权限） |
 | POST | `/api/tournaments/{id}/team-ties` | 建立对抗（双方必须是同一赛事的 TEAM 队伍；绑定小组时须双方同组） |
 | POST | `/api/tournaments/{id}/team-ties/generate-group-ties` | **A6.1** 按小组单循环批量生成小组对抗；返回 `{ties_generated, per_group}`；重复生成 / 有队伍未分组 / 非 TEAM 一律 409 |
+| GET | `/api/tournaments/{id}/team-groups/standings` | **A6.2** 本赛事全部小组的团体排名（只读，可按 `group_id` 过滤，按 `groups.sort_order` 排序） |
+| GET | `/api/tournaments/{id}/team-groups/{group_id}/standings` | **A6.2** 单个小组的团体排名（只读；小组不存在或跨赛事 404；非 TEAM 409） |
 | GET | `/api/tournaments/{id}/team-ties/{tie_id}` | **对抗运行态**（`TeamTieRuntimeOut`：队伍、比分、盘、权限） |
 | POST | `/api/tournaments/{id}/team-ties/{tie_id}/rubber-skeleton` | 按已登记赛制建盘；已存在时 409，`replace=true` 且**所有盘仍为 PENDING 且对抗未进入 Runtime** 时可重建；对抗一旦有盘 READY/PLAYING/FINISHED/SKIPPED 就永久 409 |
 | GET | `.../rubbers/{rubber_id}/lineup-options` | 两边的候选阵容（可用性与不可用原因） |
@@ -283,6 +310,9 @@ A4.1 给 `team_rubbers` 追加运行态列时**不重建表**（CHECK 没变）�
 已有任何 `stage=GROUP` 对抗（含手工建立的）→ 409；并发下后者 → 409（不 500）。
 **不推进赛事阶段、不建盘、不创建 Match。**
 
+小组排名接口（A6.2）的业务守卫：赛事不存在 → 404；不是 TEAM 项目 → 409；
+小组不存在或跨赛事 → 404。排名是只读计算，**不写任何数据、不改赛事阶段、不写入晋级结果**。
+
 Runtime 写操作的守卫见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md) §8：
 404（赛事/对抗/盘/选手不存在）、409（对抗已结束、盘未 READY、已有盘 PLAYING、阵容已锁定、
 队员不属于队伍、缺少赛制快照）、422（人数与盘型不符、同边重复队员、比分不合法）。
@@ -302,7 +332,8 @@ Runtime 写操作的守卫见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md) 
    当前同一对抗**串行**执行（同时最多一盘 PLAYING），这是简化而不是现场规则。
    （A6.1 生成的小组对抗同样不参与排程：`round`/`match_index` 只是编排序号，不是时间计划。）
 6. **团体排名与晋级**：`domain/ranking.py` 是单打/双打口径的胜场-净胜局-积分算法，没有团体赛排名。
-   A6.1 只生成对阵，**不**计算团体小组积分/排名/出线，也不决定晋级。
+   **A6.2 已提供团体小组排名**（见上文「团体小组排名」），但**出线/晋级写入、人工裁定、
+   团体淘汰赛结构**仍未实现；得失分比率（points ratio）也不在 V1 范围内。
 7. **队伍种子**：团体赛种子规则未冻结；`entries.rating_points` 默认 0，只接受显式传入，
    绝不按队员积分求和或推导；打分赛的「按积分生成种子」对 TEAM / DOUBLES 都返回 409。
 8. **Demo 模拟**：`demo/finish-group-stage` 与小组赛/淘汰赛生成接口对 TEAM 一律 409，不伪造团体赛结果。
@@ -440,4 +471,11 @@ pnpm -C frontend run build
 - `backend/tests/test_round_robin_domain.py`（A6.1）：单循环算法的通用不变量（n=2…12）——
   场数 `n(n-1)/2`、每个 unordered pair 恰好一次、无自己打自己、每轮每队至多一次、
   偶数/奇数轮数结构、奇数队伍每轮恰好一支轮空、确定性（重复运行完全一致）。
+- `backend/tests/test_team_standings.py`（A6.2）：域层 Fixture A–E（无同分 / 直接交锋 /
+  盘比率 / 局比率 / 并列区间）、部分区分与"子集内统计重算"、比率交叉乘法与 0/0 语义、
+  `_resolve` 输出必须是队伍的一个划分（防止子集下标与 entries 下标混用）、
+  SKIPPED 与未打完的盘不计入、局分真正读取 `home_score`/`away_score`、跨组隔离、
+  provisional（WAITING / PLAYING）、退赛（成绩保留 + 不可晋级 + 有未完赛则整组禁止自动晋级）、
+  非 TEAM 409 / 小组不存在 404、每次查询从数据库事实重算、并列区间共享、
+  A6.1 生成 → Runtime 真打完 → standings 端到端，以及 API 层契约与错误码。
 - `backend/tests/test_tournament_delete_reliability.py`：团体赛级联删除用例。

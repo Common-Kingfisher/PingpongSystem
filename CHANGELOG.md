@@ -8,6 +8,21 @@
 
 ### 新增
 
+- 团体小组排名（A6.2）：TEAM 赛事的小组现在可以查看**团体排名**（只读）：
+  `GET /api/tournaments/{id}/team-groups/standings`（本赛事全部小组，可用 `group_id` 过滤）与
+  `GET /api/tournaments/{id}/team-groups/{group_id}/standings`（单个小组）。
+  排序规则完全按 `docs/TEAM_GROUP_RULES_V1.md`：先比**比赛积分**（正常完赛胜方 2 分、负方 1 分，
+  未完成对抗不计入），同分时只保留同分队伍之间的对抗并**重新计算子集**的比赛积分，
+  再依次比较**盘胜负比**与**局胜负比**；仍然无法区分时返回**并列名次区间**
+  （`rank_start` / `rank_end`，绝不按编号打破同分）。
+  盘与局只统计已结束对抗里**已打完的盘**（提前结束留下的"已跳过"盘完全不计入）；
+  局分直接取该盘的双方局数，不新增任何逐局小分表。
+  排名行同时给出"能否晋级"的**事实**（`provisional`、`ambiguous`、
+  `automatic_qualification_allowed`、`eligible_for_qualification`）：只要组内还有未完成的对抗，
+  整个小组就标记为未定并禁止自动晋级判定；已退赛的队伍保留已完成成绩但标记为不可晋级。
+  排名**每次查询都从真实对抗与盘重新计算**，不落库、没有缓存，改分或新完成的比赛天然整体重算。
+  **本次不包含**：晋级写入与出线名单、人工裁定、抽签、团体淘汰赛、团体排程与预计时间、
+  得失分比率（points ratio），也不由排名推进赛事阶段。
 - 团体小组循环对阵生成（A6.1）：TEAM 赛事完成分组后，新增
   `POST /api/tournaments/{id}/team-ties/generate-group-ties`，按**小组内单循环**一次性生成全部
   团体对抗（TeamTie），并返回生成总数与每组场数（`ties_generated` / `per_group`）。

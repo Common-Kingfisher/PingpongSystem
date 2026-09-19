@@ -896,6 +896,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/team-groups/standings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Team Group Standings */
+        get: operations["list_team_group_standings_api_tournaments__tournament_id__team_groups_standings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/team-groups/{group_id}/standings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Team Group Standings */
+        get: operations["get_team_group_standings_api_tournaments__tournament_id__team_groups__group_id__standings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -1915,6 +1949,28 @@ export interface components {
             rubbers_to_win?: number | null;
         };
         /**
+         * TeamGroupStandingsOut
+         * @description 一个小组的团体排名（A6.2，只读、每次从真实事实重算）。
+         *
+         *     **刻意不包含** `qualified: true/false`：晋级写入属于 A6.3。
+         */
+        TeamGroupStandingsOut: {
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Provisional */
+            provisional: boolean;
+            /** Ambiguous */
+            ambiguous: boolean;
+            /** Automatic Qualification Allowed */
+            automatic_qualification_allowed: boolean;
+            /** Qualify Count */
+            qualify_count: number;
+            /** Standings */
+            standings: components["schemas"]["TeamStandingRowOut"][];
+        };
+        /**
          * TeamLineupOptionOut
          * @description 某一边的候选上场队员（B 直接渲染成可点选列表）。
          */
@@ -1992,16 +2048,10 @@ export interface components {
             teams: components["schemas"]["TeamRosterTeamDraft"][];
             /** Players */
             players: components["schemas"]["TeamRosterPlayerDraft"][];
-            /**
-             * Deleted Team Ids
-             * @default []
-             */
-            deleted_team_ids: number[];
-            /**
-             * Deleted Player Ids
-             * @default []
-             */
-            deleted_player_ids: number[];
+            /** Deleted Team Ids */
+            deleted_team_ids?: number[];
+            /** Deleted Player Ids */
+            deleted_player_ids?: number[];
         };
         /** TeamRosterSheetOut */
         TeamRosterSheetOut: {
@@ -2149,6 +2199,47 @@ export interface components {
          * @enum {string}
          */
         TeamSide: "HOME" | "AWAY";
+        /**
+         * TeamStandingRowOut
+         * @description 团体小组排名的一行（A6.2）。
+         *
+         *     名次用**区间**表示：`rank_start == rank_end` 表示名次唯一；
+         *     并列时同组所有队伍共享同一区间且 `ambiguous = true`（绝不按 id 打破同分）。
+         */
+        TeamStandingRowOut: {
+            /** Team Entry Id */
+            team_entry_id: number;
+            /** Team Name */
+            team_name: string;
+            /** Status */
+            status: string;
+            /** Match Points */
+            match_points: number;
+            /** Ties Played */
+            ties_played: number;
+            /** Ties Won */
+            ties_won: number;
+            /** Ties Lost */
+            ties_lost: number;
+            /** Rubber Wins */
+            rubber_wins: number;
+            /** Rubber Losses */
+            rubber_losses: number;
+            /** Games Won */
+            games_won: number;
+            /** Games Lost */
+            games_lost: number;
+            /** Rank Start */
+            rank_start: number;
+            /** Rank End */
+            rank_end: number;
+            /** Ambiguous */
+            ambiguous: boolean;
+            /** Eligible For Qualification */
+            eligible_for_qualification: boolean;
+            /** Qualification Position State */
+            qualification_position_state: string;
+        };
         /**
          * TeamSummaryOut
          * @description 对抗的一边；成员内嵌，避免前端为显示队伍再发多次请求。
@@ -4402,6 +4493,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TeamTieRuntimeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_team_group_standings_api_tournaments__tournament_id__team_groups_standings_get: {
+        parameters: {
+            query?: {
+                /** @description 只看某个小组 */
+                group_id?: number | null;
+            };
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamGroupStandingsOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_team_group_standings_api_tournaments__tournament_id__team_groups__group_id__standings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamGroupStandingsOut"];
                 };
             };
             /** @description Validation Error */
