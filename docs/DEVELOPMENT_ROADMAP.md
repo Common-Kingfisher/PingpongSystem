@@ -49,6 +49,12 @@ PR #20 复审后补强：名单冻结（队伍有对抗开赛后禁止改队员�
 写操作改为 `BEGIN IMMEDIATE` 写事务 + 带预期旧状态的条件更新，跨行不变量在写入前校验，
 并发请求无法绕过状态机（双 start / 双 score 有回归测试）。
 
+PR #22 复审后补强（follow-up）：建盘骨架 `build_rubber_skeleton()` 也纳入同一套写事务——
+原先的 read-check-write 没有写锁保护，两个并发建盘请求都能读到"还没有盘"，后提交者把
+`UNIQUE (team_tie_id, sequence)` 撞成 500，现在稳定返回 409；写事务收敛到
+`services/transaction.py`，Runtime 与建盘共用同一份实现；`register_format_spec()` 不再静默
+覆盖已登记的 format code（必须新增版本化 code，或显式声明 `allow_version_bump` 且版本递增）。
+
 **A5 批次已完成（Production Team Format V1）**：登记了第一个生产可用、版本化的团体赛赛制
 `LOCAL_CLASSIC_5_V1`（5 盘、先赢 3 盘、单/单/双/单/单）。真实 TEAM 赛事现在可以
 "建队 → 确认名单 → 建对抗 → 选生产赛制 → 生成 5 盘骨架 → 直接进入 A4.1 Runtime"，

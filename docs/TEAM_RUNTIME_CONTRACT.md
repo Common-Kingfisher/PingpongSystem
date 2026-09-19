@@ -176,6 +176,10 @@ Runtime 的每个写操作都满足：
    `BEGIN IMMEDIATE` 再重新读取"对抗是否已开始"，因此 roster mutation 与 Runtime start 原子串行化——
    两者只会有一个成功：要么名单先改完（随后 `start` 因阵容失效 409），要么盘先开始（随后改名单 409 名单锁定）。
    只改队名或积分不进入这把锁。
+5. **写事务实现在 `services/transaction.py`（PR #22 复审 P1）**：`write_transaction()` 是
+   `BEGIN IMMEDIATE` + 异常回滚 + 锁等待超时映射的唯一实现，Runtime 各写操作与建盘骨架
+   （`POST .../rubber-skeleton`）共同复用。因此建盘也满足本节第 1 条：并发重复建盘，
+   一个成功、另一个拿 409，不会把 `UNIQUE (team_tie_id, sequence)` 撞成 500。
 
 ## 8. 错误契约
 

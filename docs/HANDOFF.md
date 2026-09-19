@@ -60,6 +60,10 @@
     开始一盘时原子重校验已保存阵容（队员被移出名单 / 队伍退赛 → 409，可重新提交），运行态给出 `lineup_valid`。
   - **并发安全（PR #20 复审补强）**：写操作 = `BEGIN IMMEDIATE` 写事务 + 带预期旧状态的条件更新 + rowcount 检查；
     跨行不变量（最多一盘 PLAYING）在任何写入之前校验。并发双 start / 双 score 都有回归测试（两个独立连接）。
+  - **建盘骨架的写事务（PR #22 复审补强）**：`build_rubber_skeleton()` 与 Runtime 共用
+    `services/transaction.py::write_transaction`；原先它在事务外 read-check-write，两个并发建盘请求都能读到
+    "还没有盘"、后提交者撞 `UNIQUE (team_tie_id, sequence)` 变成 500，现在稳定 409 且只留一套盘。
+    `register_format_spec()` 同时改为拒绝覆盖已登记的 format code（不再静默改写已发布版本）。
 - 团体赛生产赛制 V1（A5，`docs/TEAM_DOMAIN.md` 的「Production Team Format V1」）：
   生产注册表现在**不再为空**，登记了平台第一版模板 `LOCAL_CLASSIC_5_V1`（version 1，
   显示名「经典五盘三胜团体赛」，5 盘、先赢 3 盘、`SINGLES/SINGLES/DOUBLES/SINGLES/SINGLES`，

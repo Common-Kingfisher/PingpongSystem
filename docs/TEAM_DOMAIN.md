@@ -266,6 +266,15 @@ PENDING ──提交合法阵容──▶ READY ──start──▶ PLAYING ─
   `PLAYING`/`FINISHED`，`PATCH /teams` 改队员返回 409（改名/积分不受影响）。
 - **并发安全**：写操作把"读-判断-写"放进 `BEGIN IMMEDIATE` 写事务，写入使用带预期旧状态的条件更新
   （并检查 rowcount），跨行不变量在任何写入之前校验——并发请求无法绕过"最多一盘 PLAYING / 不允许改分"。
+- **建盘骨架同样是写操作（PR #22 复审 P1）**：`build_rubber_skeleton()` 的"查已有盘 → 判断重复 →
+  插入"也是 read-check-write，必须与 Runtime 写操作上同一把写锁。写锁在读取之前取得，因此两个并发
+  `POST .../rubber-skeleton` 只可能有一个成功，另一个稳定拿到 **409**（"该对抗已生成 N 盘骨架"），
+  最终只有一套盘（5 盘制就是 5 条，不会变成 10 条）；修复前后提交者会撞
+  `UNIQUE (team_tie_id, sequence)` 抛 `sqlite3.IntegrityError`，用户看到 500。
+- **写事务只有一份实现**：`services/transaction.py::write_transaction(conn, *, busy_message,
+  conflict_message)` 提供 `BEGIN IMMEDIATE` + 回滚 + 锁超时映射，`team_runtime._write_tx` 与
+  `team_ties.build_rubber_skeleton` 共同复用（`team_runtime` 仍负责把异常翻译成自己的业务错误）。
+  这样"又一处 read-check-write"不需要再抄第三份事务代码。
 
 ## 阶段门禁现状（为什么对抗创建不校验 stage）
 
