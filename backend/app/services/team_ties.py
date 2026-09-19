@@ -208,8 +208,8 @@ def generate_group_ties(
     每组一个**独立**的 round-robin（复用 `domain/round_robin.py` 的固定轮转法，
     不为团体赛复制第二份算法，也不为了复用去重构个人赛）：
 
-    - 输入顺序 = 该组 `ACTIVE` TeamEntry 按 **id 升序**（`entries` 没有 sort_order 列；
-      id 是插入顺序，与小组内既有稳定顺序一致，也是个人赛小组赛生成器用的口径）；
+    - 输入顺序 = 该组 `ACTIVE` TeamEntry 按 **id 升序**。工作表的 sort_order 只控制名单
+      展示与正式队伍顺序；这里保留 A6.1 的 id 顺序，避免编辑展示顺序后悄然重排编排语义；
     - `round`：组内轮次，从 1 开始（有 N 支队伍时，偶数 N → N-1 轮，奇数 N → N 轮）；
     - `match_index`：**轮内**场序，从 1 开始，取 round-robin 在该轮的输出顺序；
     - 每两支真实队伍恰好交手一次，奇数队伍那一轮只有一支队伍轮空——

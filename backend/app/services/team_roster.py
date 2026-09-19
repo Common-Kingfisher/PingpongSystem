@@ -8,7 +8,7 @@ import sqlite3
 
 from .. import repository as repo
 from ..models import EventType, TournamentStage
-from . import teams
+from . import players, teams
 
 
 def _error(message: str, code: int = 409) -> teams.TeamError:
@@ -142,6 +142,11 @@ def save_sheet(conn: sqlite3.Connection, tournament_id: int, payload: dict) -> d
         _require_editable(locked_current["tournament"])
         if payload["base_revision"] != locked_current["revision"]:
             raise _error("名单已被其他操作更新，请刷新后核对再保存")
+        players.ensure_player_capacity(
+            len(locked_current["players"]),
+            additions=sum(player["id"] is None for player in draft_players),
+            deletions=len(deleted_players),
+        )
         _protect_started_team_members(conn, locked_current, draft_teams, members)
         for team_id in deleted_teams:
             if repo.find_tie_referencing_entry(conn, team_id) is not None:

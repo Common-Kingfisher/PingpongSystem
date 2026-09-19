@@ -14,6 +14,7 @@ import sqlite3
 from .. import repository as repo
 from ..models import EventType, TournamentStage
 from . import teams as teams_service
+from .players import MAX_PLAYERS_PER_TOURNAMENT
 
 NAME_ALIASES = {"姓名", "选手姓名", "名字", "name", "player_name"}
 COLLEGE_ALIASES = {"学院", "学院/单位", "单位", "学校", "部门", "organization", "college"}
@@ -141,10 +142,10 @@ def _import_players_file_unlocked(
 
     for row_no, row in enumerate(rows[1:], start=2):
         total_rows += 1
-        if len(existing) + imported >= 120:
+        if len(existing) + imported >= MAX_PLAYERS_PER_TOURNAMENT:
             skipped += 1
-            errors.append({"row": row_no, "message": "超过单场赛事 120 人上限"})
-            preview_rows.append({"row": row_no, "name": _cell(row, name_col), "college": _cell(row, college_col) or None, "rating_points": 1000, "seed_no": None, "status": "error", "message": "超过单场赛事 120 人上限"})
+            errors.append({"row": row_no, "message": f"超过单场赛事 {MAX_PLAYERS_PER_TOURNAMENT} 人上限"})
+            preview_rows.append({"row": row_no, "name": _cell(row, name_col), "college": _cell(row, college_col) or None, "rating_points": 1000, "seed_no": None, "status": "error", "message": f"超过单场赛事 {MAX_PLAYERS_PER_TOURNAMENT} 人上限"})
             continue
         name = _cell(row, name_col)
         if not name:

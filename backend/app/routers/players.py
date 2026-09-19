@@ -80,8 +80,7 @@ def add_player(
     try:
         with teams_service._roster_write_tx(conn):
             players_service.ensure_players_editable(conn, tournament_id)
-            if len(repo.list_players(conn, tournament_id)) >= 120:
-                raise players_service.PlayerError("单场赛事最多支持 120 名运动员", 409)
+            players_service.ensure_player_capacity(len(repo.list_players(conn, tournament_id)), additions=1)
             player = repo.add_player(conn, tournament_id, payload.name, payload.college, payload.rating_points)
     except (players_service.PlayerError, teams_service.TeamError) as exc:
         raise _http(exc)

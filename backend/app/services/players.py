@@ -12,11 +12,19 @@ from .. import repository as repo
 from ..models import EventType, TournamentStage
 from . import teams as teams_service
 
+MAX_PLAYERS_PER_TOURNAMENT = 120
+
 
 class PlayerError(Exception):
     def __init__(self, message: str, code: int = 409):
         super().__init__(message)
         self.code = code
+
+
+def ensure_player_capacity(current_count: int, additions: int = 0, deletions: int = 0) -> None:
+    """保证一次名单写入后的选手总数不超过赛事统一容量上限。"""
+    if current_count - deletions + additions > MAX_PLAYERS_PER_TOURNAMENT:
+        raise PlayerError(f"单场赛事最多支持 {MAX_PLAYERS_PER_TOURNAMENT} 名运动员", 409)
 
 
 def ensure_players_editable(conn: sqlite3.Connection, tournament_id: int) -> None:
@@ -156,8 +164,7 @@ def _generate_demo_players_unlocked(
         raise PlayerError("生成数量需在 1~24 之间", 422)
 
     existing = repo.list_players(conn, tournament_id)
-    if len(existing) + count > 120:
-        raise PlayerError(f"生成后将超过 120 人上限，当前已有 {len(existing)} 人", 409)
+    ensure_player_capacity(len(existing), additions=count)
     start = len(existing) + 1
     added: list[dict] = []
     for i in range(start, start + count):
