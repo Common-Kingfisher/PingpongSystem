@@ -43,6 +43,7 @@ def test_live_team_tie_flow() -> None:
         expect(skipped.get_by_role("button", name="设置阵容")).to_be_disabled()
         expect(skipped.get_by_role("button", name="开始本盘")).to_be_disabled()
         expect(skipped.get_by_role("button", name="录入比分")).to_be_disabled()
+        expect(skipped.get_by_role("status")).to_contain_text("本盘因对抗已提前结束而跳过，不能设置阵容")
         page.get_by_role("link", name="返回对抗列表").click()
         expect(page.get_by_text("3 : 1", exact=True)).to_be_visible()
         page.goto(f"{base_url}/team-rankings?tid={TID}")
