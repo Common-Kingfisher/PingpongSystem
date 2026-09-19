@@ -1,6 +1,6 @@
 # PingpongSystem 开发交接
 
-最近维护：2026-09-18（A6.2）。当前集成分支：`develop/field-demo-v02`；精确基线以该分支最新提交为准。
+最近维护：2026-09-18（A6.3 / A6.4）。当前集成分支：`develop/field-demo-v02`；精确基线以该分支最新提交为准。
 
 维护规则：每个功能 PR 必须同步更新相关 Markdown、OpenAPI 快照（接口变化时）和 `CHANGELOG.md`；不再把文档集中留到最后补写。
 
@@ -21,8 +21,10 @@
    小组循环对阵生成（A6.1）、团体小组排名（A6.2）与"刻意没做"的部分。
 5. [团体小组排名规则 V1](TEAM_GROUP_RULES_V1.md)：团体小组排名的**唯一业务规则源**
    （比赛积分、同分子集重算、盘/局比率、并列区间、provisional 与退赛口径）。
-6. [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md)：A/B 消费契约（运行态字段、状态机、权限、错误码）。
-7. `PingpongSystem_交接与开发路线.docx`：面向队友的综合阅读版；精确字段和命令以本目录 Markdown、Pydantic 与 OpenAPI 为准。
+6. [团体晋级与淘汰签规则 V1](TEAM_QUALIFICATION_KNOCKOUT_V1.md)：团体**晋级判定**与**淘汰签生成**的
+   唯一业务规则源（晋级线并列处理、人工确认校验、相邻组交叉配对、复用的数据模型）。
+7. [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md)：A/B 消费契约（运行态字段、状态机、权限、错误码）。
+8. `PingpongSystem_交接与开发路线.docx`：面向队友的综合阅读版；精确字段和命令以本目录 Markdown、Pydantic 与 OpenAPI 为准。
 
 若文档与代码冲突，以 Pydantic/OpenAPI 和已通过的测试为准，并在同一 PR 修正文档，不能长期保留已知过期说明。
 
@@ -131,6 +133,38 @@
     退赛队伍保留已完成成绩并占用名次区间，但 `eligible_for_qualification=false`。
   - **仍然没有**：A6.3 qualification（晋级写入 / 出线名单 / 人工裁定）、A6.4 团体淘汰赛、抽签、
     points ratio、团体 Scheduler/ETA、TEAM 阶段推进、正式 TEAM 前端入口。
+    （注：**A6.3 与 A6.4 已由后续批次完成**，见下面两条。）
+- 团体晋级确认（A6.3，规则源 `docs/TEAM_QUALIFICATION_KNOCKOUT_V1.md`）：
+  - 新接口：`GET /api/tournaments/{id}/qualification`（只读：每组候选、是否需人工处理、
+    是否可确认、已确认名单）、`POST /api/tournaments/{id}/qualification/confirm`（人工确认，
+    全量替换）。
+  - 规则：每组按 `qualify_count` 取前 N；**`rank_start <= N < rank_end` 即跨晋级线并列** →
+    `requires_manual_resolution = true`，系统**不给任何推荐**（绝不按 id / 顺序 / 随机打破）；
+    组内未打完（provisional）→ 409 禁止确认；已退赛队伍不可晋级、不在候选内。
+  - 校验：重复队伍 / 每组数量不符 / 跨线并列取舍不正确 → 422；队伍不属于本赛事 → 404。
+  - **只存"谁晋级"**：`team_qualifications`（`tournament_id` / `team_entry_id` / `group_id` /
+    `status` / `confirmed_at`），**不保存** rank / 积分 / 排名快照——排名事实永远由 A6.2 现算。
+  - 确认是**全量替换**且在一个 `BEGIN IMMEDIATE` 写事务内完成（并发只一个成功）。
+- 团体淘汰签（A6.4）：
+  - 新接口：`POST /api/tournaments/{id}/team-knockout/generate`、
+    `GET /api/tournaments/{id}/team-knockout`（未生成时 `generated=false`）。
+  - 种子 = **小组顺序 + 组内晋级名次**；**相邻组交叉配对**：
+    4 组 → `QF1=A1-B2, QF2=B1-A2, QF3=C1-D2, QF4=D1-C2`；2 组 → `A1-B2, B1-A2`。
+    无随机、不按 id 排序、不做稳定排序兜底。
+  - **复用 `team_ties`**：`stage='KNOCKOUT'`、`group_id` 恒为 NULL；
+    **不新建** `team_knockout_ties`、**不创建任何 `matches` 行**。
+    淘汰赛 TeamTie 与小组赛同构，可直接用 `LOCAL_CLASSIC_5_V1` 建盘进入 A4.1 Runtime。
+  - 守卫：重复生成 409（不补齐 / 不覆盖 / 不重新生成）；未确认晋级 409；
+    已确认队伍退赛 409；规模不受支持（奇数组 / 每组晋级数 ≠ 2 / 非 2 的幂）409。
+  - **本批次最明显的边界**：生成只建立**首轮**对抗；后续轮次在读取时按签表几何补全为
+    "待定槽位"（`rounds[i].match_count` 给应有场次数、`matches` 为空）。
+    原因：`team_ties.entry_a_id/entry_b_id` 是 NOT NULL 且没有 `prev` 依赖列，
+    预建空对抗只会留下无法消费的空行。**淘汰签的胜者晋级尚未实现**，
+    需要先做 `team_ties` 表迁移（允许待定槽位 + 上游依赖，对齐个人赛 `matches` 的
+    `prev_match_*` 设计）。
+  - **仍然没有**：胜者晋级传播、Scheduler / 自动排台 / ETA、实时运行态 UI、
+    高级种子算法（rating / 历史积分 / 跨赛事排名）、自动处理并列晋级、
+    轮空与奇数组配置、淘汰签撤销 / 重建、TEAM 阶段推进、正式 TEAM 前端入口。
 - 淘汰赛交叉对阵的冻结范围（A1 复审确认）：
   - 正式冻结：2 组 × 每组前 2（A1-B2、B1-A2）；4 组 × 每组前 2（A1-D2、C1-B2、B1-C2、D1-A2）；偶数组 × 每组前 2 的"首尾交叉"原则（第 i 组第 1 名 ⇄ 倒数第 i 组第 2 名），同组两人与 1/2 号种子分处不同半区。
   - 未正式冻结：需要轮空时的具体轮空落位（例如 6 组 = 12 人进入 16 签）、3/5/7 等奇数组、每组出线人数 != 2 或各组出线人数不一致。
@@ -159,6 +193,8 @@
 | 团体赛生产赛制 V1（A5） | `LOCAL_CLASSIC_5_V1`：5 盘、先赢 3 盘、单/单/双/单/单；真实 TEAM 赛事可直接建盘并进入 Runtime（不依赖测试赛制）；快照版本化不可变；开赛后禁止换赛制/重建骨架；**不声明官方规则、无排名/晋级/排程** | `domain/team_formats.py`、`services/team_ties.py`、`docs/TEAM_DOMAIN.md` |
 | 团体小组循环生成（A6.1） | 已分组 TEAM 赛事一键生成组内单循环全部 `TeamTie`（4 队组 6 场 / 两组 12 场 / 3 队 3 场 / 5 队 10 场）；复用个人赛 `domain/round_robin.py`；`round`/`match_index` 确定性；未分组或已有小组对抗一律 409（整批拒绝、不补齐）；一个写事务、并发下一个成功一个 409；**不改 stage、不建盘、不做排名/晋级** | `services/team_ties.py::generate_group_ties`、`domain/round_robin.py`、`routers/team_ties.py`、`docs/TEAM_DOMAIN.md` |
 | 团体小组排名（A6.2） | 只读团体排名：比赛积分(胜2/负1) → 同分子集**重算** → 盘胜负比 → 局胜负比 → **并列名次区间**；交叉乘法比较、0/0 视为不可比较；`SKIPPED` 与未完成对抗不计入；不落库（无 `team_standings` 表）、不新增逐局表；`provisional` / `ambiguous` / `automatic_qualification_allowed` / `eligible_for_qualification` 只给事实；**没有 `qualified`、不写晋级、不改 stage** | `domain/team_standings.py`、`services/team_standings.py`、`routers/team_standings.py`、`docs/TEAM_GROUP_RULES_V1.md` |
+| 团体晋级确认（A6.3） | 每组按 `qualify_count` 取前 N；**跨晋级线并列 → 必须人工确认**（不按 id/顺序/随机打破）；provisional 禁止确认；已退赛不可晋级；确认全量替换、写事务内完成；只记"谁晋级"（`team_qualifications`），不保存 rank/积分/快照 | `domain/team_qualification.py`、`services/team_qualification.py`、`routers/team_qualification.py`、`docs/TEAM_QUALIFICATION_KNOCKOUT_V1.md` |
+| 团体淘汰签（A6.4） | 种子 = 小组顺序 + 组内名次；相邻组交叉配对（A1-B2/B1-A2/C1-D2/D1-C2）；**复用 `team_ties`（`stage='KNOCKOUT'`）**、不新建表、不创建 Match；重复生成/未确认/规模不受支持一律 409；**只建首轮**，后续轮次为待定骨架（胜者晋级尚未实现） | `domain/team_knockout.py`、`services/team_knockout.py`、`routers/team_knockout.py`、`docs/TEAM_QUALIFICATION_KNOCKOUT_V1.md` |
 | 分组 | 种子分散、人数均衡、同单位软回避；解除分组；配置各组出线数 | `services/groups.py`、`routers/groups.py` |
 | 录分与排名 | 大比分默认 0；小组小分补录；改分强制操作人/理由并保存前后快照；读取结果重算排名、提示出线歧义 | `ScoreSheet.tsx`、`RankingsPage.tsx`；`services/scores.py`、`domain/ranking.py` |
 | 现场控制台 | 真实 API 球台卡、批量/手动排台、下台、比分/弃权；待赛横向换行；已结束场次改分。自动排台优先级＝硬约束 → 组台亲和 → 组间进度公平 → 连续上场惩罚 → 稳定顺序（服务端给出每台建议，前端只展示），更完整的 V1 设计见 `docs/SCHEDULING_V1_DESIGN.md` | `ConsolePage.tsx`、`LiveTableCard.tsx`、`services/scheduling.py` |
