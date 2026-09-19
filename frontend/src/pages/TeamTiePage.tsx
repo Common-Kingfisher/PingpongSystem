@@ -7,6 +7,16 @@ import type { TeamRubberView, TeamTieView } from '../team/types'
 
 const messageOf = (error: unknown) => error instanceof ApiError ? error.message : '团体对抗操作失败'
 
+// 后端在赛前名单变更后会保留旧阵容 id 以报告 lineup_valid=false，但候选列表只含当前队员。
+// 打开编辑弹窗时必须丢弃不再可选的旧 id，否则用户无法通过 UI 修复阵容。
+function retainCurrentPlayerIds(
+  selectedIds: number[],
+  options: TeamRubberView['lineup_options']['home'],
+): number[] {
+  const currentIds = new Set(options.filter((option) => option.available).map((option) => option.player_id))
+  return selectedIds.filter((playerId) => currentIds.has(playerId))
+}
+
 export default function TeamTiePage() {
   const [params] = useSearchParams()
   const rawTid = params.get('tid')
@@ -52,8 +62,8 @@ export default function TeamTiePage() {
 
   const openLineup = (rubber: TeamRubberView, trigger: HTMLButtonElement) => {
     restoreFocus.current = trigger
-    setHomeIds(rubber.home_player_ids)
-    setAwayIds(rubber.away_player_ids)
+    setHomeIds(retainCurrentPlayerIds(rubber.home_player_ids, rubber.lineup_options.home))
+    setAwayIds(retainCurrentPlayerIds(rubber.away_player_ids, rubber.lineup_options.away))
     setLineupRubber(rubber)
   }
   const openScore = (rubber: TeamRubberView, trigger: HTMLButtonElement) => {
