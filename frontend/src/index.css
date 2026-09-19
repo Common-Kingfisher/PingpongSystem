@@ -232,6 +232,61 @@ h1, h2, h3, h4, .app-title, .ko-card-score, .score-sheet-versus span {
 .team-tie-status.waiting { color: #7a4a04; background: #fff4dc; }
 .team-tie-status.playing { color: #175b91; background: #e5f2ff; }
 .team-tie-status.finished { color: #17633a; background: #eaf8f0; }
+.team-ties-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
+.team-ties-view-toggle { display: inline-flex; gap: 2px; padding: 3px; background: #fff; border: 1px solid #c9ddf0; border-radius: 7px; box-shadow: 0 1px 2px rgba(16,24,40,.05); }
+.team-ties-view-toggle button { min-width: 68px; padding: 7px 14px; color: #475467; background: transparent; border: 0; border-radius: 5px; font: inherit; font-weight: 700; cursor: pointer; }
+.team-ties-view-toggle button.active { color: #fff; background: #2f78c4; }
+.team-ties-toolbar .team-ties-filters { margin-bottom: 0; }
+.team-matrix-groups { display: grid; gap: 18px; }
+.team-matrix-card { padding: 18px; }
+.team-matrix-card-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 13px; }
+.team-matrix-card-header h2 { margin: 0; font-size: 19px; }
+.team-matrix-count { color: #57738e; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.team-matrix-wrap { overflow-x: auto; border: 1px solid #d0d5dd; border-radius: 6px; background: #fff; }
+.team-matrix-table { width: 100%; min-width: 680px; border-collapse: separate; border-spacing: 0; table-layout: auto; }
+.team-matrix-table th, .team-matrix-table td { border-right: 1px solid #e4e9ef; border-bottom: 1px solid #e4e9ef; }
+.team-matrix-table th:last-child, .team-matrix-table td:last-child { border-right: 0; }
+.team-matrix-table tbody tr:last-child th, .team-matrix-table tbody tr:last-child td { border-bottom: 0; }
+.team-matrix-corner { left: 0; z-index: 3; width: 116px; min-width: 116px; padding: 8px; color: #315a7a; background: #f3f9ff; font-size: 12px; text-align: left; }
+.team-matrix-corner span { display: inline-block; }
+.team-matrix-col-head { height: 116px; padding: 8px 5px; color: #315a7a; background: #f9fbfe; font-size: 12px; font-weight: 700; text-align: center; vertical-align: bottom; }
+.team-matrix-col-head span { display: block; max-width: 20px; margin: 0 auto; overflow: hidden; writing-mode: vertical-rl; text-orientation: mixed; white-space: nowrap; text-overflow: ellipsis; }
+.team-matrix-row-head { position: sticky; left: 0; z-index: 2; min-width: 116px; padding: 9px 11px; background: #f8fafc; text-align: left; vertical-align: middle; }
+.team-matrix-row-head strong { display: block; color: #101828; font-size: 13px; line-height: 1.3; }
+.team-matrix-cell { width: 54px; min-width: 54px; height: 54px; padding: 4px; text-align: center; vertical-align: middle; }
+.team-matrix-cell-link { position: relative; display: grid; width: 100%; height: 100%; min-height: 42px; place-items: center; color: inherit; text-decoration: none; border-radius: 4px; }
+.team-matrix-cell-link:hover { color: var(--blue); background: #eff4ff; }
+.team-matrix-cell-link:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.team-matrix-score { font: 800 15px/1 Bahnschrift, sans-serif; }
+.team-matrix-waiting { color: #98a2b3; font-weight: 700; }
+.team-matrix-cell.self { background-image: linear-gradient(to bottom right, transparent calc(50% - .5px), #c3ccd7 calc(50% - .5px), #c3ccd7 calc(50% + .5px), transparent calc(50% + .5px)); }
+.team-matrix-cell.blank { color: #98a2b3; background: #fcfdff; }
+.team-matrix-cell.waiting { background: #fffdf7; }
+.team-matrix-cell.playing { background: #f4f9ff; }
+.team-matrix-cell.playing .team-matrix-cell-link::after { content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; background: #2f78c4; border-radius: 50%; box-shadow: 0 0 0 3px rgba(47,120,196,.12); }
+.team-matrix-total-head { width: 62px; min-width: 62px; padding: 8px 5px; color: #315a7a; background: #f9fbfe; font-size: 12px; text-align: center; }
+.team-matrix-total { padding: 9px 7px; color: #344054; background: #fbfcfe; font-size: 14px; font-weight: 700; text-align: center; }
+.team-matrix-total.rank { color: #101828; }
+.team-matrix-table tr.is-ambiguous .team-matrix-row-head { background: #fffbf2; }
+.team-matrix-table tr.is-ambiguous .team-matrix-total { background: #fff9ea; }
+.team-standings-page { max-width: 1080px; }
+.team-standings-header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.team-standings-groups { display: grid; gap: 18px; }
+.team-standings-card { padding: 20px; }
+.team-standings-card-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.team-standings-card-header h2 { margin: 0; font-size: 19px; }
+.team-standings-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.team-standings-line { color: #57738e; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.team-standings-note { margin: -4px 0 12px; color: #713b12; font-size: 12px; }
+.team-standings-table td[data-label="名次"] b { font-size: 16px; }
+.team-standings-table td[data-label="队伍"] .withdrawn-badge { margin-left: 8px; }
+.team-standings-points { font-weight: 800; }
+.team-standings-table tr.is-ambiguous td { background: #fffbf2; }
+.team-standing-state { display: inline-block; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.team-standing-state.resolved { color: #17633a; background: #eaf8f0; }
+.team-standing-state.undecided { color: #7a4a04; background: #fff4dc; }
+.team-standing-state.ineligible { color: #57738e; background: #eef3f8; }
+.team-standings-footnote { margin: 16px 0 0; font-size: 12px; }
 .team-tie-page { max-width: 980px; }
 .team-mock-banner { display: flex; gap: 12px; align-items: baseline; padding: 11px 14px; color: #694100; background: #fff8e8; border: 1px solid #f4d69c; font-size: 13px; }
 .team-tie-hero { display: flex; justify-content: space-between; align-items: center; gap: 26px; padding: 30px; color: #fff; background: var(--arena); }

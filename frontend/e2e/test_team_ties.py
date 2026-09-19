@@ -17,10 +17,10 @@ def tournament(event_type="TEAM"):
     }
 
 
-def team(team_id, name):
+def team(team_id, name, *, group_id=None):
     return {
         "id": team_id, "tournament_id": 42, "entry_type": "TEAM", "display_name": name,
-        "rating_points": 0, "sort_order": team_id, "group_id": None, "seed_no": None,
+        "rating_points": 0, "sort_order": team_id, "group_id": group_id, "seed_no": None,
         "status": "ACTIVE", "withdrawn_at": None, "withdrawn_by": None,
         "withdrawal_reason": None, "members": [],
     }
@@ -36,7 +36,7 @@ def tie(tie_id, home, away, *, group_id, stage="GROUP", round_no=1, match_index=
     }
 
 
-def install_routes(page, ties, *, list_failures=0):
+def install_routes(page, ties, *, list_failures=0, standings=None):
     failures = {"remaining": list_failures}
     groups = {
         "groups": [
@@ -50,7 +50,7 @@ def install_routes(page, ties, *, list_failures=0):
         if url.endswith("/api/tournaments/42"):
             route.fulfill(status=200, content_type="application/json", body=json.dumps(tournament(), ensure_ascii=False))
         elif url.endswith("/api/tournaments/42/teams"):
-            route.fulfill(status=200, content_type="application/json", body=json.dumps([team(1, "甲队"), team(2, "乙队"), team(3, "丙队")], ensure_ascii=False))
+            route.fulfill(status=200, content_type="application/json", body=json.dumps([team(1, "甲队", group_id=1), team(2, "乙队", group_id=1), team(3, "丙队", group_id=1)], ensure_ascii=False))
         elif url.endswith("/api/tournaments/42/groups"):
             route.fulfill(status=200, content_type="application/json", body=json.dumps(groups, ensure_ascii=False))
         elif url.endswith("/api/tournaments/42/team-ties"):
@@ -59,6 +59,8 @@ def install_routes(page, ties, *, list_failures=0):
                 route.fulfill(status=500, content_type="application/json", body=json.dumps({"detail": "服务暂不可用"}, ensure_ascii=False))
             else:
                 route.fulfill(status=200, content_type="application/json", body=json.dumps(ties, ensure_ascii=False))
+        elif url.endswith("/api/tournaments/42/team-groups/standings"):
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(standings or [], ensure_ascii=False))
         else:
             route.continue_()
 
@@ -66,7 +68,7 @@ def install_routes(page, ties, *, list_failures=0):
 
 
 def test_team_ties_groups_filters_and_links():
-    base_url = os.getenv("PINGPONG_E2E_URL", "http://127.0.0.1:4173")
+    base_url = os.getenv("PINGPONG_E2E_URL", "http://localhost:4173")
     ties = [
         tie(13, 1, 2, group_id=1, round_no=2, match_index=1, status="FINISHED", score=(3, 1)),
         tie(11, 2, 3, group_id=1, round_no=1, match_index=2, status="WAITING"),
@@ -111,11 +113,11 @@ def test_team_ties_groups_filters_and_links():
 
 
 def test_team_ties_empty_retry_and_invalid_id():
-    base_url = os.getenv("PINGPONG_E2E_URL", "http://127.0.0.1:4173")
+    base_url = os.getenv("PINGPONG_E2E_URL", "http://localhost:4173")
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel=os.getenv("PLAYWRIGHT_CHANNEL", "msedge"), headless=True)
         page = browser.new_page()
-        install_routes(page, [], list_failures=1)
+        install_routes(page, [], list_failures=2)
         page.goto(f"{base_url}/team-ties?tid=42")
         expect(page.get_by_role("alert")).to_contain_text("服务暂不可用")
         page.get_by_role("button", name="重试").click()
@@ -123,4 +125,36 @@ def test_team_ties_empty_retry_and_invalid_id():
 
         page.goto(f"{base_url}/team-ties?tid=bad")
         expect(page.get_by_text("请提供有效的")).to_be_visible()
+        browser.close()
+
+
+def test_team_ties_matrix_scores_and_standings():
+    base_url = os.getenv("PINGPONG_E2E_URL", "http://localhost:4173")
+    ties = [
+        tie(21, 1, 2, group_id=1, round_no=1, status="FINISHED", score=(3, 1)),
+        tie(22, 2, 3, group_id=1, round_no=2, status="PLAYING", score=(1, 0)),
+        tie(23, 1, 3, group_id=1, round_no=3, status="WAITING"),
+    ]
+    standings = [{
+        "group_id": 1, "group_name": "A组", "provisional": True, "ambiguous": True,
+        "automatic_qualification_allowed": False, "qualify_count": 1,
+        "standings": [
+            {"team_entry_id": 1, "team_name": "甲队", "match_points": 3, "rank_start": 1, "rank_end": 2, "ambiguous": True},
+            {"team_entry_id": 2, "team_name": "乙队", "match_points": 3, "rank_start": 1, "rank_end": 2, "ambiguous": True},
+            {"team_entry_id": 3, "team_name": "丙队", "match_points": 0, "rank_start": 3, "rank_end": 3, "ambiguous": False},
+        ],
+    }]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(channel=os.getenv("PLAYWRIGHT_CHANNEL", "msedge"), headless=True)
+        page = browser.new_page(viewport={"width": 1280, "height": 720})
+        install_routes(page, ties, standings=standings)
+        page.goto(f"{base_url}/team-ties?tid=42&view=matrix")
+
+        expect(page.locator(".team-matrix-table")).to_have_count(1)
+        expect(page.locator(".team-matrix-row-head").nth(0)).to_contain_text("甲队")
+        expect(page.locator(".team-matrix-cell.finished").nth(0)).to_contain_text("3:1")
+        expect(page.locator(".team-matrix-cell.playing").nth(0)).to_contain_text("1:0")
+        expect(page.locator(".team-matrix-cell.waiting").nth(0)).to_contain_text("—")
+        expect(page.locator(".team-matrix-total.rank").nth(0)).to_contain_text("1-2")
+        expect(page.locator(".team-matrix-cell.finished a").nth(0)).to_have_attribute("href", "/team-tie?tid=42&tie=21")
         browser.close()

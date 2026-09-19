@@ -230,7 +230,7 @@ def test_fixture_c_three_way_cycle_resolved_by_rubber_ratio():
 
 
 def _cycle_rubber_equal_games_differ() -> list[domain.TeamTieFact]:
-    """B/C/D 循环，盘比率**完全相同**（各 2:2），局比率不同：B 5:4 > C 5:5 > D 4:5。
+    """B/C/D 循环，盘比率**完全相同**（各 2:2），局比率不同：B 6:4 > C 5:5 > D 4:6。
 
     这是"比率的比值相同、总量不同"的组合，因此 Step 2 无法区分，
     必须由 Step 3 的局比率分开。
@@ -241,8 +241,8 @@ def _cycle_rubber_equal_games_differ() -> list[domain.TeamTieFact]:
         _tie(4, 2, 3, 2, [_rubber(2, entry_a=2), _rubber(3, entry_a=2, games_won=1, games_lost=2)]),
         # C 胜 D：同上
         _tie(5, 3, 4, 3, [_rubber(3, entry_a=3), _rubber(4, entry_a=3, games_won=1, games_lost=2)]),
-        # D 胜 B：B 那盘被 0:2 拿下
-        _tie(6, 4, 2, 4, [_rubber(4, entry_a=4), _rubber(2, entry_a=4, games_won=0, games_lost=2)]),
+        # D 胜 B：B 2:1 拿回一盘
+        _tie(6, 4, 2, 4, [_rubber(4, entry_a=4), _rubber(2, entry_a=4, games_won=2, games_lost=1)]),
     ]
 
 
@@ -256,13 +256,28 @@ def test_fixture_d_rubber_ratio_equal_then_games_ratio_decides():
     for name in ("B", "C", "D"):
         assert (stats[name].rubber_wins, stats[name].rubber_losses) == (2, 2)
     # Step 3 局比率把它们分开
-    assert (stats["B"].games_won, stats["B"].games_lost) == (5, 4)
+    assert (stats["B"].games_won, stats["B"].games_lost) == (6, 4)
     assert (stats["C"].games_won, stats["C"].games_lost) == (5, 5)
-    assert (stats["D"].games_won, stats["D"].games_lost) == (4, 5)
+    assert (stats["D"].games_won, stats["D"].games_lost) == (4, 6)
     assert stats["B"].rank_start == stats["B"].rank_end == 2
     assert stats["C"].rank_start == stats["C"].rank_end == 3
     assert stats["D"].rank_start == stats["D"].rank_end == 4
     assert not any(r.ambiguous for r in rows)
+
+
+def test_games_attribution_follows_home_away_not_winner():
+    """客队获胜的盘：局分必须按 home/away 列归属（规则 §5），不得按胜者翻转。
+
+    B（客队）每盘以 3:1 的局分获胜：home 列 = 1、away 列 = 3，
+    因此 A 累计 3:9、B 累计 9:3。若实现把局分按"胜者拿大数"翻转，会得到 A 9:3。
+    """
+    away_sweep = [_rubber(2, games_won=3, games_lost=1)] * 3
+    rows = _by_name(domain.compute_team_group_standings(
+        _facts(("A", "B"), [_tie(1, 1, 2, 2, away_sweep)])
+    ))
+    assert (rows["A"].games_won, rows["A"].games_lost) == (3, 9)
+    assert (rows["B"].games_won, rows["B"].games_lost) == (9, 3)
+    assert (rows["B"].rubber_wins, rows["B"].rubber_losses) == (3, 0)
 
 
 def test_fixture_e_every_key_equal_gives_rank_range_ambiguity():
@@ -693,7 +708,7 @@ def test_ambiguous_group_flags_and_states(conn):
 
 
 def test_three_way_cycle_is_resolved_by_games_not_shared_ranks(conn):
-    """三队循环且每场都是 3:0（各 3 盘 FINISHED + 2 盘 SKIPPED）→ 由局比率给出唯一名次。
+    """三队循环（各 3 盘 FINISHED + 2 盘 SKIPPED）→ 由局比率给出唯一名次。
 
     这个 fixture 同时证明两件事：
     1. 5 盘制下"提前结束"留下的 SKIPPED 盘确实**不计入**统计（每队正好 3:3 盘）；
@@ -709,10 +724,21 @@ def test_three_way_cycle_is_resolved_by_games_not_shared_ranks(conn):
                frozenset((entries[1], entries[2])): entries[2],
                frozenset((entries[0], entries[2])): entries[0]}
     for tie in repo.list_group_team_ties(conn, tid, group["id"]):
-        winner = winners[frozenset((tie["entry_a_id"], tie["entry_b_id"]))]
+        pair = frozenset((tie["entry_a_id"], tie["entry_b_id"]))
+        winner = winners[pair]
         home_won = winner == tie["entry_a_id"]
-        _finish_tie(conn, tid, tie["id"], winner=winner,
-                    rubbers=[(2 if home_won else 0, 0 if home_won else 2)] * 3)
+        # 胜方每盘 (胜局, 负局)。若三场都是 2:0，正确归属下三队局分完全对称（各 6:6），
+        # 用例会退化为并列；混合 2:0 / 2:1 才能让局比率互不相同。
+        game_plans = {
+            frozenset((entries[0], entries[1])): [(2, 0)] * 3,
+            frozenset((entries[1], entries[2])): [(2, 1)] * 3,
+            frozenset((entries[0], entries[2])): [(2, 1), (2, 0), (2, 0)],
+        }
+        rubbers = [
+            (w if home_won else l, l if home_won else w)
+            for (w, l) in game_plans[pair]
+        ]
+        _finish_tie(conn, tid, tie["id"], winner=winner, rubbers=rubbers)
 
     payload = _standings(conn, tid, group["id"])
     assert payload["provisional"] is False
