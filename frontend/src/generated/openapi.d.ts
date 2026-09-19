@@ -732,6 +732,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/team-ties/generate-group-ties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Group Ties
+         * @description 按小组单循环生成该 TEAM 赛事的全部小组对抗（A6.1）。
+         *
+         *     - 使用**子路径**而不是新的 `/team-group-ties` 命名空间：与同一 router 里的
+         *       `.../team-ties/{tie_id}/rubber-skeleton` 一样，动作挂在资源下面，命名空间保持一处。
+         *     - 路由只做参数解析、调 service、错误映射；编排与全部业务校验在
+         *       `services/team_ties.py::generate_group_ties()`（一个写事务，全成或全不成）。
+         *     - 返回 200 + `{"ties_generated", "per_group"}`（不返回对抗明细：需要明细请调
+         *       `GET /team-ties`；不返回赛事对象：本操作**不推进赛事阶段**）。
+         */
+        post: operations["generate_group_ties_api_tournaments__tournament_id__team_ties_generate_group_ties_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}/team-ties/{tie_id}": {
         parameters: {
             query?: never;
@@ -1002,6 +1029,22 @@ export interface components {
                 [key: string]: number;
             };
             tournament: components["schemas"]["TournamentOut"];
+        };
+        /**
+         * GenerateTeamGroupTiesResult
+         * @description 团体小组循环对阵生成结果（A6.1）。
+         *
+         *     刻意保持最小：只回答"生成了多少场、每个组多少场"。
+         *     这里**没有**排名、积分、出线、stage 等字段——团体小组积分与晋级规则尚未冻结，
+         *     生成器也不推进赛事阶段，返回一个看起来像"小组赛已完成"的 DTO 会误导消费方。
+         */
+        GenerateTeamGroupTiesResult: {
+            /** Ties Generated */
+            ties_generated: number;
+            /** Per Group */
+            per_group: {
+                [key: string]: number;
+            };
         };
         /** GroupOut */
         GroupOut: {
@@ -3918,6 +3961,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TeamTieOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_group_ties_api_tournaments__tournament_id__team_ties_generate_group_ties_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerateTeamGroupTiesResult"];
                 };
             };
             /** @description Validation Error */

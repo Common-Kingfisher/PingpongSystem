@@ -1,6 +1,6 @@
-# 团体赛（TEAM）领域基础与边界（A3 + A4.1 + A5）
+# 团体赛（TEAM）领域基础与边界（A3 + A4.1 + A5 + A6.1）
 
-最近维护：A5（Production Team Format V1）。本文只描述**已经落地**的团体赛能力，以及**刻意没做**的部分和原因。
+最近维护：A6.1（Group Tie Generator）。本文只描述**已经落地**的团体赛能力，以及**刻意没做**的部分和原因。
 若与代码冲突，以 `backend/app/` 的 Pydantic 契约、SQLite DDL 与测试为准，并在同一 PR 修正本文。
 运行态字段、状态机与权限的消费契约见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md)。
 
@@ -19,9 +19,89 @@
 - A5 交付"第一个生产可用、版本化的团体赛赛制"：`LOCAL_CLASSIC_5_V1`
   （5 盘、先赢 3 盘、单/单/双/单/单），真实 TEAM 赛事不再需要测试赛制就能建盘并直接进入 Runtime。
   **它只是平台第一版生产模板，不声明等同于任何官方规则**，详见下一节。
+- A6.1 交付"团体小组循环对阵生成"：已经分好组的 TEAM 队伍可以**一次性生成组内单循环的全部对抗**
+  （`POST .../team-ties/generate-group-ties`），不再需要手工一场一场建对抗。
 
-它仍**不是**完整的团体赛赛事功能：没有正式 TEAM 前端入口（B 工作线在推进）、没有对阵编排、
-没有团体排名/晋级、不参与排程与预计时间。`team_rubbers.match_id` 仍恒为 NULL。
+它仍**不是**完整的团体赛赛事功能：没有正式 TEAM 前端入口（B 工作线在推进）、
+**没有团体小组积分与排名、没有出线/晋级、没有团体淘汰赛**、不参与排程与预计时间、
+赛事阶段 `stage` 也不会因生成对抗而推进。`team_rubbers.match_id` 仍恒为 NULL。
+
+## 团体小组循环对阵生成（A6.1）
+
+### 做什么
+
+对已经分好组的 TEAM 赛事，按 `POST /api/tournaments/{id}/team-ties/generate-group-ties`
+一次性生成**组内单循环**的全部 `TeamTie`：
+
+| 场景 | 结果 |
+|---|---|
+| 1 个 4 队小组 | 6 场（3 轮 × 2 场） |
+| 2 个 4 队小组 | 12 场（每组 6 场，绝不跨组） |
+| 1 个 3 队小组 | 3 场（3 轮 × 1 场，每轮 1 队轮空） |
+| 1 个 5 队小组 | 10 场（5 轮 × 2 场，每轮 1 队轮空） |
+
+返回 `{"ties_generated": 12, "per_group": {"A组": 6, "B组": 6}}`（最小 DTO，见下）。
+
+### 算法与确定性
+
+复用个人赛同一份纯函数 `domain/round_robin.py::round_robin`（固定轮转法 / circle method），
+**没有**为团体赛复制第二份算法，也没有为了复用去重构个人赛。每组是一个**独立**的循环：
+
+- 输入顺序 = 该组 `ACTIVE` TeamEntry 按 **`id` 升序**
+  （`entries` 没有 `sort_order` 列；`id` 就是插入顺序，也是个人赛小组赛生成器用的口径）；
+- `round`：组内轮次，**从 1 开始**（偶数 N → N-1 轮；奇数 N → N 轮）；
+- `match_index`：**轮内**场序，从 1 开始，取 round-robin 在该轮的输出顺序；
+- 无随机数、无 `random.shuffle`、不依赖数据库未声明的隐式顺序：
+  同样的输入必然得到同样的 `round` / `match_index` / 配对
+  （测试逐场比对该组落库结果与 `round_robin()` 的输出）；
+- 奇数队伍那一轮的**轮空不落库**：绝不创建 `TeamEntry vs NULL` 这种假对抗，
+  也不会为了凑数把轮空做成"系统轮空"的 Match。
+
+### 生成前校验（顺序与错误码）
+
+| 条件 | 结果 |
+|---|---|
+| 赛事不存在 | 404 |
+| 不是 `EventType.TEAM` | 409（该接口仅用于团体赛事） |
+| 赛事还没有任何小组 | 409（请先完成分组） |
+| 存在 `ACTIVE` 队伍 `group_id IS NULL` | 409，**整批拒绝** |
+| 已有任何 `stage=GROUP` 的对抗（手工建立的也算） | 409，不补齐 / 不覆盖 / 不重新生成 |
+| 只有 1 支 `ACTIVE` 队伍的小组 | 0 场（不是错误；一场对抗需要两支队伍） |
+
+**为什么"有队伍没分组"必须整批拒绝**：否则会留下一个看起来正常、实际缺失部分对阵的小组赛，
+而且事后无法与"手工赛程"区分。**为什么不支持补齐缺失赛程**：手工赛程 + 自动赛程混在一起会产生
+重复对阵、`round` 与 `match_index` 冲突以及不完整的赛事事实；"补齐"与"安全撤销团体小组赛"
+都是独立课题，本批次不实现。
+
+### 退赛口径（沿用既有规则，不新增语义）
+
+`WITHDRAWN` 队伍**不参与**生成，与 `create_team_tie()` 完全一致（已退赛的队伍不能被安排**新的**对抗）。
+退赛后某组只剩 1 支队伍时该组 0 场；"先建对抗、之后队伍才退赛"仍然**不会**被自动判负或改写
+（那需要团体赛的异常结果规则，尚未冻结）。
+
+### 原子性与并发
+
+"检查是否已有 GROUP 对抗 → 创建一批对抗"属于 **read-check-write**，与 PR #22 的建盘骨架是同一类问题，
+因此整个生成放进 `services/transaction.py::write_transaction`（`BEGIN IMMEDIATE`）：
+
+- 事务**前**的只读校验只是快速失败（请求明显不合法时不必去抢写锁）；
+- 拿到写锁后**重新读取**赛事、小组、队伍与已有对抗，再做最终判断与全部写入——
+  "读到的状态"与"写入的依据"是同一份事实；
+- 两个并发生成请求恰好一个成功：后拿到写锁的请求一定读到前者**已提交**的对抗 →
+  稳定 409「团体小组赛已经生成…不能重复生成」；拿不到写锁（前者还在写）→ 409「正在被另一个请求生成」。
+  两条路径都不会出现两套赛程，也不会把 `sqlite3.OperationalError` 漏成 500
+  （`backend/tests/test_team_group_ties.py` 有并发回归用例，含"未分组 / 手工对抗"等拒绝路径）。
+
+### 刻意不做
+
+- **不推进 `tournaments.stage`**：TEAM 的 `REGISTRATION → GROUP_STAGE → KNOCKOUT → FINISHED`
+  必须与团体排名、晋级、排程一起设计；本批次只生成对抗，赛事阶段保持原样。
+- **不批量生成 rubber skeleton**：`build_rubber_skeleton()` 有自己独立的事务与安全契约
+  （PR #22 复审），批量调用会造成嵌套写事务；生成后仍按既有接口逐个"选生产赛制 → 建盘"。
+- **不做团体小组积分/排名/出线、团体淘汰赛、团体 Scheduler/ETA**：
+  这些规则 Reviewer 尚未冻结，代码里**不存在**任何 `team standings` / `qualification` /
+  `team knockout` 实现，也没有"胜一场 2 分、负一场 1 分"这类看起来常见但未确认的规则。
+- **不做安全撤销/重建团体小组赛**（以后独立设计）。
 
 ## Production Team Format V1（A5）
 
@@ -161,6 +241,7 @@ A4.1 给 `team_rubbers` 追加运行态列时**不重建表**（CHECK 没变）�
 | DELETE | `/api/tournaments/{id}/teams/{entry_id}` | 删除队伍（已被对抗引用时 409） |
 | GET | `/api/tournaments/{id}/team-ties` | 对抗列表（轻量 `TeamTieOut`，不含阵容/权限） |
 | POST | `/api/tournaments/{id}/team-ties` | 建立对抗（双方必须是同一赛事的 TEAM 队伍；绑定小组时须双方同组） |
+| POST | `/api/tournaments/{id}/team-ties/generate-group-ties` | **A6.1** 按小组单循环批量生成小组对抗；返回 `{ties_generated, per_group}`；重复生成 / 有队伍未分组 / 非 TEAM 一律 409 |
 | GET | `/api/tournaments/{id}/team-ties/{tie_id}` | **对抗运行态**（`TeamTieRuntimeOut`：队伍、比分、盘、权限） |
 | POST | `/api/tournaments/{id}/team-ties/{tie_id}/rubber-skeleton` | 按已登记赛制建盘；已存在时 409，`replace=true` 且**所有盘仍为 PENDING 且对抗未进入 Runtime** 时可重建；对抗一旦有盘 READY/PLAYING/FINISHED/SKIPPED 就永久 409 |
 | GET | `.../rubbers/{rubber_id}/lineup-options` | 两边的候选阵容（可用性与不可用原因） |
@@ -178,6 +259,11 @@ A4.1 给 `team_rubbers` 追加运行态列时**不重建表**（CHECK 没变）�
 已退赛队伍 → 409；小组不存在或跨赛事 → 404；`KNOCKOUT` 却指定小组 → 422；
 绑定小组但双方不同组 → 409。
 
+小组循环生成接口（A6.1）的业务守卫：赛事不存在 → 404；不是 TEAM 项目 → 409；
+还没有小组 → 409；有 `ACTIVE` 队伍未分组 → 409（整批拒绝，0 条新增）；
+已有任何 `stage=GROUP` 对抗（含手工建立的）→ 409；并发下后者 → 409（不 500）。
+**不推进赛事阶段、不建盘、不创建 Match。**
+
 Runtime 写操作的守卫见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md) §8：
 404（赛事/对抗/盘/选手不存在）、409（对抗已结束、盘未 READY、已有盘 PLAYING、阵容已锁定、
 队员不属于队伍、缺少赛制快照）、422（人数与盘型不符、同边重复队员、比分不合法）。
@@ -189,14 +275,18 @@ Runtime 写操作的守卫见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md) 
    全部完成后再开放，**不由本批次自动解禁**。
 2. **赛事规程版本化**：第一版生产模板已登记（`LOCAL_CLASSIC_5_V1`）。组织者提供正式规程后
    必须**新增**版本化 `TeamFormatSpec`，不覆盖旧版本；未登记的赛制仍一律 422。
-3. **对抗编排**：小组内/淘汰结构的对阵生成（抽签、循环编排、场序唯一）未实现，只允许手工建立对抗。
+3. **对抗编排**：小组内循环编排已由 **A6.1** 完成（见上文「团体小组循环对阵生成」）。
+   仍然未实现的是：**团体淘汰赛结构**、**场序唯一性约束**（`round`/`match_index` 由生成器稳定产出，
+   但数据库层没有唯一索引，手工建对抗仍可重复）、以及**安全撤销/重建团体小组赛**。
 4. **盘 → 比赛适配器**：`team_rubbers.match_id` 未启用（原因见下节）；盘有自己的运行态比分。
 5. **异常结果与改分**：弃权/未到/取消资格与 `revise score` 未实现（`can_revise_score` 恒 false）；
    逐局小比分也不建（一团体的盘只记大比分，复用赛事 `games_to_win`）。
 6. **排程 / 球台 / 预计时间**：团体赛不进入调度器与 ETA。一场对抗是否占一张球台、各盘能否并行、
    兼项选手如何避免撞台——这些问题**尚未冻结**，`services/scheduling.py` 与 `services/eta.py` 未改动。
    当前同一对抗**串行**执行（同时最多一盘 PLAYING），这是简化而不是现场规则。
+   （A6.1 生成的小组对抗同样不参与排程：`round`/`match_index` 只是编排序号，不是时间计划。）
 7. **团体排名与晋级**：`domain/ranking.py` 是单打/双打口径的胜场-净胜局-积分算法，没有团体赛排名。
+   A6.1 只生成对阵，**不**计算团体小组积分/排名/出线，也不决定晋级。
 8. **队伍种子**：团体赛种子规则未冻结；`entries.rating_points` 默认 0，只接受显式传入，
    绝不按队员积分求和或推导；打分赛的「按积分生成种子」对 TEAM / DOUBLES 都返回 409。
 9. **Demo 模拟**：`demo/finish-group-stage` 与小组赛/淘汰赛生成接口对 TEAM 一律 409，不伪造团体赛结果。
@@ -227,6 +317,10 @@ Runtime 写操作的守卫见 [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md) 
 - **先建立对抗、之后队伍才退赛**时，A3 **不会**自动判负或改写对抗：`team_ties` 的比分、
   状态与已生成的盘骨架都保持原样。对抗层面的退赛判定需要团体赛的盘比分与状态机（A4），
   A3 不伪造对抗结果。
+
+A6.1 的小组循环生成沿用这一口径，**没有新增退赛语义**：
+已退赛队伍不参与生成（不会得到新的对抗），退赛到只剩 1 支在赛队伍的小组生成 0 场对抗
+（不伪造 `队伍 vs NULL`，也不把退赛队伍拉回来凑数）。
 
 ## 关键决策记录：为什么一盘不是一场 Match
 
@@ -276,13 +370,23 @@ PENDING ──提交合法阵容──▶ READY ──start──▶ PLAYING ─
   `team_ties.build_rubber_skeleton` 共同复用（`team_runtime` 仍负责把异常翻译成自己的业务错误）。
   这样"又一处 read-check-write"不需要再抄第三份事务代码。
 
-## 阶段门禁现状（为什么对抗创建不校验 stage）
+## 阶段门禁现状（为什么对抗创建与小组赛生成都不校验 stage）
 
 TEAM 赛事目前**没有任何接口**能把 `stage` 从 `REGISTRATION` 推进到 `GROUP_STAGE`：
 `generate_group_matches()` 与 `generate_knockout()` 对 TEAM 显式 409，`confirm-roster` 只写
 `roster_confirmed`，不改 stage。如果 TeamTie 创建要求"必须已开赛"，就等于永久禁止创建对抗。
 所以对抗创建只校验"赛事是 TEAM 项目 + 双方合法"，阶段门禁与团体赛排程一起设计。
 队伍编辑仍按既有规则锁定在 `REGISTRATION`（与选手/名单一致）。
+
+A6.1 的小组循环生成**同样不挂 stage 门禁**，也不推进 stage（只校验"是 TEAM + 已分组 +
+无未分组在赛队伍 + 无既有小组对抗"）。理由完全一致：`stage` 无法推进，用它做门禁等于永久禁止
+生成小组赛；而 TEAM 阶段推进规则必须与团体排名、晋级、排程一起冻结。
+生成小组对抗后赛事仍停在 `REGISTRATION`，这是**已知且刻意**的状态，不是 bug。
+
+关于 `roster_confirmed`：它是"名单已确认"的标记，既不是编辑锁也不是阶段门禁
+（见 `services/teams.py` 的边界说明）；现有 contract 里**没有**"未确认名单不能生成正式小组赛"
+这条规则，因此本批次**没有**新增它——凭空收紧会挡住当前可用的流程（手工分组后即可生成），
+而"名单是否准备好"已由"必须先有小组 + 队伍必须已分组"间接覆盖。
 
 ## 验证
 
@@ -309,4 +413,14 @@ pnpm -C frontend run build
 - `backend/tests/test_team_runtime.py`（A4.1）：完整 E2E（阵容 → 开始 → 录分 → 累计 → 达标结束 →
   剩余 SKIPPED）、target_wins 来自快照、全部状态机失败场景与错误码、权限矩阵、候选阵容规则、
   非法比分、"两盘同时 PLAYING"的防御、PR #19 旧库升级运行态列、导出运行态且只读。
+- `backend/tests/test_team_group_ties.py`（A6.1）：4 队单组 6 场 / 两个 4 队组 12 场且不跨组 /
+  3 队 3 场 / 5 队 10 场、**逐场比对落库结果与 `round_robin()` 输出**（round / match_index / 配对）、
+  未分组队伍整批拒绝且 0 条新增、非 TEAM 409、赛事不存在 404、重复生成 409 且不翻倍、
+  手工对抗存在时 409 且不补齐不覆盖、淘汰赛对抗不阻塞小组生成、退赛队伍不参与生成、
+  并发双生成"一个成功 + 一个 409"（多轮，含 read-check-write 竞态路径）、写锁争用返回可读 409、
+  生成不改 stage / 不建 Match / 不建盘骨架、**自动生成的对抗继续跑 LOCAL_CLASSIC_5_V1 →
+  骨架 → 阵容 → start → 录分**，以及 API 层契约用例。
+- `backend/tests/test_round_robin_domain.py`（A6.1）：单循环算法的通用不变量（n=2…12）——
+  场数 `n(n-1)/2`、每个 unordered pair 恰好一次、无自己打自己、每轮每队至多一次、
+  偶数/奇数轮数结构、奇数队伍每轮恰好一支轮空、确定性（重复运行完全一致）。
 - `backend/tests/test_tournament_delete_reliability.py`：团体赛级联删除用例。

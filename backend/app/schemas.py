@@ -156,6 +156,19 @@ class TeamTieCreate(BaseModel):
     match_index: int | None = Field(default=None, ge=1)
 
 
+class GenerateTeamGroupTiesResult(BaseModel):
+    """团体小组循环对阵生成结果（A6.1）。
+
+    刻意保持最小：只回答"生成了多少场、每个组多少场"。
+    这里**没有**排名、积分、出线、stage 等字段——团体小组积分与晋级规则尚未冻结，
+    生成器也不推进赛事阶段，返回一个看起来像"小组赛已完成"的 DTO 会误导消费方。
+    """
+
+    ties_generated: int
+    #: 组名 → 该组生成的对抗数（例如 {"A组": 6, "B组": 6}）。
+    per_group: dict[str, int]
+
+
 class TeamLineupOptionOut(BaseModel):
     """某一边的候选上场队员（B 直接渲染成可点选列表）。"""
 
