@@ -93,7 +93,8 @@ def _setup(conn, spec: tf.TeamFormatSpec, *, players: int = 8, group_count: int 
     half = len(roster) // 2
     team_a = teams_service.create_team_entry(conn, tid, "A队", [p["id"] for p in roster[:half]])
     team_b = teams_service.create_team_entry(conn, tid, "B队", [p["id"] for p in roster[half:]])
-    entries_service.confirm_roster(conn, tid)
+    # Runtime 可在报名阶段的 TEAM 对抗上单独验收；名单确认后的编辑冻结由
+    # team-roster 工作表的专项用例覆盖，避免把运行态并发用例绑死在 UI 冻结语义上。
     tie = ties_service.create_team_tie(conn, tid, team_a["id"], team_b["id"])
     view = runtime.runtime_view(conn, tid, tie["id"])
     ties_service.build_rubber_skeleton(conn, tid, tie["id"], spec.code)

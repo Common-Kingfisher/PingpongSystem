@@ -25,6 +25,8 @@ def ensure_players_editable(conn: sqlite3.Connection, tournament_id: int) -> Non
         raise PlayerError("赛事不存在", 404)
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise PlayerError("赛事已进入比赛阶段，选手名单已锁定", 409)
+    if tournament["event_type"] == EventType.TEAM.value and tournament["roster_confirmed"]:
+        raise PlayerError("团体赛名单已确认并冻结，请先撤销冻结后再修改选手", 409)
 
 
 def delete_player(conn: sqlite3.Connection, tournament_id: int, player_id: int) -> None:
@@ -72,6 +74,8 @@ def set_seeds(
         raise PlayerError("赛事不存在", 404)
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise PlayerError("赛事已进入比赛阶段，种子设置已锁定", 409)
+    if tournament["event_type"] == EventType.TEAM.value and tournament["roster_confirmed"]:
+        raise PlayerError("团体赛名单已确认并冻结，请先撤销冻结后再设置种子", 409)
 
     if len(set(player_ids)) != len(player_ids):
         raise PlayerError("种子选手不能重复", 409)
@@ -133,8 +137,7 @@ def generate_demo_players(
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise PlayerError("赛事不存在", 404)
-    if tournament["stage"] != TournamentStage.REGISTRATION.value:
-        raise PlayerError("赛事已进入比赛阶段，选手名单已锁定", 409)
+    ensure_players_editable(conn, tournament_id)
     if not (1 <= count <= 24):
         raise PlayerError("生成数量需在 1~24 之间", 422)
 

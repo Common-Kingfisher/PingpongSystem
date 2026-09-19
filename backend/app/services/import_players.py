@@ -12,7 +12,7 @@ import io
 import sqlite3
 
 from .. import repository as repo
-from ..models import TournamentStage
+from ..models import EventType, TournamentStage
 
 NAME_ALIASES = {"姓名", "选手姓名", "名字", "name", "player_name"}
 COLLEGE_ALIASES = {"学院", "学院/单位", "单位", "学校", "部门", "organization", "college"}
@@ -94,6 +94,8 @@ def import_players_file(
         raise ImportFileError("赛事不存在", 404)
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise ImportFileError("赛事已进入比赛阶段，选手名单已锁定", 409)
+    if tournament["event_type"] == EventType.TEAM.value and tournament["roster_confirmed"]:
+        raise ImportFileError("团体赛名单已确认并冻结，请先撤销冻结后再导入选手", 409)
 
     lower = filename.lower()
     if lower.endswith(".csv"):

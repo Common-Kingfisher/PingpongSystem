@@ -89,6 +89,8 @@ def _team_tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
         )
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise TeamError("赛事已进入比赛阶段，队伍名单已锁定", 409)
+    if tournament["roster_confirmed"]:
+        raise TeamError("名单已确认并冻结，请先撤销冻结后再修改队伍", 409)
     return tournament
 
 

@@ -72,6 +72,13 @@ def confirm_tournament_roster(conn: sqlite3.Connection, tournament_id: int) -> N
     )
 
 
+def unconfirm_tournament_roster(conn: sqlite3.Connection, tournament_id: int) -> None:
+    conn.execute(
+        "UPDATE tournaments SET roster_confirmed = 0, confirmed_at = NULL WHERE id = ?",
+        (tournament_id,),
+    )
+
+
 def delete_tournament(conn: sqlite3.Connection, tournament_id: int) -> bool:
     """删除赛事（级联清理选手/球台/比赛/分组）。"""
     cur = conn.execute("DELETE FROM tournaments WHERE id = ?", (tournament_id,))
@@ -173,6 +180,20 @@ def update_player(
     return get_player(conn, player_id)
 
 
+def replace_player_values(
+    conn: sqlite3.Connection,
+    player_id: int,
+    name: str,
+    college: Optional[str],
+    rating_points: int,
+) -> dict:
+    conn.execute(
+        "UPDATE players SET name = ?, college = ?, rating_points = ? WHERE id = ?",
+        (name, college, rating_points, player_id),
+    )
+    return get_player(conn, player_id)
+
+
 def delete_player(conn: sqlite3.Connection, player_id: int) -> bool:
     cur = conn.execute("DELETE FROM players WHERE id = ?", (player_id,))
     return cur.rowcount > 0
@@ -190,7 +211,7 @@ def set_player_seed(conn: sqlite3.Connection, player_id: int, seed_no: int) -> N
 # ------------------------------------------------------------------ entries
 
 _ENTRY_COLS = (
-    "id, tournament_id, entry_type, display_name, rating_points, group_id, seed_no, status, "
+    "id, tournament_id, entry_type, display_name, rating_points, sort_order, group_id, seed_no, status, "
     "withdrawn_at, withdrawn_by, withdrawal_reason"
 )
 
@@ -209,11 +230,12 @@ def create_entry(
     seed_no: int | None = None,
 ) -> dict:
     cur = conn.execute(
-        "INSERT INTO entries (tournament_id, entry_type, display_name, rating_points, seed_no) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO entries (tournament_id, entry_type, display_name, rating_points, seed_no, sort_order) "
+        "VALUES (?, ?, ?, ?, ?, 0)",
         (tournament_id, entry_type, display_name, rating_points, seed_no),
     )
     entry_id = int(cur.lastrowid)
+    conn.execute("UPDATE entries SET sort_order = ? WHERE id = ?", (entry_id, entry_id))
     for order, player_id in enumerate(member_ids, start=1):
         conn.execute(
             "INSERT INTO entry_members (entry_id, player_id, member_order) VALUES (?, ?, ?)",
@@ -243,7 +265,7 @@ def list_entry_members(conn: sqlite3.Connection, entry_id: int) -> list[dict]:
 
 def list_entries(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
     rows = conn.execute(
-        f"SELECT {_ENTRY_COLS} FROM entries WHERE tournament_id = ? ORDER BY id",
+        f"SELECT {_ENTRY_COLS} FROM entries WHERE tournament_id = ? ORDER BY sort_order, id",
         (tournament_id,),
     ).fetchall()
     result = []
@@ -270,7 +292,7 @@ def list_entries_by_type(
     conn: sqlite3.Connection, tournament_id: int, entry_type: str
 ) -> list[dict]:
     rows = conn.execute(
-        f"SELECT {_ENTRY_COLS} FROM entries WHERE tournament_id = ? AND entry_type = ? ORDER BY id",
+        f"SELECT {_ENTRY_COLS} FROM entries WHERE tournament_id = ? AND entry_type = ? ORDER BY sort_order, id",
         (tournament_id, entry_type),
     ).fetchall()
     result = []
@@ -303,6 +325,10 @@ def update_entry(
         (display_name, rating_points, entry_id),
     )
     return get_entry(conn, entry_id)
+
+
+def update_entry_sort_order(conn: sqlite3.Connection, entry_id: int, sort_order: int) -> None:
+    conn.execute("UPDATE entries SET sort_order = ? WHERE id = ?", (sort_order, entry_id))
 
 
 def replace_entry_members(

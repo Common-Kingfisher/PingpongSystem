@@ -43,6 +43,7 @@ ENTRIES_TABLE_SQL = """CREATE TABLE IF NOT EXISTS entries (
     entry_type TEXT NOT NULL CHECK (entry_type IN ('SINGLES','DOUBLES','TEAM')),
     display_name TEXT NOT NULL,
     rating_points INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     group_id INTEGER REFERENCES groups(id),
     seed_no INTEGER,
     status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','WITHDRAWN')),
@@ -423,8 +424,11 @@ def init_db() -> None:
             ("withdrawn_at", "TEXT"),
             ("withdrawn_by", "TEXT"),
             ("withdrawal_reason", "TEXT"),
+            ("sort_order", "INTEGER NOT NULL DEFAULT 0"),
         ):
             _add_column_if_missing(conn, "entries", column, ddl)
+        # 保持旧库的可见顺序：没有显式排序值的历史 Entry 按原 id 排列。
+        conn.execute("UPDATE entries SET sort_order = id WHERE sort_order = 0")
         # A4.1 团体赛 Runtime：team_rubbers 追加运行态列（lineup 绑定 / 盘比分 / 胜者 / 起止时间）。
         # 上面的 SCHEMA 已经保证该表存在（新建库直接带全部列，A3 旧库则缺这些列），
         # 因此这里只需 ADD COLUMN，不需要重建表，也不要求删除 demo.db。

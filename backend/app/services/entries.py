@@ -105,6 +105,15 @@ def confirm_roster(conn: sqlite3.Connection, tournament_id: int) -> tuple[dict, 
     """确认名单。三个项目分支必须显式写全，禁止"非单打即双打"的二元假设。"""
     tournament = _tournament(conn, tournament_id)
     event_type = tournament["event_type"]
+    if event_type == EventType.TEAM.value:
+        # 名单工作表与普通队伍 CRUD 共用此写锁。验证和冻结必须位于同一
+        # 临界区，否则另一个保存请求可能在二者之间改写已验证的名单。
+        with teams_service._roster_write_tx(conn):
+            tournament = _tournament(conn, tournament_id)
+            teams_service.validate_team_roster(conn, tournament_id)
+            repo.confirm_tournament_roster(conn, tournament_id)
+            result = (repo.get_tournament(conn, tournament_id), repo.list_entries(conn, tournament_id))
+        return result
     if event_type == EventType.SINGLES.value:
         build_singles_entries(conn, tournament_id)
     elif event_type == EventType.DOUBLES.value:
@@ -113,10 +122,6 @@ def confirm_roster(conn: sqlite3.Connection, tournament_id: int) -> tuple[dict, 
         paired_ids = {member["player_id"] for entry in entries for member in entry["members"]}
         if len(paired_ids) != len(players) or any(len(e["members"]) != 2 for e in entries):
             raise EntryError("仍有运动员未完成双打配对，不能确认名单")
-    elif event_type == EventType.TEAM.value:
-        # 团体赛的名单就是队伍名单：至少 2 支队伍、每队至少 1 人、选手不能落在队伍之外。
-        # 队伍人数是否符合某个赛制，属于赛制（尚未冻结），这里不校验。
-        teams_service.validate_team_roster(conn, tournament_id)
     else:
         raise EntryError(f"未知的参赛项目：{event_type}，不能确认名单", 409)
     repo.confirm_tournament_roster(conn, tournament_id)
