@@ -234,8 +234,14 @@ export default function ConsolePage() {
     finishedGroupMatches.length === groupTotal &&
     waitingGroupMatches.length === 0 &&
     playingGroupMatches.length === 0
-  // 展示用：仅当赛事仍在小组赛阶段且小组赛全部结束时给出"已完成"状态
-  const showGroupCompleted = tournament?.stage === 'GROUP_STAGE' && groupStageCompleted
+  // 小组赛阶段已经全部结束、但还没生成淘汰赛签表的过渡窗口。
+  // 注意：不能沿用 showGroupCompleted —— 淘汰赛生成后 stage 会变成 KNOCKOUT，
+  // 它随即翻回 false，会让"自动安排下一批比赛"和球台上的"安排比赛"重新出现（原缺陷）。
+  // 这个窗口里既没有可安排的小组赛、也还没有淘汰赛，所以此时隐藏所有排台入口才是正确的。
+  const inGroupStage = tournament?.stage === 'GROUP_STAGE'
+  const groupStageClosedWithoutKnockout = inGroupStage && groupStageCompleted
+  // 横幅只在赛事仍处于小组赛阶段时显示；进入淘汰赛后由淘汰赛页面负责后续引导。
+  const showGroupCompleted = groupStageClosedWithoutKnockout
 
   const hasUnfinishedGroup = stats !== undefined && (stats.waiting > 0 || stats.playing > 0)
 
@@ -301,6 +307,14 @@ export default function ConsolePage() {
             <p className="muted">
               比赛进度 {dash.stats.finished} / {dash.stats.total} · 正在进行 {dash.stats.playing} ·
               等待 {dash.stats.waiting} · 球台 {dash.tables.length}
+              {groupStageClosedWithoutKnockout && (
+                <>
+                  {' '}·{' '}
+                  <span className="status-ok">
+                    小组赛 {finishedGroupMatches.length} / {groupTotal} 已完成
+                  </span>
+                </>
+              )}
             </p>
             <div className="progress-bar">
               <div
@@ -314,7 +328,7 @@ export default function ConsolePage() {
         )}
         {error && <p className="status-error">{error}</p>}
         <div className="button-row">
-          {tournament?.stage !== 'FINISHED' && !showGroupCompleted && (
+          {tournament?.stage !== 'FINISHED' && !groupStageClosedWithoutKnockout && (
             <button className="btn primary" onClick={scheduleBatch} disabled={busy}>
               自动安排下一批比赛
             </button>
@@ -339,9 +353,12 @@ export default function ConsolePage() {
       {showGroupCompleted && (
         <div className="card">
           <p className="status-ok">✅ 小组赛已全部完成，晋级名单已经确定，可以进入淘汰赛。</p>
+          <p className="muted">
+            小组赛 {finishedGroupMatches.length} / {groupTotal} 场已全部录分结束，本阶段不再有可安排的比赛。
+          </p>
           <div className="button-row">
             <Link className="btn" to={`/rankings?tid=${tid}`}>
-              查看小组排名
+              查看排名
             </Link>
             <Link className="btn primary" to={`/knockout?tid=${tid}`}>
               进入淘汰赛
@@ -366,7 +383,7 @@ export default function ConsolePage() {
           </div>
           <div className="stat-card">
             <div className="stat-num">{stats.finished}</div>
-            <div className="stat-label">已完成</div>
+            <div className="stat-label">{groupStageClosedWithoutKnockout ? '已完成（小组赛已结束）' : '已完成'}</div>
           </div>
           <div className="stat-card playing">
             <div className="stat-num">{stats.playing}</div>
@@ -382,7 +399,11 @@ export default function ConsolePage() {
       <div className="card live-floor-card">
         <div className="live-floor-heading">
           <div><span className="eyebrow">LIVE FLOOR</span><h3>比赛现场</h3></div>
-          <span className="live-floor-hint">点击球台录入本场大比分</span>
+          <span className="live-floor-hint">
+            {groupStageClosedWithoutKnockout
+              ? '小组赛已结束：本阶段没有可安排的比赛，请先进入淘汰赛生成签表'
+              : '点击球台录入本场大比分'}
+          </span>
         </div>
         <div className="live-table-stack">
           {dash?.tables.map((table) => <LiveTableCard
@@ -391,7 +412,8 @@ export default function ConsolePage() {
             sideName={sideName}
             stageLabel={stageLabel}
             busy={busy}
-            groupFinished={showGroupCompleted}
+            groupFinished={groupStageClosedWithoutKnockout}
+            stageClosed={groupStageClosedWithoutKnockout}
             hintLabel={tableHint(table)}
             onAssign={assignFreeTable}
             onScore={(match) => { setScoreDetailMode(false); setScoreMode('record'); setScoringMatch(match) }}
