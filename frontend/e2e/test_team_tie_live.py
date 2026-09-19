@@ -11,6 +11,12 @@ TIE_ID = os.getenv("TEAM_TIE_E2E_TIE_ID")
 pytestmark = pytest.mark.skipif(not (TID and TIE_ID), reason="需要 TEAM_TIE_E2E_TID 与 TEAM_TIE_E2E_TIE_ID")
 
 
+def rubber_card(page, sequence: int):
+    return page.locator(".rubber-card").filter(
+        has=page.locator(".rubber-card-head strong", has_text=f"第 {sequence} 盘")
+    )
+
+
 def test_live_team_tie_flow() -> None:
     base_url = os.getenv("PINGPONG_E2E_URL", "http://127.0.0.1:5173")
     with sync_playwright() as playwright:
@@ -21,24 +27,39 @@ def test_live_team_tie_flow() -> None:
         expect(page.locator(".team-ties-section").filter(has_text="A组")).to_be_visible()
         page.goto(f"{base_url}/team-tie?tid={TID}&tie={TIE_ID}")
 
+        first = rubber_card(page, 1)
+        expect(first.get_by_role("status")).to_contain_text("请先提交本盘的合法阵容，再开始比赛")
+
         for sequence, home_score, away_score, players_per_side in ((1, 2, 0, 1), (2, 0, 2, 1), (3, 2, 1, 2), (4, 2, 0, 1)):
-            card = page.locator(".rubber-card").filter(has_text=f"第 {sequence} 盘")
+            card = rubber_card(page, sequence)
             card.get_by_role("button", name="设置阵容").click()
             choices = page.locator(".lineup-option input")
             for index in range(players_per_side):
                 choices.nth(index).check()
                 choices.nth(4 + index).check()
             page.get_by_role("button", name="确认阵容").click()
+            if sequence == 1:
+                second = rubber_card(page, 2)
+                second.get_by_role("button", name="设置阵容").click()
+                second_choices = page.locator(".lineup-option input")
+                second_choices.nth(0).check()
+                second_choices.nth(4).check()
+                page.get_by_role("button", name="确认阵容").click()
             page.once("dialog", lambda dialog: dialog.accept())
             card.get_by_role("button", name="开始本盘").click()
+            if sequence == 1:
+                expect(second.get_by_role("button", name="开始本盘")).to_be_disabled()
+                expect(second.get_by_role("status")).to_contain_text("第 1 盘正在进行中，同一对抗同时只能进行一盘")
             card.get_by_role("button", name="录入比分").click()
             page.get_by_label("主队比分").fill(str(home_score))
             page.get_by_label("客队比分").fill(str(away_score))
             page.get_by_role("button", name="提交比分").click()
+            if sequence == 1:
+                expect(card.get_by_role("status")).to_contain_text("本盘已经结束，本版不支持改分")
 
         expect(page.get_by_text("团体对抗结束")).to_be_visible()
         expect(page.get_by_text("3 : 1", exact=True)).to_be_visible()
-        skipped = page.locator(".rubber-card").filter(has_text="第 5 盘")
+        skipped = rubber_card(page, 5)
         expect(skipped.get_by_text("不再进行", exact=True)).to_be_visible()
         expect(skipped.get_by_role("button", name="设置阵容")).to_be_disabled()
         expect(skipped.get_by_role("button", name="开始本盘")).to_be_disabled()
