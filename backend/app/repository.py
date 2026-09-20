@@ -498,6 +498,61 @@ def set_team_tie_format(
     return get_team_tie(conn, tie_id)
 
 
+# ------------------------------------------------ 团体赛晋级确认（A6.3）
+#
+# 只记录"哪些队伍已被确认晋级"。排名事实不在这里存：需要排名时永远从
+# team_ties / team_rubbers 现算（A6.2），避免第二真相源。
+
+_TEAM_QUALIFICATION_COLS = (
+    "id, tournament_id, team_entry_id, group_id, status, confirmed_at"
+)
+
+
+def create_team_qualification(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    team_entry_id: int,
+    group_id: int | None,
+) -> dict:
+    """写入一条晋级确认（不 commit，事务边界由调用方决定）。"""
+    cur = conn.execute(
+        "INSERT INTO team_qualifications (tournament_id, team_entry_id, group_id) "
+        "VALUES (?, ?, ?)",
+        (tournament_id, team_entry_id, group_id),
+    )
+    return get_team_qualification(conn, int(cur.lastrowid))
+
+
+def get_team_qualification(
+    conn: sqlite3.Connection, qualification_id: int
+) -> Optional[dict]:
+    row = conn.execute(
+        f"SELECT {_TEAM_QUALIFICATION_COLS} FROM team_qualifications WHERE id = ?",
+        (qualification_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_team_qualifications(
+    conn: sqlite3.Connection, tournament_id: int
+) -> list[dict]:
+    """某赛事全部晋级确认（按队伍 id 稳定排序；顺序不代表名次）。"""
+    rows = conn.execute(
+        f"SELECT {_TEAM_QUALIFICATION_COLS} FROM team_qualifications "
+        "WHERE tournament_id = ? ORDER BY team_entry_id",
+        (tournament_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_team_qualifications(conn: sqlite3.Connection, tournament_id: int) -> int:
+    """清空某赛事的晋级确认（重新确认前调用），返回删除行数。"""
+    cur = conn.execute(
+        "DELETE FROM team_qualifications WHERE tournament_id = ?", (tournament_id,)
+    )
+    return cur.rowcount
+
+
 def create_team_rubber(
     conn: sqlite3.Connection,
     team_tie_id: int,

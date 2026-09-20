@@ -251,6 +251,140 @@ class TeamGroupStandingsOut(BaseModel):
     standings: list[TeamStandingRowOut]
 
 
+class TeamQualificationCandidateOut(BaseModel):
+    """某组的晋级候选队伍（A6.3）。
+
+    `auto_qualified`：名次完全落在晋级线内（不需要人工判断）。
+    `on_boundary_tie`：名次区间**跨越**晋级线 → 该块并列无法由系统决定，必须人工确认。
+    刻意不提供"推荐晋级"这类字段：系统不认识任何打破并列的规则。
+    """
+
+    team_entry_id: int
+    team_name: str
+    auto_qualified: bool
+    on_boundary_tie: bool
+
+
+class TeamGroupQualificationOut(BaseModel):
+    """一个小组的晋级状态（A6.3，只读计算 + 已确认结果）。"""
+
+    group_id: int
+    group_name: str
+    qualify_count: int
+    #: 该组是否还有未完成的对抗（排名未定）。
+    provisional: bool
+    #: 是否存在跨越晋级线的并列（无法自动确定晋级者）。
+    requires_manual_resolution: bool
+    #: 该组是否可以由系统直接确认（无并列、非 provisional）。
+    can_confirm: bool
+    #: 名次已确定、完全落在晋级线内的队伍。
+    auto_qualified_team_ids: list[int]
+    #: 跨越晋级线、需要人工决定的队伍。
+    boundary_tied_team_ids: list[int]
+    #: 跨线并列中还没有被填充的晋级席位数量。
+    boundary_slots_remaining: int
+    #: 阻止确认的原因（可读）。
+    blocked_reasons: list[str]
+    #: **已确认**晋级的队伍（来自 team_qualifications，未经确认时为空）。
+    confirmed_team_ids: list[int]
+    candidates: list[TeamQualificationCandidateOut]
+
+
+class TeamQualificationConfirmedOut(BaseModel):
+    """一条已确认的团体晋级记录（A6.3）。"""
+
+    team_entry_id: int
+    team_name: str
+    group_id: int | None
+    group_name: str | None
+    status: str
+    confirmed_at: str
+
+
+class TeamQualificationOut(BaseModel):
+    """团体晋级状态（A6.3）。
+
+    `standings`（A6.2）永远是**事实**；本结构回答的是"谁能晋级、是否需要人工确认"。
+    `confirmed` 是**人工/系统确认过的结果**，为空表示尚未确认。
+    """
+
+    tournament_id: int
+    #: 任何一组排名未定 → 整体不能确认。
+    provisional: bool
+    #: 任何一组存在跨晋级线并列 → 需要人工确认。
+    requires_manual_resolution: bool
+    #: 是否允许"系统直接确认"（全部组都在晋级线上无并列且已完赛）。
+    can_confirm: bool
+    blocked_reasons: list[str]
+    groups: list[TeamGroupQualificationOut]
+    confirmed: list[TeamQualificationConfirmedOut]
+
+
+class TeamQualificationConfirmRequest(BaseModel):
+    """人工确认晋级名单（A6.3）。
+
+    全量替换：请求要给出**所有**小组的晋级队伍。校验（数量、候选范围、
+    跨线并列的取舍）全部在服务层基于最新排名执行。
+    """
+
+    qualified_team_ids: list[int] = Field(min_length=1)
+
+
+class TeamKnockoutTeamOut(BaseModel):
+    """淘汰签里的一支队伍（后续轮次尚未产生参赛者时为 null）。"""
+
+    team_entry_id: int
+    team_name: str
+
+
+class TeamKnockoutMatchOut(BaseModel):
+    """团体淘汰签的一场比赛（复用 TeamTie，`stage='KNOCKOUT'`）。
+
+    本版本生成的对抗都是**首轮**（双方已确认）；后续轮次的槽位在读取时补全，
+    不进 `ties`，等上游胜者产生后再建立。
+    """
+
+    tie_id: int
+    round: int
+    round_name: str
+    match_index: int | None
+    #: 双方是否已就位（首轮必然为 true）。
+    teams_decided: bool
+    team_a: TeamKnockoutTeamOut | None
+    team_b: TeamKnockoutTeamOut | None
+    status: TeamTieStatus
+    team_a_score: int
+    team_b_score: int
+    winner_entry_id: int | None
+
+
+class TeamKnockoutRoundOut(BaseModel):
+    """淘汰签的一轮。
+
+    `match_count` 是**应有场次数**（按签表几何推导）；`matches` 只包含已经建立的对抗，
+    因此后续轮次会出现 `match_count > len(matches)`（尚未产生参赛者）。
+    """
+
+    round: int
+    round_name: str
+    match_count: int
+    matches: list[TeamKnockoutMatchOut]
+
+
+class TeamKnockoutOut(BaseModel):
+    """团体淘汰签（A6.4）。
+
+    比赛单位仍是 TeamTie（`stage='KNOCKOUT'`），**不创建**任何普通 Match；
+    `generated=false` 表示尚未生成（`rounds` / `ties` 为空）。
+    """
+
+    tournament_id: int
+    generated: bool
+    rounds: list[TeamKnockoutRoundOut]
+    #: 平铺的全部淘汰对抗（按 轮次 → 场序 稳定排序），便于消费方一次遍历。
+    ties: list[TeamKnockoutMatchOut]
+
+
 class TeamLineupOptionOut(BaseModel):
     """某一边的候选上场队员（B 直接渲染成可点选列表）。"""
 

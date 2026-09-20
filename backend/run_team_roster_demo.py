@@ -52,6 +52,7 @@ def seed(fresh: bool) -> int:
                 ("待分队一", "机械学院", 1420), ("待分队二", "材料学院", 1380),
             ]
         ]
+        conn.commit()
         teams.create_team_entry(conn, tournament["id"], "蓝海队", [player["id"] for player in players[0:3]])
         teams.create_team_entry(conn, tournament["id"], "晨星队", [player["id"] for player in players[3:6]])
         teams.create_team_entry(conn, tournament["id"], "远航队", [player["id"] for player in players[6:9]])

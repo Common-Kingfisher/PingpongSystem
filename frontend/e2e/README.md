@@ -36,3 +36,21 @@ python e2e/test_team_tie_live.py
 ```
 
 启动器会直接打印前两条环境变量的 PowerShell 赋值。该验收不拦截 API；它验证真实后端的已分组对抗、阵容确认、逐盘录分、提前结束与团体排名展示。
+
+## 团体名单真实联调
+
+另开一个终端启动独立数据库与后端：
+
+```powershell
+cd backend
+python run_team_roster_demo.py --fresh
+```
+
+再启动 `pnpm dev`，把启动器输出的赛事 id 填入后运行：
+
+```powershell
+$env:TEAM_ROSTER_E2E_TID = "<赛事 id>"
+python e2e/test_team_roster_live.py
+```
+
+该验收不拦截 API；它验证浏览器分配未归队队员、保存工作表与确认冻结的真实 FastAPI/SQLite 链路。
