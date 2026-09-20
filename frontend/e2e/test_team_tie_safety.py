@@ -107,6 +107,6 @@ def test_team_tie_explains_disabled_actions():
         page = browser.new_page()
         page.route("**/api/tournaments/42/team-ties/9", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(tie(current_rubber=locked), ensure_ascii=False)))
         page.goto(f"{base_url}/team-tie?tid=42&tie=9")
-        expect(page.get_by_text("开始本盘：当前服务端规则不允许此操作，请刷新后重试")).to_be_visible()
-        expect(page.get_by_text("录入比分：当前服务端规则不允许此操作，请刷新后重试")).to_be_visible()
+        expect(page.get_by_text("开始本盘：请先提交本盘的合法阵容，再开始比赛")).to_be_visible()
+        expect(page.get_by_text("录入比分：请先开始本盘再录分")).to_be_visible()
         browser.close()
