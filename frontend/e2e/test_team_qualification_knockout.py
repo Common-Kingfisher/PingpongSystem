@@ -9,12 +9,12 @@ from playwright.sync_api import expect, sync_playwright
 TOURNAMENT = {"id": 42, "name": "团体晋级验收场", "event_type": "TEAM"}
 
 
-def qualification(confirmed=None):
+def qualification(confirmed=None, blocked_reasons=None):
     confirmed = confirmed or []
     ids = [item["team_entry_id"] for item in confirmed]
     return {
         "tournament_id": 42, "provisional": False, "requires_manual_resolution": True,
-        "can_confirm": False, "blocked_reasons": [], "confirmed": confirmed,
+        "can_confirm": False, "blocked_reasons": blocked_reasons or [], "confirmed": confirmed,
         "groups": [{
             "group_id": 1, "group_name": "A组", "qualify_count": 2, "provisional": False,
             "requires_manual_resolution": True, "can_confirm": False,
@@ -42,6 +42,12 @@ def knockout(generated=False):
         {"round": 1, "round_name": "四分之一决赛", "match_count": 1, "matches": [first]},
         {"round": 2, "round_name": "半决赛", "match_count": 1, "matches": []},
     ]}
+
+
+CONFIRMED_TEAMS = [
+    {"team_entry_id": 11, "team_name": "A1队", "group_id": 1, "group_name": "A组", "status": "ACTIVE", "confirmed_at": "2026-09-20 12:00:00"},
+    {"team_entry_id": 12, "team_name": "A2队", "group_id": 1, "group_name": "A组", "status": "ACTIVE", "confirmed_at": "2026-09-20 12:00:00"},
+]
 
 
 def test_team_qualification_submits_full_manual_selection():
@@ -79,6 +85,27 @@ def test_team_qualification_submits_full_manual_selection():
         browser.close()
 
 
+def test_team_qualification_respects_server_blocked_reasons():
+    base_url = os.getenv("PINGPONG_E2E_URL", "http://localhost:4173")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(channel=os.getenv("PLAYWRIGHT_CHANNEL", "msedge"), headless=True)
+        page = browser.new_page()
+
+        def route(route):
+            if route.request.url.endswith("/api/tournaments/42"):
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(TOURNAMENT))
+            elif route.request.url.endswith("/api/tournaments/42/qualification"):
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(qualification(blocked_reasons=["A组候选队伍数量不足"]), ensure_ascii=False))
+            else:
+                route.continue_()
+
+        page.route("**/api/**", route)
+        page.goto(f"{base_url}/team-qualification?tid=42")
+        expect(page.get_by_text("当前不能确认")).to_be_visible()
+        expect(page.get_by_role("button", name="确认晋级名单")).to_be_disabled()
+        browser.close()
+
+
 def test_team_knockout_keeps_future_rounds_pending():
     base_url = os.getenv("PINGPONG_E2E_URL", "http://localhost:4173")
     with sync_playwright() as playwright:
@@ -92,6 +119,8 @@ def test_team_knockout_keeps_future_rounds_pending():
                 route.fulfill(status=200, content_type="application/json", body=json.dumps(knockout(True), ensure_ascii=False))
             elif route.request.url.endswith("/api/tournaments/42/team-knockout"):
                 route.fulfill(status=200, content_type="application/json", body=json.dumps(knockout(), ensure_ascii=False))
+            elif route.request.url.endswith("/api/tournaments/42/qualification"):
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(qualification(CONFIRMED_TEAMS), ensure_ascii=False))
             else:
                 route.continue_()
 
@@ -103,4 +132,31 @@ def test_team_knockout_keeps_future_rounds_pending():
         semifinal = page.locator(".team-knockout-round").filter(has_text="半决赛")
         expect(semifinal.get_by_text("待上游胜者")).to_be_visible()
         expect(semifinal.get_by_text("本版本尚未创建此轮对抗")).to_be_visible()
+        browser.close()
+
+
+def test_team_knockout_does_not_infer_missing_confirmation():
+    base_url = os.getenv("PINGPONG_E2E_URL", "http://localhost:4173")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(channel=os.getenv("PLAYWRIGHT_CHANNEL", "msedge"), headless=True)
+        page = browser.new_page()
+
+        def route(route):
+            if route.request.url.endswith("/api/tournaments/42"):
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(TOURNAMENT))
+            elif route.request.url.endswith("/api/tournaments/42/team-knockout"):
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(knockout(), ensure_ascii=False))
+            elif route.request.url.endswith("/api/tournaments/42/qualification"):
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(qualification(CONFIRMED_TEAMS), ensure_ascii=False))
+            elif route.request.url.endswith("/api/tournaments/42/team-knockout/generate"):
+                route.fulfill(status=409, content_type="application/json", body=json.dumps({"detail": "A组种子顺序并列，当前版本不支持人工指定淘汰种子顺序"}, ensure_ascii=False))
+            else:
+                route.continue_()
+
+        page.route("**/api/**", route)
+        page.goto(f"{base_url}/team-knockout?tid=42")
+        expect(page.get_by_text("晋级名单已确认，尚未生成团体淘汰签")).to_be_visible()
+        expect(page.get_by_role("link", name="查看晋级确认")).to_be_visible()
+        page.get_by_role("button", name="生成首轮淘汰签").click()
+        expect(page.get_by_text("A组种子顺序并列，当前版本不支持人工指定淘汰种子顺序")).to_be_visible()
         browser.close()

@@ -64,7 +64,7 @@ export default function TeamQualificationPage() {
   if (tournament.event_type !== 'TEAM') return <div className="card"><h2>团体晋级确认</h2><p className="status-error">当前赛事不是团体赛。</p><Link className="btn" to={`/rankings?tid=${tid}`}>前往小组排名</Link></div>
 
   const confirmed = qualification.confirmed.length > 0
-  const blocked = qualification.provisional
+  const blocked = qualification.blocked_reasons.length > 0
   return <div className="page team-qualification-page">
     <header className="team-ties-header">
       <div><span className="eyebrow">TEAM QUALIFICATION</span><h1>{tournament.name} · 晋级确认</h1><p className="muted">排名、候选范围和跨线并列均由后端计算；本页只提交主裁选择的全量晋级名单。</p></div>
