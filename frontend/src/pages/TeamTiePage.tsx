@@ -115,7 +115,7 @@ export default function TeamTiePage() {
   if (!tie) return <div className="card"><h2>团体对抗</h2><p className="status-error">{error ?? '未找到团体对抗'}</p><button className="btn" onClick={() => void load()}>重试</button></div>
 
   return <div className="page team-tie-page">
-    <div className="team-mock-banner"><strong>运行态接口已连接</strong><span>盘次、阵容候选、权限、总比分与结束状态均由后端返回；生产赛事入口仍等待正式赛制登记。</span></div>
+    <div className="team-mock-banner"><strong>运行态接口已连接</strong><span>当前仅可使用平台已登记的团体模板；盘次、阵容候选、权限、总比分与结束状态均由后端返回。胜者传播、Scheduler/ETA、改分与弃权仍未实现。</span></div>
     <section className="team-tie-hero"><div><span className="eyebrow">TEAM TIE · {tie.stage}</span><h1>{tie.home_team.display_name} <i>VS</i> {tie.away_team.display_name}</h1><p>{tie.format.display_name ?? '赛制信息暂未登记'} · {tieStatusLabel[tie.status]} · 盘次顺序由服务端返回</p></div><div className="team-total-score"><small>当前总比分</small><b>{tie.home_score} : {tie.away_score}</b><span>{tie.target_wins == null ? '目标胜场暂不可用' : `先达 ${tie.target_wins} 胜`}</span></div></section>
     {error && <p className="status-error">{error}</p>}
     {tie.status === 'FINISHED' && <p className="status-warn">团体对抗结束。未进行盘次已按后端状态锁定。</p>}

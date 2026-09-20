@@ -373,6 +373,23 @@ def build_rubber_skeleton(
                 # 极小概率：事务外的校验通过后对抗被删除（会级联删盘）。这里再确认一次，
                 # 避免拿 None 去判断状态。
                 raise TeamTieError("团体对抗不存在", 404)
+            # 建盘前验证对抗双方能满足所选模板中任一盘所需的独立队员数。
+            # 名单确认不绑定某个未来模板，因此不能在冻结时把所有 TEAM 队伍强制成
+            # 某个固定人数；这里以本次实际选择的、已登记模板为权威，拒绝创建一个
+            # 注定无法完成的对抗。名单尚未开赛时仍可撤销冻结并补齐队员。
+            required_members = max(
+                max(len(rubber.home_slots), len(rubber.away_slots))
+                for rubber in spec.rubbers
+            )
+            for entry_id, side in ((tie["entry_a_id"], "主队"), (tie["entry_b_id"], "客队")):
+                entry = _team_entry(conn, tournament_id, entry_id, side)
+                if len(entry["members"]) < required_members:
+                    raise TeamTieError(
+                        f"{side}「{entry['display_name']}」只有 {len(entry['members'])} 名队员，"
+                        f"所选赛制至少需要 {required_members} 名不同队员；"
+                        "请返回队伍与名单补齐后再初始化对抗",
+                        409,
+                    )
             existing = repo.list_team_rubbers(conn, tie_id)
             if existing:
                 if not replace:

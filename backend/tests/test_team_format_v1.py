@@ -542,6 +542,26 @@ def test_unknown_format_is_422_and_leaves_no_rubber(conn):
     assert repo.get_team_tie(conn, tie["id"])["format_code"] is None
 
 
+def test_production_format_rejects_one_member_team_before_creating_rubbers(conn):
+    """含双打的生产模板不能把一人队带入不可完成的 Runtime。"""
+    tid = repo.create_tournament(
+        conn, "人数不足", "2026-07-02", 4, 1, 1, event_type="TEAM", operation_mode="DEMO"
+    )["id"]
+    roster = [repo.add_player(conn, tid, f"P{index}", "计算机学院", 1000 + index) for index in range(1, 4)]
+    conn.commit()
+    a = teams_service.create_team_entry(conn, tid, "一人队", [roster[0]["id"]])
+    b = teams_service.create_team_entry(conn, tid, "双人队", [roster[1]["id"], roster[2]["id"]])
+    entries_service.confirm_roster(conn, tid)
+    tie = ties_service.create_team_tie(conn, tid, a["id"], b["id"])
+
+    with pytest.raises(ties_service.TeamTieError) as excinfo:
+        ties_service.build_rubber_skeleton(conn, tid, tie["id"], FORMAT_CODE)
+
+    assert excinfo.value.code == 409
+    assert "至少需要 2 名不同队员" in str(excinfo.value)
+    assert repo.list_team_rubbers(conn, tie["id"]) == []
+
+
 def test_non_team_tournament_rejects_production_format(conn):
     """单打/双打赛事不能建团体盘骨架（沿用 TeamTie service 既有契约：409）。"""
     for event_type in ("SINGLES", "DOUBLES"):
