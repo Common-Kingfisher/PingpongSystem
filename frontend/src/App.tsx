@@ -16,6 +16,8 @@ import TeamTiesPage from './pages/TeamTiesPage'
 import PreflightPage from './pages/PreflightPage'
 import TeamRosterPage from './pages/TeamRosterPage'
 import TeamRankingsPage from './pages/TeamRankingsPage'
+import TeamQualificationPage from './pages/TeamQualificationPage'
+import TeamKnockoutPage from './pages/TeamKnockoutPage'
 import { getActiveTournamentId } from './activeTournament'
 import { api } from './api'
 
@@ -54,6 +56,8 @@ function AppNav() {
     { to: `/team-roster${qs}`, label: '队伍与名单' },
     { to: `/team-ties${qs}`, label: '团体对抗' },
     { to: `/team-rankings${qs}`, label: '团体排名' },
+    { to: `/team-qualification${qs}`, label: '晋级确认' },
+    { to: `/team-knockout${qs}`, label: '团体淘汰签' },
   ]
   const navItems = isTeamEvent === null ? [{ to: '/', label: '赛事首页', end: true }] : isTeamEvent ? teamNavItems : standardNavItems
   return (
@@ -99,6 +103,8 @@ export default function App() {
           <Route path="/team-ties" element={<TeamTiesPage />} />
           <Route path="/team-roster" element={<TeamRosterPage />} />
           <Route path="/team-rankings" element={<TeamRankingsPage />} />
+          <Route path="/team-qualification" element={<TeamQualificationPage />} />
+          <Route path="/team-knockout" element={<TeamKnockoutPage />} />
         </Routes>
       </main>
     </div>

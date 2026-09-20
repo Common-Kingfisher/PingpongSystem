@@ -1648,6 +1648,34 @@ h1, h2, h3, h4, .app-title, .ko-card-score, .score-sheet-versus span { font-fami
 .btn { border-radius: 5px; font-weight: 650; }
 .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
 
+/* ---------------- 团体晋级与淘汰签 ---------------- */
+
+.team-qualification-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+.team-qualification-group { padding: 18px; }
+.team-qualification-group > header, .team-qualification-submit, .team-knockout-round > header { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.team-qualification-group h2, .team-qualification-submit h2, .team-qualification-confirmed h2, .team-knockout-round h2 { margin: 0; }
+.team-qualification-candidates { display: grid; gap: 8px; margin-top: 14px; }
+.team-qualification-candidate { display: flex; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.team-qualification-candidate.boundary { border-left: 4px solid #d97706; background: #fffbeb; }
+.team-qualification-candidate input { width: 16px; height: 16px; }
+.team-qualification-candidate span { display: grid; gap: 2px; }
+.team-qualification-candidate small, .team-qualification-reasons { color: #667085; font-size: 12px; }
+.team-qualification-notice { margin-bottom: 16px; border-left: 4px solid #d97706; }
+.team-qualification-submit, .team-qualification-confirmed { margin-top: 16px; padding: 18px; }
+.team-qualification-submit > div { max-width: 620px; }
+.team-qualification-confirmed ul, .team-qualification-notice ul { margin: 10px 0 14px; padding-left: 20px; }
+.team-knockout-rounds { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; align-items: start; }
+.team-knockout-round { padding: 16px; }
+.team-knockout-round > header { padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.team-knockout-round > header span { color: #667085; font-size: 12px; }
+.team-knockout-matches { display: grid; gap: 10px; margin-top: 12px; }
+.team-knockout-match { display: grid; gap: 8px; padding: 11px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.team-knockout-match > div { display: flex; justify-content: space-between; gap: 10px; }
+.team-knockout-match > div b { font-variant-numeric: tabular-nums; }
+.team-knockout-match footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 7px; border-top: 1px solid #eef1f5; }
+.team-knockout-match.pending { min-height: 86px; color: #667085; border-style: dashed; background: #f8fafc; }
+.team-knockout-match.pending span { font-size: 12px; }
+
 /* ---------------- 主裁赛前检查 ---------------- */
 
 .preflight-entry-btn { border-color: #155eef; color: #155eef; box-shadow: inset 4px 0 0 #d51f5d; }
