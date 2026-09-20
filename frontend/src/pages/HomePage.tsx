@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError, BronzeMode, Dashboard, EventType, PlacementMode, Tournament, TournamentMode } from '../api'
 import { getActiveTournamentId, setActiveTournamentId } from '../activeTournament'
 import { eventTypeLabel, formatName, formatOptions } from '../format'
@@ -33,6 +33,7 @@ const emptyForm: FormState = {
 }
 
 export default function HomePage() {
+  const navigate = useNavigate()
   const [params] = useSearchParams()
   const urlTid = params.get('tid') ? Number(params.get('tid')) : null
 
@@ -101,6 +102,7 @@ export default function HomePage() {
       setForm(emptyForm)
       loadTournaments()
       selectTournament(created.id) // 新建后自动成为当前赛事
+      if (created.event_type === 'TEAM') navigate(`/team-roster?tid=${created.id}`)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '创建赛事失败')
     }
@@ -264,9 +266,9 @@ export default function HomePage() {
             <select value={form.event_type} onChange={(e) => set('event_type', e.target.value as EventType)}>
               <option value="SINGLES">单打</option>
               <option value="DOUBLES">双打 · 相近积分随机配对</option>
-              <option value="TEAM" disabled>团体 · 后端与规则冻结后开放</option>
+              <option value="TEAM">团体</option>
             </select>
-            <small className="muted">团体赛将在后端核心与排阵规则冻结后开放。</small>
+            {form.event_type === 'TEAM' && <small className="muted">队伍、分组、对抗、晋级及淘汰签均由后端校验；不支持的配置会在提交后提示。</small>}
           </label>
           <label>
             季军产生方式

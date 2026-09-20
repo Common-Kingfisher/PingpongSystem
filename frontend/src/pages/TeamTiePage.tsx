@@ -8,6 +8,8 @@ import type { TeamRubberView, TeamTieView } from '../team/types'
 
 const messageOf = (error: unknown) => error instanceof ApiError ? error.message : '团体对抗操作失败'
 const tieStatusLabel: Record<TeamTieView['status'], string> = { WAITING: '待开始', PLAYING: '进行中', FINISHED: '已结束' }
+// 这是后端已登记的平台模板 code；前端不读取、推导或修改任何盘次规则。
+const PLATFORM_TEAM_FORMAT = 'LOCAL_CLASSIC_5_V1'
 
 // 后端在赛前名单变更后会保留旧阵容 id 以报告 lineup_valid=false，但候选列表只含当前队员。
 // 打开编辑弹窗时必须丢弃不再可选的旧 id，否则用户无法通过 UI 修复阵容。
@@ -104,6 +106,7 @@ export default function TeamTiePage() {
     setBusy(true); setError(null)
     try { setTie(await work()); done?.() } catch (requestError) { setError(messageOf(requestError)) } finally { setBusy(false) }
   }
+  const initialize = () => void run(() => api.buildRubberSkeleton(tid!, tie!.id, { format_code: PLATFORM_TEAM_FORMAT, replace: false }))
   const toggle = (id: number, values: number[], setValues: (next: number[]) => void) =>
     setValues(values.includes(id) ? values.filter((value) => value !== id) : [...values, id])
 
@@ -116,8 +119,9 @@ export default function TeamTiePage() {
     <section className="team-tie-hero"><div><span className="eyebrow">TEAM TIE · {tie.stage}</span><h1>{tie.home_team.display_name} <i>VS</i> {tie.away_team.display_name}</h1><p>{tie.format.display_name ?? '赛制信息暂未登记'} · {tieStatusLabel[tie.status]} · 盘次顺序由服务端返回</p></div><div className="team-total-score"><small>当前总比分</small><b>{tie.home_score} : {tie.away_score}</b><span>{tie.target_wins == null ? '目标胜场暂不可用' : `先达 ${tie.target_wins} 胜`}</span></div></section>
     {error && <p className="status-error">{error}</p>}
     {tie.status === 'FINISHED' && <p className="status-warn">团体对抗结束。未进行盘次已按后端状态锁定。</p>}
+    {tie.rubbers.length === 0 && <section className="card"><h2>尚未初始化盘次</h2><p className="muted">此操作只把后端已登记的平台模板固化到本场对抗；盘次与目标胜场仍完全由后端返回。</p><button className="btn primary" disabled={busy} onClick={initialize}>使用已登记模板初始化对抗</button></section>}
     <TeamScorePanel tie={tie} busy={busy} onLineup={openLineup} onStart={startRubber} onScore={openScore} />
-    <div className="button-row"><button className="btn" disabled={busy} onClick={() => void load()}>刷新</button><Link className="btn" to={`/team-ties?tid=${tid}`}>返回对抗列表</Link></div>
+    <div className="button-row"><button className="btn" disabled={busy} onClick={() => void load()}>刷新</button><Link className="btn" to={`/team-ties?tid=${tid}`}>返回对抗列表</Link><Link className="btn" to={`/team-rankings?tid=${tid}`}>团体排名</Link><Link className="btn" to={`/team-qualification?tid=${tid}`}>晋级确认</Link></div>
     {lineupRubber && createPortal(<div ref={modalRoot} className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="team-lineup-title"><div className="modal team-modal"><button ref={lineupClose} className="modal-close" onClick={closeLineup} aria-label="关闭">×</button><h3 id="team-lineup-title">设置阵容 · 第 {lineupRubber.sequence} 盘</h3><p className="muted">候选范围与不可选原因均来自后端；提交后会以服务端返回的完整对抗状态替换页面。</p>{error && <p className="status-error" role="alert">{error}</p>}{(['home', 'away'] as const).map((side) => <div key={side}><h4>{side === 'home' ? tie.home_team.display_name : tie.away_team.display_name}</h4>{lineupRubber.lineup_options[side].map((option) => { const selected = side === 'home' ? homeIds : awayIds; const setSelected = side === 'home' ? setHomeIds : setAwayIds; return <label className="lineup-option" key={option.player_id}><input type="checkbox" disabled={!option.available || busy} checked={selected.includes(option.player_id)} onChange={() => toggle(option.player_id, selected, setSelected)} /><span>{option.name}</span><small>{option.available ? '可选择' : option.unavailable_reason}</small></label> })}</div>)}<div className="modal-actions"><button className="btn" onClick={closeLineup}>取消</button><button className="btn primary" disabled={busy || !lineupRubber.permissions.can_confirm_lineup} onClick={() => void run(() => api.setTeamLineup(tid, tie.id, lineupRubber.id, { home_player_ids: homeIds, away_player_ids: awayIds }), closeLineup)}>确认阵容</button></div></div></div>, document.body)}
     {scoreRubber && createPortal(<div ref={modalRoot} className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="team-score-title"><div className="modal team-modal"><button ref={scoreClose} className="modal-close" onClick={closeScore} aria-label="关闭">×</button><h3 id="team-score-title">录入比分 · 第 {scoreRubber.sequence} 盘</h3><p className="muted">请输入本盘大比分。合法性由后端根据赛事局制校验。</p>{error && <p className="status-error" role="alert">{error}</p>}<div className="team-score-shell"><input aria-label="主队比分" inputMode="numeric" type="number" min="0" value={homeScore} onChange={(event) => setHomeScore(event.target.value)} disabled={busy} /><b>:</b><input aria-label="客队比分" inputMode="numeric" type="number" min="0" value={awayScore} onChange={(event) => setAwayScore(event.target.value)} disabled={busy} /></div><div className="modal-actions"><button className="btn" onClick={closeScore}>取消</button><button className="btn primary" disabled={busy || homeScore === '' || awayScore === ''} onClick={() => void run(() => api.recordTeamRubberScore(tid, tie.id, scoreRubber.id, { home_score: Number(homeScore), away_score: Number(awayScore) }), closeScore)}>提交比分</button></div></div></div>, document.body)}
   </div>

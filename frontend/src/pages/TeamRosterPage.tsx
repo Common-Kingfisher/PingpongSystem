@@ -289,6 +289,22 @@ export default function TeamRosterPage() {
     setBusy(true); setMessage('正在撤销冻结…')
     try { const next = await api.unconfirmTeamRoster(tid); setSheet(next); setDraft(draftFrom(next)); setMessage('名单已撤销冻结，可以继续编辑') } catch (error) { setMessage(messageOf(error)) } finally { setBusy(false) }
   }
+  const autoGroup = async () => {
+    if (tid === null || !locked) return
+    setBusy(true); setMessage('正在请求后端完成分组…')
+    try {
+      const result = await api.autoGroup(tid)
+      setMessage(`分组完成：${result.groups.length} 个小组。分组结果由后端计算。`)
+    } catch (error) { setMessage(messageOf(error)) } finally { setBusy(false) }
+  }
+  const generateGroupTies = async () => {
+    if (tid === null || !locked) return
+    setBusy(true); setMessage('正在请求后端生成团体小组对抗…')
+    try {
+      const result = await api.generateTeamGroupTies(tid)
+      setMessage(`已生成 ${result.ties_generated} 场团体小组对抗。`)
+    } catch (error) { setMessage(messageOf(error)) } finally { setBusy(false) }
+  }
 
   if (tid === null || !Number.isInteger(tid)) return <div className="card"><h2>队伍与名单</h2><p>请提供有效的 <code>tid</code> 参数。</p><Link className="btn" to="/">返回赛事首页</Link></div>
   if (loading) return <div className="card"><p aria-live="polite">正在加载队伍名单工作表…</p></div>
@@ -304,6 +320,15 @@ export default function TeamRosterPage() {
     </section>
     <div className="roster-toolbar"><label>筛选 <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="姓名、单位或队伍" /></label><span>{draft.teams.length} 支队伍 · {draft.players.length} 名队员 · 未分队 {draft.players.filter((player) => !player.team_key).length} 名</span></div>
     {message && <p className={message.includes('已') || message.includes('正在') ? 'status-info' : 'status-error'} role="status" aria-live="polite">{message}</p>}
+    <section className="card" aria-label="团体赛前置流程">
+      <h2>团体赛前置流程</h2>
+      <p className="muted">确认名单后，依次由后端分组并生成小组对抗。页面不计算分组或赛程；不可执行时显示后端返回的原因。</p>
+      <div className="button-row">
+        <button className="btn" disabled={!locked || busy} title={!locked ? '请先确认并冻结名单' : undefined} onClick={() => void autoGroup()}>由后端完成分组</button>
+        <button className="btn primary" disabled={!locked || busy} title={!locked ? '请先确认并冻结名单' : undefined} onClick={() => void generateGroupTies()}>生成团体小组对抗</button>
+        <Link className="btn" to={`/team-ties?tid=${tid}`}>查看团体对抗</Link>
+      </div>
+    </section>
     {emptyTeams.length > 0 && <aside className="roster-issues" role="alert"><strong>发现 {emptyTeams.length} 支空队伍</strong><span>空队伍不会出现在队员表格中，因此请在这里处理：</span>{emptyTeams.map((team) => <div key={team.key}><b>{team.display_name || '未命名队伍'}</b><button className="ribbon-btn" disabled={!editable || selected.size === 0} onClick={() => assignSelected(team.key)}>将选中队员加入</button><button className="ribbon-btn danger" disabled={!editable} onClick={() => deleteEmptyTeam(team.key)}>删除空队</button></div>)}</aside>}
     <div className="roster-grid-wrap"><table className="roster-grid"><thead><tr><th><input aria-label="全选当前行" type="checkbox" checked={rows.length > 0 && rows.every((row) => selected.has(row.key))} onChange={(event) => setSelected((current) => { const next = new Set(current); rows.forEach((row) => event.target.checked ? next.add(row.key) : next.delete(row.key)); return next })} /></th><th>#</th><th>队伍</th><th>队内序号</th><th>姓名</th><th>单位 / 学院</th><th>积分</th><th>状态</th></tr></thead><tbody>{rows.map((player, index) => <tr key={player.key} tabIndex={0} draggable={editable && !reorderDisabled} aria-selected={selected.has(player.key)} className={selected.has(player.key) ? 'selected' : ''} onClick={(event) => selectRow(player.key, event)} onKeyDown={(event) => gridKeyDown(event, index)} onDragStart={() => { draggingKey.current = player.key }} onDragOver={(event) => { if (editable && !reorderDisabled) event.preventDefault() }} onDrop={() => dropRowsOnTeam(player.team_key ?? null)}><td><input aria-label={`选择 ${player.name}`} type="checkbox" checked={selected.has(player.key)} onClick={(event) => event.stopPropagation()} onChange={() => { const next = new Set(selected); next.has(player.key) ? next.delete(player.key) : next.add(player.key); setSelected(next); setAnchor(player.key) }} /></td><td>{index + 1}</td><td><select aria-label={`${player.name} 所属队伍`} disabled={!editable} value={player.team_key ?? ''} onChange={(event) => mutate((current) => ({ ...current, players: current.players.map((item) => item.key === player.key ? { ...item, team_key: event.target.value || null } : item) }))}><option value="">未分队</option>{draft.teams.map((team) => <option key={team.key} value={team.key}>{team.display_name}</option>)}</select></td><td>{player.member_order ?? '—'}</td><td><input aria-label={`${player.name} 姓名`} disabled={!editable} value={player.name} onChange={(event) => mutate((current) => ({ ...current, players: current.players.map((item) => item.key === player.key ? { ...item, name: event.target.value } : item) }))} /></td><td><input aria-label={`${player.name} 单位`} disabled={!editable} value={player.college ?? ''} onChange={(event) => mutate((current) => ({ ...current, players: current.players.map((item) => item.key === player.key ? { ...item, college: event.target.value || null } : item) }))} /></td><td><input aria-label={`${player.name} 积分`} disabled={!editable} type="number" min="0" value={player.rating_points} onChange={(event) => mutate((current) => ({ ...current, players: current.players.map((item) => item.key === player.key ? { ...item, rating_points: Number(event.target.value) } : item) }))} /></td><td>{player.team_key ? '已分队' : '待分队'}</td></tr>)}</tbody></table>{rows.length === 0 && <p className="roster-empty">暂无符合筛选条件的队员。</p>}</div>
     <footer className="roster-statusbar">{locked ? '浏览模式：名单已冻结，修改工具不可用。' : dirty ? '编辑模式：按 Ctrl+S 保存，确认前可继续调整。' : '编辑模式：当前数据已保存。'}<span>选中 {selected.size} 行</span></footer>

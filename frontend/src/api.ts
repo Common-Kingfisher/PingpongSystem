@@ -44,6 +44,10 @@ export type TeamLineupOptions = Schemas['TeamLineupOptionsOut']
 export type TeamPermission = Schemas['TeamPermissionOut']
 export type TeamGroupStandings = Schemas['TeamGroupStandingsOut']
 export type TeamStandingRow = Schemas['TeamStandingRowOut']
+export type TeamQualification = Schemas['TeamQualificationOut']
+export type TeamGroupQualification = Schemas['TeamGroupQualificationOut']
+export type TeamKnockout = Schemas['TeamKnockoutOut']
+export type GenerateTeamGroupTiesResult = Schemas['GenerateTeamGroupTiesResult']
 export type TeamRosterSheet = Schemas['TeamRosterSheetOut']
 export type TeamRosterSaveRequest = Schemas['TeamRosterSaveRequest']
 export type GroupPlayer = Schemas['GroupPlayerOut']
@@ -292,10 +296,24 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  generateTeamGroupTies: (tournamentId: number) =>
+    request<GenerateTeamGroupTiesResult>(`/api/tournaments/${tournamentId}/team-ties/generate-group-ties`, {
+      method: 'POST',
+    }),
 
   // 团体小组排名（A6.2）：只读事实，每次请求由后端从对抗/单盘事实重算。
   getTeamGroupStandings: (tournamentId: number) =>
     request<TeamGroupStandings[]>(`/api/tournaments/${tournamentId}/team-groups/standings`),
+  getTeamQualification: (tournamentId: number) =>
+    request<TeamQualification>(`/api/tournaments/${tournamentId}/qualification`),
+  confirmTeamQualification: (tournamentId: number, qualifiedTeamIds: number[]) =>
+    request<TeamQualification>(`/api/tournaments/${tournamentId}/qualification/confirm`, {
+      method: 'POST', body: JSON.stringify({ qualified_team_ids: qualifiedTeamIds }),
+    }),
+  getTeamKnockout: (tournamentId: number) =>
+    request<TeamKnockout>(`/api/tournaments/${tournamentId}/team-knockout`),
+  generateTeamKnockout: (tournamentId: number) =>
+    request<TeamKnockout>(`/api/tournaments/${tournamentId}/team-knockout/generate`, { method: 'POST' }),
 
   // 团体赛 Runtime（A4.1）：形状与权限全部由后端计算，前端只消费 permissions 与返回的完整视图。
   getTeamLineupOptions: (tournamentId: number, tieId: number, rubberId: number) =>
