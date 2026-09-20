@@ -76,9 +76,11 @@ def test_case5_delete_tournament_cascades_no_orphans(client):
     tables = client.get(f"/api/tournaments/{tid}/dashboard").json()["tables"]
     for i, m in enumerate(matches[:3]):
         client.post(f"/api/matches/{m['id']}/assign-table", json={"table_id": tables[i]["id"]})
-        client.post(f"/api/matches/{m['id']}/score", json={"player_a_score": 3, "player_b_score": 1})
+        client.post(f"/api/matches/{m['id']}/score", json={"player_a_score": 2, "player_b_score": 1})
 
-    resp = client.delete(f"/api/tournaments/{tid}")
+    resp = client.delete(
+        f"/api/tournaments/{tid}", params={"confirm_name": "修复验证赛"}
+    )
     assert resp.status_code == 204
 
     # 直接查库确认无孤儿（client 夹具通过 DEMO_DB_PATH 指向临时库）

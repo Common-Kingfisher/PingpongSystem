@@ -38,7 +38,8 @@ def main() -> int:
             print("已删除旧演示赛事")
 
         tournament = tournament_service.create_tournament_with_tables(
-            conn, DEMO_NAME, date(2025, 6, 1), 6, 4, 2
+            conn, DEMO_NAME, date(2025, 6, 1), 6, 4, 2,
+            operation_mode="DEMO",
         )
         for i in range(1, 25):
             repo.add_player(conn, tournament["id"], f"选手{i:02d}", "示例学院")

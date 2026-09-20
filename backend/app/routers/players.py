@@ -7,6 +7,7 @@ from .. import repository as repo, schemas
 from ..db import get_db
 from ..services import import_players as import_service
 from ..services import players as players_service
+from ..services import teams as teams_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}/players", tags=["players"])
 
@@ -31,7 +32,7 @@ def import_players(
         result = import_service.import_players_file(
             conn, tournament_id, content, file.filename or ""
         )
-    except import_service.ImportFileError as exc:
+    except (import_service.ImportFileError, teams_service.TeamError) as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc))
     return result
 
@@ -49,7 +50,7 @@ def preview_import_players(
         result = import_service.import_players_file(
             conn, tournament_id, content, file.filename or "", commit=False
         )
-    except import_service.ImportFileError as exc:
+    except (import_service.ImportFileError, teams_service.TeamError) as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc))
     return {
         "total_rows": result["total_rows"],
@@ -77,13 +78,12 @@ def add_player(
     conn: Connection = Depends(get_db),
 ):
     try:
-        players_service.ensure_players_editable(conn, tournament_id)
-        if len(repo.list_players(conn, tournament_id)) >= 120:
-            raise players_service.PlayerError("单场赛事最多支持 120 名运动员", 409)
-    except players_service.PlayerError as exc:
+        with teams_service._roster_write_tx(conn):
+            players_service.ensure_players_editable(conn, tournament_id)
+            players_service.ensure_player_capacity(len(repo.list_players(conn, tournament_id)), additions=1)
+            player = repo.add_player(conn, tournament_id, payload.name, payload.college, payload.rating_points)
+    except (players_service.PlayerError, teams_service.TeamError) as exc:
         raise _http(exc)
-    player = repo.add_player(conn, tournament_id, payload.name, payload.college, payload.rating_points)
-    conn.commit()
     return player
 
 
@@ -95,15 +95,15 @@ def update_player(
     conn: Connection = Depends(get_db),
 ):
     try:
-        players_service.ensure_players_editable(conn, tournament_id)
-    except players_service.PlayerError as exc:
+        with teams_service._roster_write_tx(conn):
+            players_service.ensure_players_editable(conn, tournament_id)
+            player = repo.update_player(
+                conn, player_id, payload.name, payload.college, payload.rating_points
+            )
+    except (players_service.PlayerError, teams_service.TeamError) as exc:
         raise _http(exc)
-    player = repo.update_player(
-        conn, player_id, payload.name, payload.college, payload.rating_points
-    )
     if player is None:
         raise HTTPException(status_code=404, detail="选手不存在")
-    conn.commit()
     return player
 
 
@@ -111,5 +111,5 @@ def update_player(
 def delete_player(tournament_id: int, player_id: int, conn: Connection = Depends(get_db)):
     try:
         players_service.delete_player(conn, tournament_id, player_id)
-    except players_service.PlayerError as exc:
+    except (players_service.PlayerError, teams_service.TeamError) as exc:
         raise _http(exc)

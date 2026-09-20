@@ -5,7 +5,7 @@ import sqlite3
 
 from .. import repository as repo
 from ..domain import round_robin
-from ..models import MatchStage, MatchStatus, TournamentStage
+from ..models import EventType, MatchStage, MatchStatus, TournamentStage
 from . import scores as scores_service
 
 
@@ -32,10 +32,14 @@ def generate_group_matches(
 
     返回 (总场数, {组名: 场数})。
     守卫：赛事必须存在、处于 REGISTRATION 阶段、已分组、且尚未生成过小组赛。
+    团体赛（TEAM）不走这条路径：一场对抗是 TeamTie + 多盘 TeamRubber，
+    不能展开成"Entry vs Entry"的普通比赛（见 services/team_ties.py 的说明）。
     """
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise TournamentNotFoundError("赛事不存在")
+    if tournament["event_type"] == EventType.TEAM.value:
+        raise TournamentStageError("团体赛不生成小组循环赛：请使用团体对抗（TeamTie）接口")
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise TournamentStageError("当前阶段不允许生成小组比赛")
     groups = repo.list_groups(conn, tournament_id)
@@ -44,7 +48,10 @@ def generate_group_matches(
     if repo.count_matches(conn, tournament_id, stage=MatchStage.GROUP.value) > 0:
         raise MatchesExistError("小组比赛已生成，不能重复生成")
 
-    entries = repo.list_entries(conn, tournament_id)
+    entries = [
+        entry for entry in repo.list_entries(conn, tournament_id)
+        if entry["status"] == "ACTIVE"
+    ]
     by_group: dict[int, list[int]] = {}
     for entry in entries:
         if entry["group_id"] is not None:
@@ -81,7 +88,16 @@ def generate_group_matches(
     return total, per_group
 
 
-DEMO_SCORE_OPTIONS = [(2, 0), (2, 1), (0, 2), (1, 2)]
+def demo_score_options(games_to_win: int) -> list[tuple[int, int]]:
+    """按赛事局制生成合法的模拟大比分：N:0 … N:(N-1) 以及反向。
+
+    三局两胜（N=2）→ 2:0/2:1/0:2/1:2；五局三胜（N=3）→ 3:0/3:1/3:2/…；
+    七局四胜（N=4）→ 4:0…4:3/…。这样 demo 模拟不会产生被比分校验拒绝的结果。
+    """
+    games = max(1, games_to_win)
+    return [(games, loser) for loser in range(games)] + [
+        (loser, games) for loser in range(games)
+    ]
 
 
 def finish_group_stage(
@@ -94,13 +110,16 @@ def finish_group_stage(
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise TournamentNotFoundError("赛事不存在")
+    if tournament["event_type"] == EventType.TEAM.value:
+        raise TournamentStageError("团体赛没有单打式小组赛，暂不支持模拟推进")
     if tournament["stage"] != TournamentStage.GROUP_STAGE.value:
         raise TournamentStageError("仅小组赛阶段可模拟完成剩余小组赛")
 
     matches = repo.list_matches(conn, tournament_id, stage=MatchStage.GROUP.value)
     unfinished = [m for m in matches if m["status"] != MatchStatus.FINISHED.value]
     rng = rng or random.Random()
+    options = demo_score_options(tournament["games_to_win"])
     for m in unfinished:
-        sa, sb = rng.choice(DEMO_SCORE_OPTIONS)
+        sa, sb = rng.choice(options)
         scores_service.record_score(conn, m["id"], sa, sb)
     return len(unfinished)

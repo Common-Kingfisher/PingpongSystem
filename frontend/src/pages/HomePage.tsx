@@ -1,7 +1,8 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, BronzeMode, Dashboard, EventType, PlacementMode, Tournament } from '../api'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { api, ApiError, BronzeMode, Dashboard, EventType, PlacementMode, Tournament, TournamentMode } from '../api'
 import { getActiveTournamentId, setActiveTournamentId } from '../activeTournament'
+import { eventTypeLabel, formatName, formatOptions } from '../format'
 
 interface FormState {
   name: string
@@ -12,6 +13,9 @@ interface FormState {
   event_type: EventType
   bronze_mode: BronzeMode
   placement_mode: PlacementMode
+  operation_mode: TournamentMode
+  games_to_win: number
+  points_to_win: number
 }
 
 const emptyForm: FormState = {
@@ -23,9 +27,13 @@ const emptyForm: FormState = {
   event_type: 'SINGLES',
   bronze_mode: 'JOINT_BRONZE',
   placement_mode: 'COMPLETE',
+  operation_mode: 'LIVE',
+  games_to_win: 2,
+  points_to_win: 11,
 }
 
 export default function HomePage() {
+  const navigate = useNavigate()
   const [params] = useSearchParams()
   const urlTid = params.get('tid') ? Number(params.get('tid')) : null
 
@@ -94,6 +102,7 @@ export default function HomePage() {
       setForm(emptyForm)
       loadTournaments()
       selectTournament(created.id) // 新建后自动成为当前赛事
+      if (created.event_type === 'TEAM') navigate(`/team-roster?tid=${created.id}`)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '创建赛事失败')
     }
@@ -108,8 +117,18 @@ export default function HomePage() {
       `该操作将同时删除：\n- 分组\n- 比赛\n- 比分\n- 淘汰赛\n- 球台分配\n- 其他该赛事关联数据\n\n` +
       `此操作不可恢复。`
     if (!window.confirm(msg)) return
+    let confirmName: string | undefined
+    if (t.operation_mode === 'LIVE') {
+      const entered = window.prompt(`正式赛事受到保护。请输入完整赛事名称以确认删除：\n${t.name}`)
+      if (entered === null) return
+      if (entered !== t.name) {
+        setError('赛事名称不一致，已取消删除。')
+        return
+      }
+      confirmName = entered
+    }
     try {
-      await api.deleteTournament(t.id)
+      await api.deleteTournament(t.id, confirmName)
       if (activeId === t.id) {
         setActiveTournamentId(null)
         setActiveId(null)
@@ -142,14 +161,17 @@ export default function HomePage() {
             <span className="badge current-badge" style={{ marginLeft: 6 }}>
               当前赛事
             </span>
-            <Link className="btn small float-right" to={`/console?tid=${current.id}`}>
-              进入比赛控制台 →
+            <span className={`badge mode-badge ${current.operation_mode === 'LIVE' ? 'live' : 'demo'}`} style={{ marginLeft: 6 }}>
+              {current.operation_mode === 'LIVE' ? '正式' : '演示'}
+            </span>
+            <Link className="btn small float-right" to={current.event_type === 'TEAM' ? `/team-roster?tid=${current.id}` : `/console?tid=${current.id}`}>
+              {current.event_type === 'TEAM' ? '进入队伍与名单 →' : '进入比赛控制台 →'}
             </Link>
           </h2>
           <p className="muted">
             日期 {current.date} · 球台 {current.table_count} 张 · 小组 {current.group_count} 个 ·
             每组晋级 {current.qualify_per_group} 人
-            {` · ${current.event_type === 'DOUBLES' ? '双打' : '单打'}`}
+            {` · ${eventTypeLabel(current.event_type)}`}
             {dash && ` · 比赛 ${dash.stats.finished}/${dash.stats.total} 场`}
           </p>
           {dash && (
@@ -161,33 +183,21 @@ export default function HomePage() {
             <p className="status-ok">🏓 正在进行 {dash.stats.playing} 场比赛</p>
           )}
           <div className="button-row">
-            <Link className="btn" to={`/players?tid=${current.id}`}>
-              选手与分组
-            </Link>
-            <Link className="btn" to={`/console?tid=${current.id}`}>
-              比赛控制台
-            </Link>
-            <Link className="btn" to={`/rankings?tid=${current.id}`}>
-              小组排名
-            </Link>
-            <Link className="btn" to={`/knockout?tid=${current.id}`}>
-              淘汰赛
-            </Link>
-            <Link className="btn" to={`/schedule?tid=${current.id}`}>
-              选手赛程
-            </Link>
-            <Link className="btn" to={`/bigscreen?tid=${current.id}`}>
-              赛事大屏
-            </Link>
-            <Link className="btn" to={`/journey?tid=${current.id}`}>
-              冠军之路
-            </Link>
-            <Link className="btn" to={`/orderbook?tid=${current.id}`}>
-              秩序册
-            </Link>
-            <Link className="btn" to={`/register?tid=${current.id}`}>
-              在线报名
-            </Link>
+            {current.event_type === 'TEAM' ? <>
+              <Link className="btn primary" to={`/team-roster?tid=${current.id}`}>队伍与名单</Link>
+              <Link className="btn" to={`/team-ties?tid=${current.id}`}>团体对抗</Link>
+            </> : <>
+              <Link className="btn preflight-entry-btn" to={`/preflight?tid=${current.id}`}>赛前检查</Link>
+              <Link className="btn" to={`/players?tid=${current.id}`}>选手与分组</Link>
+              <Link className="btn" to={`/console?tid=${current.id}`}>比赛控制台</Link>
+              <Link className="btn" to={`/rankings?tid=${current.id}`}>小组排名</Link>
+              <Link className="btn" to={`/knockout?tid=${current.id}`}>淘汰赛</Link>
+              <Link className="btn" to={`/schedule?tid=${current.id}`}>选手赛程</Link>
+              <Link className="btn" to={`/bigscreen?tid=${current.id}`}>赛事大屏</Link>
+              <Link className="btn" to={`/journey?tid=${current.id}`}>冠军之路</Link>
+              <Link className="btn" to={`/orderbook?tid=${current.id}`}>秩序册</Link>
+              <Link className="btn" to={`/register?tid=${current.id}`}>在线报名</Link>
+            </>}
           </div>
         </div>
       )}
@@ -245,11 +255,20 @@ export default function HomePage() {
             />
           </label>
           <label>
+            运行模式
+            <select value={form.operation_mode} onChange={(e) => set('operation_mode', e.target.value as TournamentMode)}>
+              <option value="LIVE">正式赛事 · 禁用模拟数据</option>
+              <option value="DEMO">演示赛事 · 允许一键模拟</option>
+            </select>
+          </label>
+          <label>
             比赛项目
             <select value={form.event_type} onChange={(e) => set('event_type', e.target.value as EventType)}>
               <option value="SINGLES">单打</option>
               <option value="DOUBLES">双打 · 相近积分随机配对</option>
+              <option value="TEAM">团体</option>
             </select>
+            {form.event_type === 'TEAM' && <small className="muted">队伍、分组、对抗、晋级及淘汰签均由后端校验；不支持的配置会在提交后提示。</small>}
           </label>
           <label>
             季军产生方式
@@ -261,14 +280,40 @@ export default function HomePage() {
           <label>
             名次排位赛
             <select value={form.placement_mode} onChange={(e) => set('placement_mode', e.target.value as PlacementMode)}>
-              <option value="COMPLETE">8 人内完整排出名次</option>
-              <option value="TIERED">16 人以上按名次分档</option>
+              <option value="COMPLETE">4 / 8 / 16 人标准签完整排位</option>
+              <option value="TIERED" disabled>16 人以上按名次分档（后续版本）</option>
               <option value="OFF">不增加排位赛</option>
             </select>
           </label>
+          <label>
+            比赛局制
+            <select
+              value={form.games_to_win}
+              onChange={(e) => set('games_to_win', Number(e.target.value))}
+            >
+              {formatOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            每局目标分
+            <input
+              type="number"
+              min={1}
+              max={99}
+              required
+              value={form.points_to_win}
+              onChange={(e) => set('points_to_win', Number(e.target.value))}
+            />
+          </label>
           <div className="rule-summary">
-            <strong>默认规则</strong>
-            <span>三局两胜 · 每局 11 分 · 胜 2 / 负 1 / 未赛弃权 0</span>
+            <strong>当前规则</strong>
+            <span>
+              {formatName(form.games_to_win)} · 每局 {form.points_to_win} 分 · 胜 2 / 负 1 / 未赛弃权 0
+            </span>
           </div>
           <label>
             每组晋级人数
@@ -312,6 +357,9 @@ export default function HomePage() {
                 <td>{t.id}</td>
                 <td>
                   {t.name}
+                  <span className={`badge mode-badge ${t.operation_mode === 'LIVE' ? 'live' : 'demo'}`} style={{ marginLeft: 6 }}>
+                    {t.operation_mode === 'LIVE' ? '正式' : '演示'}
+                  </span>
                   {activeId === t.id && (
                     <span className="badge current-badge" style={{ marginLeft: 6 }}>
                       当前赛事
@@ -322,17 +370,17 @@ export default function HomePage() {
                 <td>{t.table_count}</td>
                 <td>{t.group_count}</td>
                 <td>{t.qualify_per_group}</td>
-                <td>{t.event_type === 'DOUBLES' ? '双打' : '单打'}</td>
+                <td>{eventTypeLabel(t.event_type)}</td>
                 <td>
                   <span className="badge">{t.stage}</span>
                 </td>
                 <td>
                   <Link
                     className="btn small"
-                    to={`/players?tid=${t.id}`}
+                    to={t.event_type === 'TEAM' ? `/team-roster?tid=${t.id}` : `/players?tid=${t.id}`}
                     onClick={() => selectTournament(t.id)}
                   >
-                    进入赛事
+                    {t.event_type === 'TEAM' ? '进入队伍与名单' : '进入赛事'}
                   </Link>{' '}
                   <button className="btn small danger" onClick={() => removeTournament(t)}>
                     删除赛事

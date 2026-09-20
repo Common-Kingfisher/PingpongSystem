@@ -2,12 +2,12 @@
 
 流程：创建赛事 → 添加 24 人 → 自动分组 → 生成 60 场小组赛 → 球台分配 →
 全部录分 → 小组排名 → 每组前 2 晋级（8 人）→ 生成 8 强 → 打完 8 强/4 强/决赛
-→ 唯一冠军。录分规则固定为"id 小者 3:0 胜"，保证结果可复现且无并列歧义。
+→ 唯一冠军。录分规则固定为"id 小者 2:0 胜"，保证结果可复现且无并列歧义。
 """
 
 
 def _play_all(client, tid, max_rounds=80):
-    """批量调度 + 按"id 小者 3:0 胜"录分，直到无可调度。"""
+    """批量调度 + 按"id 小者 2:0 胜"录分，直到无可调度。"""
     for _ in range(max_rounds):
         client.post(f"/api/tournaments/{tid}/schedule-next")
         dash = client.get(f"/api/tournaments/{tid}/dashboard").json()
@@ -16,7 +16,7 @@ def _play_all(client, tid, max_rounds=80):
             break
         for m in playing:
             w = min(m["player_a_id"], m["player_b_id"])
-            sa, sb = (3, 0) if w == m["player_a_id"] else (0, 3)
+            sa, sb = (2, 0) if w == m["player_a_id"] else (0, 2)
             resp = client.post(
                 f"/api/matches/{m['id']}/score",
                 json={"player_a_score": sa, "player_b_score": sb},

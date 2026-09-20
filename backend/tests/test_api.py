@@ -30,6 +30,7 @@ def test_create_tournament_ok(client):
     assert data["date"] == "2025-06-01"
     assert data["table_count"] == 6
     assert data["stage"] == "REGISTRATION"  # 初始阶段为注册
+    assert data["operation_mode"] == "LIVE"
     assert "created_at" in data
 
 
@@ -71,6 +72,20 @@ def test_get_tournament_not_found(client):
     resp = client.get("/api/tournaments/999")
     assert resp.status_code == 404
     assert resp.json()["detail"] == "赛事不存在"
+
+
+def test_live_tournament_delete_requires_exact_name(client):
+    tid = _create_tournament(client, name="不可误删的正式赛事").json()["id"]
+    assert client.delete(f"/api/tournaments/{tid}").status_code == 409
+    assert client.delete(f"/api/tournaments/{tid}?confirm_name=名称错误").status_code == 409
+    assert client.delete(
+        f"/api/tournaments/{tid}", params={"confirm_name": "不可误删的正式赛事"}
+    ).status_code == 204
+
+
+def test_demo_tournament_delete_keeps_simple_confirmation_contract(client):
+    tid = _create_tournament(client, operation_mode="DEMO").json()["id"]
+    assert client.delete(f"/api/tournaments/{tid}").status_code == 204
 
 
 # ------------------------------------------------------------------ players

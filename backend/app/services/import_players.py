@@ -12,7 +12,9 @@ import io
 import sqlite3
 
 from .. import repository as repo
-from ..models import TournamentStage
+from ..models import EventType, TournamentStage
+from . import teams as teams_service
+from .players import MAX_PLAYERS_PER_TOURNAMENT
 
 NAME_ALIASES = {"姓名", "选手姓名", "名字", "name", "player_name"}
 COLLEGE_ALIASES = {"学院", "学院/单位", "单位", "学校", "部门", "organization", "college"}
@@ -43,10 +45,19 @@ def _cell(row: list[str], i: int | None) -> str:
 
 
 def _parse_csv(content: bytes) -> list[list[str]]:
-    try:
-        text = content.decode("utf-8-sig")  # 兼容 UTF-8 与 UTF-8 BOM
-    except UnicodeDecodeError:
-        raise ImportFileError("CSV 文件编码无法识别，请使用 UTF-8 编码重新保存。")
+    # UTF-8-SIG 同时兼容 UTF-8 与 UTF-8 BOM。GB18030 是 GBK 的超集，
+    # 因而可覆盖 Excel/WPS 常见的“ANSI/GBK”导出，而不需要猜测本地代码页。
+    text: str | None = None
+    for encoding in ("utf-8-sig", "gb18030"):
+        try:
+            text = content.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise ImportFileError(
+            "CSV 文件编码无法识别。请在 Excel/WPS 中另存为 UTF-8 CSV，或使用 GBK/GB18030 编码后重试。"
+        )
     rows = []
     for row in csv.reader(io.StringIO(text)):
         cells = [c.strip() for c in row]
@@ -70,11 +81,23 @@ def _parse_xlsx(content: bytes) -> list[list[str]]:
                 rows.append(cells)
         wb.close()
     except Exception:
-        raise ImportFileError("无法打开 Excel 文件，请确认其为有效的 .xlsx 文件")
+        raise ImportFileError(
+            "无法打开 Excel 文件。请确认文件是未损坏的 .xlsx（WPS 请使用“另存为 Excel 工作簿 .xlsx”），且至少包含一个工作表。"
+        )
     return rows
 
 
 def import_players_file(
+    conn: sqlite3.Connection, tournament_id: int, content: bytes, filename: str,
+    commit: bool = True,
+) -> dict:
+    if commit:
+        with teams_service._roster_write_tx(conn):
+            return _import_players_file_unlocked(conn, tournament_id, content, filename, commit=True)
+    return _import_players_file_unlocked(conn, tournament_id, content, filename, commit=False)
+
+
+def _import_players_file_unlocked(
     conn: sqlite3.Connection, tournament_id: int, content: bytes, filename: str,
     commit: bool = True,
 ) -> dict:
@@ -83,6 +106,8 @@ def import_players_file(
         raise ImportFileError("赛事不存在", 404)
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise ImportFileError("赛事已进入比赛阶段，选手名单已锁定", 409)
+    if tournament["event_type"] == EventType.TEAM.value and tournament["roster_confirmed"]:
+        raise ImportFileError("团体赛名单已确认并冻结，请先撤销冻结后再导入选手", 409)
 
     lower = filename.lower()
     if lower.endswith(".csv"):
@@ -117,10 +142,10 @@ def import_players_file(
 
     for row_no, row in enumerate(rows[1:], start=2):
         total_rows += 1
-        if len(existing) + imported >= 120:
+        if len(existing) + imported >= MAX_PLAYERS_PER_TOURNAMENT:
             skipped += 1
-            errors.append({"row": row_no, "message": "超过单场赛事 120 人上限"})
-            preview_rows.append({"row": row_no, "name": _cell(row, name_col), "college": _cell(row, college_col) or None, "rating_points": 1000, "seed_no": None, "status": "error", "message": "超过单场赛事 120 人上限"})
+            errors.append({"row": row_no, "message": f"超过单场赛事 {MAX_PLAYERS_PER_TOURNAMENT} 人上限"})
+            preview_rows.append({"row": row_no, "name": _cell(row, name_col), "college": _cell(row, college_col) or None, "rating_points": 1000, "seed_no": None, "status": "error", "message": f"超过单场赛事 {MAX_PLAYERS_PER_TOURNAMENT} 人上限"})
             continue
         name = _cell(row, name_col)
         if not name:
@@ -179,8 +204,6 @@ def import_players_file(
             "message": "；".join(row_messages) if row_messages else None,
         })
 
-    if commit:
-        conn.commit()
     return {
         "total_rows": total_rows,
         "imported": imported,

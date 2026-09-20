@@ -6,11 +6,12 @@ from sqlite3 import Connection
 from .. import schemas
 from ..db import get_db
 from ..services import entries as entry_service
+from ..services import teams as teams_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["entries"])
 
 
-def _http(exc: entry_service.EntryError) -> HTTPException:
+def _http(exc: entry_service.EntryError | teams_service.TeamError) -> HTTPException:
     return HTTPException(status_code=exc.code, detail=str(exc))
 
 
@@ -43,6 +44,27 @@ def pair_doubles(
 def confirm_roster(tournament_id: int, conn: Connection = Depends(get_db)):
     try:
         tournament, entries = entry_service.confirm_roster(conn, tournament_id)
-    except entry_service.EntryError as exc:
+    except (entry_service.EntryError, teams_service.TeamError) as exc:
+        # 团体赛的名单校验在 services/teams.py（TeamError），两者都带 code 字段。
         raise _http(exc)
     return schemas.ConfirmRosterResult(tournament=tournament, entries=entries)
+
+
+@router.post("/entries/{entry_id}/withdraw", response_model=schemas.EntryWithdrawalResult)
+def withdraw_entry(
+    tournament_id: int,
+    entry_id: int,
+    payload: schemas.EntryWithdrawRequest,
+    conn: Connection = Depends(get_db),
+):
+    try:
+        entry, affected, preserved = entry_service.withdraw_from_tournament(
+            conn, tournament_id, entry_id, payload.operator_name, payload.reason
+        )
+    except entry_service.EntryError as exc:
+        raise _http(exc)
+    return schemas.EntryWithdrawalResult(
+        entry=entry,
+        affected_match_ids=affected,
+        preserved_finished_matches=preserved,
+    )

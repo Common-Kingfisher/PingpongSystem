@@ -69,6 +69,91 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/order-book-snapshot": {
+      "get": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Get Order Book Snapshot",
+        "operationId": "get_order_book_snapshot_api_tournaments__tournament_id__order_book_snapshot_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderBookSnapshot"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/export": {
+      "get": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Export Tournament",
+        "description": "导出赛事结构化数据（只读）：落库数据 + 运行期推导结果，含 schema_version。\n\n建议在删除赛事前先调用本接口留存备份；导出不修改任何业务数据。",
+        "operationId": "export_tournament_api_tournaments__tournament_id__export_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TournamentExport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}": {
       "get": {
         "tags": [
@@ -115,7 +200,7 @@
           "tournaments"
         ],
         "summary": "Delete Tournament",
-        "description": "删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。",
+        "description": "删除赛事（级联删除分组/选手/球台/比赛，见 db.py 外键 ON DELETE CASCADE）。\n\n不可恢复：删除前建议先调用 `GET /api/tournaments/{id}/export` 留存结构化备份。",
         "operationId": "delete_tournament_api_tournaments__tournament_id__delete",
         "parameters": [
           {
@@ -125,6 +210,22 @@
             "schema": {
               "type": "integer",
               "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "confirm_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Confirm Name"
             }
           }
         ],
@@ -588,6 +689,67 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/entries/{entry_id}/withdraw": {
+      "post": {
+        "tags": [
+          "entries"
+        ],
+        "summary": "Withdraw Entry",
+        "operationId": "withdraw_entry_api_tournaments__tournament_id__entries__entry_id__withdraw_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntryWithdrawRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryWithdrawalResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}/groups": {
       "get": {
         "tags": [
@@ -807,6 +969,53 @@
                     "$ref": "#/components/schemas/PlayerOut"
                   },
                   "title": "Response Set Seeds Api Tournaments  Tournament Id  Seeds Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/seeds/auto": {
+      "post": {
+        "tags": [
+          "seeds"
+        ],
+        "summary": "Auto Seeds",
+        "description": "按赛事积分自动生成种子（单打）：积分高者 S1…SN，同分按选手 id。",
+        "operationId": "auto_seeds_api_tournaments__tournament_id__seeds_auto_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlayerOut"
+                  },
+                  "title": "Response Auto Seeds Api Tournaments  Tournament Id  Seeds Auto Post"
                 }
               }
             }
@@ -1245,6 +1454,49 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/schedule-estimates": {
+      "get": {
+        "tags": [
+          "scheduling"
+        ],
+        "summary": "Schedule Estimates",
+        "description": "预计上场时间（只读模拟）：与自动排台同一套规则，不修改任何业务数据。\n\n签位尚未确定或超出模拟范围时返回 null，不返回假精确时间。",
+        "operationId": "schedule_estimates_api_tournaments__tournament_id__schedule_estimates_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEstimates"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/matches/{match_id}/score": {
       "post": {
         "tags": [
@@ -1320,7 +1572,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ScoreRequest"
+                "$ref": "#/components/schemas/ScoreRevisionRequest"
               }
             }
           }
@@ -1332,6 +1584,52 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MatchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/matches/{match_id}/score-audits": {
+      "get": {
+        "tags": [
+          "scores"
+        ],
+        "summary": "List Score Audits",
+        "operationId": "list_score_audits_api_matches__match_id__score_audits_get",
+        "parameters": [
+          {
+            "name": "match_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Match Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScoreAuditOut"
+                  },
+                  "title": "Response List Score Audits Api Matches  Match Id  Score Audits Get"
                 }
               }
             }
@@ -1374,6 +1672,225 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RankingsResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/preflight": {
+      "get": {
+        "tags": [
+          "preflight"
+        ],
+        "summary": "Inspect Tournament",
+        "operationId": "inspect_tournament_api_tournaments__tournament_id__preflight_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreflightResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decision": {
+      "post": {
+        "tags": [
+          "qualification-decisions"
+        ],
+        "summary": "Create Decision",
+        "operationId": "create_decision_api_tournaments__tournament_id__groups__group_id__qualification_decision_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualificationDecisionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationDecisionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decision/revoke": {
+      "post": {
+        "tags": [
+          "qualification-decisions"
+        ],
+        "summary": "Revoke Decision",
+        "operationId": "revoke_decision_api_tournaments__tournament_id__groups__group_id__qualification_decision_revoke_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualificationDecisionRevoke"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationDecisionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/groups/{group_id}/qualification-decisions": {
+      "get": {
+        "tags": [
+          "qualification-decisions"
+        ],
+        "summary": "List Decisions",
+        "operationId": "list_decisions_api_tournaments__tournament_id__groups__group_id__qualification_decisions_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QualificationDecisionOut"
+                  },
+                  "title": "Response List Decisions Api Tournaments  Tournament Id  Groups  Group Id  Qualification Decisions Get"
                 }
               }
             }
@@ -1458,6 +1975,1235 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/KnockoutTree"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/knockout/undo": {
+      "post": {
+        "tags": [
+          "knockout"
+        ],
+        "summary": "Undo Knockout",
+        "description": "撤销淘汰签表（主签 + 名次排位），恢复到可修正小组结果的状态。\n\n淘汰赛已经开始（有 PLAYING 或已录比分）时返回 409，不静默删除真实结果。",
+        "operationId": "undo_knockout_api_tournaments__tournament_id__knockout_undo_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnockoutUndoResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/teams": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "List Teams",
+        "operationId": "list_teams_api_tournaments__tournament_id__teams_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EntryOut"
+                  },
+                  "title": "Response List Teams Api Tournaments  Tournament Id  Teams Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Create Team",
+        "operationId": "create_team_api_tournaments__tournament_id__teams_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamEntryCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/teams/{entry_id}": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Get Team",
+        "operationId": "get_team_api_tournaments__tournament_id__teams__entry_id__get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Update Team",
+        "operationId": "update_team_api_tournaments__tournament_id__teams__entry_id__patch",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamEntryUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Delete Team",
+        "operationId": "delete_team_api_tournaments__tournament_id__teams__entry_id__delete",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-roster": {
+      "get": {
+        "tags": [
+          "team-roster"
+        ],
+        "summary": "Get Sheet",
+        "operationId": "get_sheet_api_tournaments__tournament_id__team_roster_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamRosterSheetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "team-roster"
+        ],
+        "summary": "Save Sheet",
+        "operationId": "save_sheet_api_tournaments__tournament_id__team_roster_put",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamRosterSaveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamRosterSheetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-roster/unconfirm": {
+      "post": {
+        "tags": [
+          "team-roster"
+        ],
+        "summary": "Unconfirm",
+        "operationId": "unconfirm_api_tournaments__tournament_id__team_roster_unconfirm_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamRosterSheetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties": {
+      "get": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "List Team Ties",
+        "operationId": "list_team_ties_api_tournaments__tournament_id__team_ties_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamTieOut"
+                  },
+                  "title": "Response List Team Ties Api Tournaments  Tournament Id  Team Ties Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Create Team Tie",
+        "operationId": "create_team_tie_api_tournaments__tournament_id__team_ties_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamTieCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTieOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/generate-group-ties": {
+      "post": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Generate Group Ties",
+        "description": "按小组单循环生成该 TEAM 赛事的全部小组对抗（A6.1）。\n\n- 使用**子路径**而不是新的 `/team-group-ties` 命名空间：与同一 router 里的\n  `.../team-ties/{tie_id}/rubber-skeleton` 一样，动作挂在资源下面，命名空间保持一处。\n- 路由只做参数解析、调 service、错误映射；编排与全部业务校验在\n  `services/team_ties.py::generate_group_ties()`（一个写事务，全成或全不成）。\n- 返回 200 + `{\"ties_generated\", \"per_group\"}`（不返回对抗明细：需要明细请调\n  `GET /team-ties`；不返回赛事对象：本操作**不推进赛事阶段**）。",
+        "operationId": "generate_group_ties_api_tournaments__tournament_id__team_ties_generate_group_ties_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateTeamGroupTiesResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}": {
+      "get": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Get Team Tie",
+        "operationId": "get_team_tie_api_tournaments__tournament_id__team_ties__tie_id__get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "tie_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tie Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTieRuntimeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubber-skeleton": {
+      "post": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Build Rubber Skeleton",
+        "operationId": "build_rubber_skeleton_api_tournaments__tournament_id__team_ties__tie_id__rubber_skeleton_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "tie_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tie Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RubberSkeletonRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTieRuntimeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/lineup-options": {
+      "get": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Get Lineup Options",
+        "operationId": "get_lineup_options_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__lineup_options_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "tie_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tie Id"
+            }
+          },
+          {
+            "name": "rubber_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Rubber Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamLineupOptionsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/lineup": {
+      "put": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Set Lineup",
+        "operationId": "set_lineup_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__lineup_put",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "tie_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tie Id"
+            }
+          },
+          {
+            "name": "rubber_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Rubber Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamLineupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTieRuntimeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/start": {
+      "post": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Start Rubber",
+        "operationId": "start_rubber_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__start_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "tie_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tie Id"
+            }
+          },
+          {
+            "name": "rubber_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Rubber Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTieRuntimeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-ties/{tie_id}/rubbers/{rubber_id}/score": {
+      "post": {
+        "tags": [
+          "team-ties"
+        ],
+        "summary": "Record Rubber Score",
+        "operationId": "record_rubber_score_api_tournaments__tournament_id__team_ties__tie_id__rubbers__rubber_id__score_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "tie_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tie Id"
+            }
+          },
+          {
+            "name": "rubber_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Rubber Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamRubberScoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTieRuntimeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-groups/standings": {
+      "get": {
+        "tags": [
+          "team-standings"
+        ],
+        "summary": "List Team Group Standings",
+        "operationId": "list_team_group_standings_api_tournaments__tournament_id__team_groups_standings_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只看某个小组",
+              "title": "Group Id"
+            },
+            "description": "只看某个小组"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamGroupStandingsOut"
+                  },
+                  "title": "Response List Team Group Standings Api Tournaments  Tournament Id  Team Groups Standings Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-groups/{group_id}/standings": {
+      "get": {
+        "tags": [
+          "team-standings"
+        ],
+        "summary": "Get Team Group Standings",
+        "operationId": "get_team_group_standings_api_tournaments__tournament_id__team_groups__group_id__standings_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamGroupStandingsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/qualification": {
+      "get": {
+        "tags": [
+          "team-qualification"
+        ],
+        "summary": "Get Qualification",
+        "operationId": "get_qualification_api_tournaments__tournament_id__qualification_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamQualificationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/qualification/confirm": {
+      "post": {
+        "tags": [
+          "team-qualification"
+        ],
+        "summary": "Confirm Qualification",
+        "operationId": "confirm_qualification_api_tournaments__tournament_id__qualification_confirm_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamQualificationConfirmRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamQualificationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-knockout": {
+      "get": {
+        "tags": [
+          "team-knockout"
+        ],
+        "summary": "Get Team Knockout",
+        "operationId": "get_team_knockout_api_tournaments__tournament_id__team_knockout_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamKnockoutOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/team-knockout/generate": {
+      "post": {
+        "tags": [
+          "team-knockout"
+        ],
+        "summary": "Generate Team Knockout",
+        "operationId": "generate_team_knockout_api_tournaments__tournament_id__team_knockout_generate_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamKnockoutOut"
                 }
               }
             }
@@ -1676,6 +3422,30 @@
         ],
         "title": "EntryMemberOut"
       },
+      "EntryMemberRecordOut": {
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "title": "Entry Id"
+          },
+          "player_id": {
+            "type": "integer",
+            "title": "Player Id"
+          },
+          "member_order": {
+            "type": "integer",
+            "title": "Member Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_id",
+          "player_id",
+          "member_order"
+        ],
+        "title": "EntryMemberRecordOut",
+        "description": "entry_members 表的落库形态。"
+      },
       "EntryOut": {
         "properties": {
           "id": {
@@ -1696,6 +3466,11 @@
           "rating_points": {
             "type": "integer",
             "title": "Rating Points"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order",
+            "default": 0
           },
           "group_id": {
             "anyOf": [
@@ -1723,6 +3498,39 @@
             "type": "string",
             "title": "Status"
           },
+          "withdrawn_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawn At"
+          },
+          "withdrawn_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawn By"
+          },
+          "withdrawal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawal Reason"
+          },
           "members": {
             "items": {
               "$ref": "#/components/schemas/EntryMemberOut"
@@ -1745,14 +3553,62 @@
         ],
         "title": "EntryOut"
       },
+      "EntryWithdrawRequest": {
+        "properties": {
+          "operator_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Operator Name"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operator_name",
+          "reason"
+        ],
+        "title": "EntryWithdrawRequest"
+      },
+      "EntryWithdrawalResult": {
+        "properties": {
+          "entry": {
+            "$ref": "#/components/schemas/EntryOut"
+          },
+          "affected_match_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Affected Match Ids"
+          },
+          "preserved_finished_matches": {
+            "type": "integer",
+            "title": "Preserved Finished Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry",
+          "affected_match_ids",
+          "preserved_finished_matches"
+        ],
+        "title": "EntryWithdrawalResult"
+      },
       "EventType": {
         "type": "string",
         "enum": [
           "SINGLES",
-          "DOUBLES"
+          "DOUBLES",
+          "TEAM"
         ],
         "title": "EventType",
-        "description": "参赛项目。第一版完整支持单打与固定搭档双打。"
+        "description": "参赛项目。\n\nSINGLES / DOUBLES 走现有 Match（Entry vs Entry）引擎；\nTEAM 走 TeamTie / TeamRubber 两层的团体赛引擎（A3 只建立领域模型，\n不生成普通 Match：见 services/teams.py 与 services/team_ties.py）。\n任何\"非单打即双打\"的二元假设都必须显式改成三分支。"
       },
       "GenerateDemoPlayersRequest": {
         "properties": {
@@ -1798,6 +3654,28 @@
           "tournament"
         ],
         "title": "GenerateMatchesResult"
+      },
+      "GenerateTeamGroupTiesResult": {
+        "properties": {
+          "ties_generated": {
+            "type": "integer",
+            "title": "Ties Generated"
+          },
+          "per_group": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Per Group"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ties_generated",
+          "per_group"
+        ],
+        "title": "GenerateTeamGroupTiesResult",
+        "description": "团体小组循环对阵生成结果（A6.1）。\n\n刻意保持最小：只回答\"生成了多少场、每个组多少场\"。\n这里**没有**排名、积分、出线、stage 等字段——团体小组积分与晋级规则尚未冻结，\n生成器也不推进赛事阶段，返回一个看起来像\"小组赛已完成\"的 DTO 会误导消费方。"
       },
       "GroupOut": {
         "properties": {
@@ -1933,6 +3811,34 @@
             "title": "Point Score Match Ids",
             "default": []
           },
+          "manually_resolved": {
+            "type": "boolean",
+            "title": "Manually Resolved",
+            "default": false
+          },
+          "manual_candidate_entry_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Manual Candidate Entry Ids",
+            "default": []
+          },
+          "manual_slots_remaining": {
+            "type": "integer",
+            "title": "Manual Slots Remaining",
+            "default": 0
+          },
+          "qualification_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QualificationDecisionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "entries": {
             "items": {
               "$ref": "#/components/schemas/RankingEntryOut"
@@ -1952,6 +3858,46 @@
           "entries"
         ],
         "title": "GroupRankingOut"
+      },
+      "GroupRecordOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order"
+          },
+          "qualify_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualify Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "name",
+          "sort_order"
+        ],
+        "title": "GroupRecordOut",
+        "description": "groups 表的落库形态（与运行期分组视图 GroupOut 区分）。"
       },
       "GroupingResult": {
         "properties": {
@@ -2272,6 +4218,39 @@
                 "type": "null"
               }
             ]
+          },
+          "called_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
           }
         },
         "type": "object",
@@ -2384,6 +4363,34 @@
           "runner_up"
         ],
         "title": "KnockoutTree"
+      },
+      "KnockoutUndoResult": {
+        "properties": {
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "deleted_main_matches": {
+            "type": "integer",
+            "title": "Deleted Main Matches"
+          },
+          "deleted_placement_matches": {
+            "type": "integer",
+            "title": "Deleted Placement Matches"
+          },
+          "deleted_matches": {
+            "type": "integer",
+            "title": "Deleted Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament",
+          "deleted_main_matches",
+          "deleted_placement_matches",
+          "deleted_matches"
+        ],
+        "title": "KnockoutUndoResult",
+        "description": "撤销淘汰签表的结果：只报告删除了哪些淘汰阶段派生数据。"
       },
       "MatchBracket": {
         "type": "string",
@@ -2666,6 +4673,17 @@
             ],
             "title": "Forfeit Entry Id"
           },
+          "result_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Note"
+          },
           "bracket": {
             "$ref": "#/components/schemas/MatchBracket",
             "default": "GROUP"
@@ -2691,6 +4709,39 @@
               }
             ],
             "title": "Placement Max"
+          },
+          "called_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
           },
           "games": {
             "items": {
@@ -2739,6 +4790,55 @@
         ],
         "title": "MatchStatus",
         "description": "比赛状态。"
+      },
+      "OrderBookSnapshot": {
+        "properties": {
+          "snapshot_at": {
+            "type": "string",
+            "title": "Snapshot At"
+          },
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Entries"
+          },
+          "groups": {
+            "$ref": "#/components/schemas/GroupingResult"
+          },
+          "rankings": {
+            "$ref": "#/components/schemas/RankingsResult"
+          },
+          "tree": {
+            "$ref": "#/components/schemas/KnockoutTree"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/MatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          },
+          "dashboard": {
+            "$ref": "#/components/schemas/Dashboard"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_at",
+          "tournament",
+          "entries",
+          "groups",
+          "rankings",
+          "tree",
+          "matches",
+          "dashboard"
+        ],
+        "title": "OrderBookSnapshot"
       },
       "PairingRequest": {
         "properties": {
@@ -2981,6 +5081,312 @@
         "type": "object",
         "title": "PlayerUpdate"
       },
+      "PreflightCheckOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "level": {
+            "$ref": "#/components/schemas/PreflightLevel"
+          },
+          "action_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Label"
+          },
+          "action_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "title",
+          "detail",
+          "level"
+        ],
+        "title": "PreflightCheckOut"
+      },
+      "PreflightLevel": {
+        "type": "string",
+        "enum": [
+          "READY",
+          "WARN",
+          "BLOCK"
+        ],
+        "title": "PreflightLevel"
+      },
+      "PreflightResult": {
+        "properties": {
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "overall": {
+            "$ref": "#/components/schemas/PreflightLevel"
+          },
+          "ready_count": {
+            "type": "integer",
+            "title": "Ready Count"
+          },
+          "warning_count": {
+            "type": "integer",
+            "title": "Warning Count"
+          },
+          "blocker_count": {
+            "type": "integer",
+            "title": "Blocker Count"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Metrics"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/PreflightCheckOut"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament",
+          "overall",
+          "ready_count",
+          "warning_count",
+          "blocker_count",
+          "metrics",
+          "checks"
+        ],
+        "title": "PreflightResult"
+      },
+      "QualificationDecisionCreate": {
+        "properties": {
+          "selected_entry_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Selected Entry Ids"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Reason"
+          },
+          "operator_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Operator Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "selected_entry_ids",
+          "reason",
+          "operator_name"
+        ],
+        "title": "QualificationDecisionCreate"
+      },
+      "QualificationDecisionExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "selected_entry_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Selected Entry Ids"
+          },
+          "ranking_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Ranking Snapshot",
+            "default": {}
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "operator_name": {
+            "type": "string",
+            "title": "Operator Name"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "invalidated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidated At"
+          },
+          "invalidation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidation Reason"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "group_id",
+          "selected_entry_ids",
+          "reason",
+          "operator_name",
+          "created_at",
+          "active"
+        ],
+        "title": "QualificationDecisionExport",
+        "description": "人工晋级裁定的导出形态：额外带上冻结的排名快照证据。\n\nranking_snapshot 由 rankings.qualification_snapshot() 写入，是 JSON 对象\n（group_id / qualify_count / 各组进度 / 参赛位名次明细）。"
+      },
+      "QualificationDecisionOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "selected_entry_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Selected Entry Ids"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "operator_name": {
+            "type": "string",
+            "title": "Operator Name"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "invalidated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidated At"
+          },
+          "invalidation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidation Reason"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "group_id",
+          "selected_entry_ids",
+          "reason",
+          "operator_name",
+          "created_at",
+          "active"
+        ],
+        "title": "QualificationDecisionOut"
+      },
+      "QualificationDecisionRevoke": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Reason"
+          },
+          "operator_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Operator Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "operator_name"
+        ],
+        "title": "QualificationDecisionRevoke"
+      },
       "RankingEntryOut": {
         "properties": {
           "player_id": {
@@ -3054,6 +5460,11 @@
             "type": "number",
             "title": "Point Ratio",
             "default": 0
+          },
+          "entry_status": {
+            "type": "string",
+            "title": "Entry Status",
+            "default": "ACTIVE"
           }
         },
         "type": "object",
@@ -3097,6 +5508,172 @@
         ],
         "title": "ResultType"
       },
+      "RubberSkeletonRequest": {
+        "properties": {
+          "format_code": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Format Code"
+          },
+          "replace": {
+            "type": "boolean",
+            "title": "Replace",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "format_code"
+        ],
+        "title": "RubberSkeletonRequest"
+      },
+      "ScheduleEstimateMatch": {
+        "properties": {
+          "match_id": {
+            "type": "integer",
+            "title": "Match Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/MatchStage"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "estimated_start_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Start At"
+          },
+          "estimated_wait_minutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Wait Minutes"
+          },
+          "queue_ahead": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Ahead"
+          },
+          "estimate_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Basis"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_id",
+          "stage",
+          "round"
+        ],
+        "title": "ScheduleEstimateMatch",
+        "description": "单场 WAITING 比赛的预计上场时间（无法估算时字段为 null）。"
+      },
+      "ScheduleEstimates": {
+        "properties": {
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "estimated_match_duration_seconds": {
+            "type": "integer",
+            "title": "Estimated Match Duration Seconds"
+          },
+          "estimate_basis": {
+            "type": "string",
+            "title": "Estimate Basis"
+          },
+          "sample_count": {
+            "type": "integer",
+            "title": "Sample Count"
+          },
+          "initial_playing_matches": {
+            "type": "integer",
+            "title": "Initial Playing Matches",
+            "default": 0
+          },
+          "simulated_batches": {
+            "type": "integer",
+            "title": "Simulated Batches",
+            "default": 0
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "default": false
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleEstimateMatch"
+            },
+            "type": "array",
+            "title": "Matches",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament_id",
+          "generated_at",
+          "estimated_match_duration_seconds",
+          "estimate_basis",
+          "sample_count"
+        ],
+        "title": "ScheduleEstimates",
+        "description": "赛事预计上场时间（只读模拟结果）。"
+      },
       "ScheduleNextResult": {
         "properties": {
           "assigned": {
@@ -3120,6 +5697,82 @@
           "assignments"
         ],
         "title": "ScheduleNextResult"
+      },
+      "ScoreAuditOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "match_id": {
+            "type": "integer",
+            "title": "Match Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "before_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Before Snapshot"
+          },
+          "after_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "After Snapshot"
+          },
+          "operator_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Name"
+          },
+          "change_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Reason"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "match_id",
+          "action",
+          "before_snapshot",
+          "after_snapshot",
+          "operator_name",
+          "change_reason",
+          "request_id",
+          "created_at"
+        ],
+        "title": "ScoreAuditOut"
       },
       "ScoreRequest": {
         "properties": {
@@ -3187,10 +5840,180 @@
               }
             ],
             "title": "Note"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "operator_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Name"
+          },
+          "change_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Reason"
           }
         },
         "type": "object",
         "title": "ScoreRequest"
+      },
+      "ScoreRequestOut": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "match_id": {
+            "type": "integer",
+            "title": "Match Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "payload_fingerprint": {
+            "type": "string",
+            "title": "Payload Fingerprint"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "match_id",
+          "action",
+          "payload_fingerprint",
+          "created_at"
+        ],
+        "title": "ScoreRequestOut",
+        "description": "比分写入审计账本（幂等编号）。"
+      },
+      "ScoreRevisionRequest": {
+        "properties": {
+          "player_a_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player A Score"
+          },
+          "player_b_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player B Score"
+          },
+          "games": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MatchGameInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Games"
+          },
+          "result_type": {
+            "$ref": "#/components/schemas/ResultType",
+            "default": "NORMAL"
+          },
+          "forfeit_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forfeit Entry Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "operator_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Operator Name"
+          },
+          "change_reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Change Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operator_name",
+          "change_reason"
+        ],
+        "title": "ScoreRevisionRequest",
+        "description": "改分请求必须在机器可读契约中明确携带操作人和原因。"
       },
       "SetSeedsRequest": {
         "properties": {
@@ -3207,6 +6030,33 @@
           "player_ids"
         ],
         "title": "SetSeedsRequest"
+      },
+      "TableOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TableStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "name",
+          "status"
+        ],
+        "title": "TableOut"
       },
       "TableStatus": {
         "type": "string",
@@ -3239,6 +6089,17 @@
                 "type": "null"
               }
             ]
+          },
+          "recommended_match_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Match Id"
           }
         },
         "type": "object",
@@ -3249,6 +6110,1997 @@
           "match"
         ],
         "title": "TableWithMatch"
+      },
+      "TeamEntryCreate": {
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "member_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Member Ids"
+          },
+          "rating_points": {
+            "type": "integer",
+            "maximum": 99999.0,
+            "minimum": 0.0,
+            "title": "Rating Points",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_name",
+          "member_ids"
+        ],
+        "title": "TeamEntryCreate"
+      },
+      "TeamEntryUpdate": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "member_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array",
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Ids"
+          },
+          "rating_points": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 99999.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating Points"
+          }
+        },
+        "type": "object",
+        "title": "TeamEntryUpdate"
+      },
+      "TeamFormatRuntimeOut": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "rubbers_to_win": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubbers To Win"
+          }
+        },
+        "type": "object",
+        "title": "TeamFormatRuntimeOut",
+        "description": "对抗当前使用的赛制（未建盘/未登记时全部为 null，前端不得据此推算盘序）。"
+      },
+      "TeamGroupQualificationOut": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "qualify_count": {
+            "type": "integer",
+            "title": "Qualify Count"
+          },
+          "provisional": {
+            "type": "boolean",
+            "title": "Provisional"
+          },
+          "requires_manual_resolution": {
+            "type": "boolean",
+            "title": "Requires Manual Resolution"
+          },
+          "can_confirm": {
+            "type": "boolean",
+            "title": "Can Confirm"
+          },
+          "auto_qualified_team_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Auto Qualified Team Ids"
+          },
+          "boundary_tied_team_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Boundary Tied Team Ids"
+          },
+          "boundary_slots_remaining": {
+            "type": "integer",
+            "title": "Boundary Slots Remaining"
+          },
+          "blocked_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Blocked Reasons"
+          },
+          "confirmed_team_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Confirmed Team Ids"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/TeamQualificationCandidateOut"
+            },
+            "type": "array",
+            "title": "Candidates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "qualify_count",
+          "provisional",
+          "requires_manual_resolution",
+          "can_confirm",
+          "auto_qualified_team_ids",
+          "boundary_tied_team_ids",
+          "boundary_slots_remaining",
+          "blocked_reasons",
+          "confirmed_team_ids",
+          "candidates"
+        ],
+        "title": "TeamGroupQualificationOut",
+        "description": "一个小组的晋级状态（A6.3，只读计算 + 已确认结果）。"
+      },
+      "TeamGroupStandingsOut": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "provisional": {
+            "type": "boolean",
+            "title": "Provisional"
+          },
+          "ambiguous": {
+            "type": "boolean",
+            "title": "Ambiguous"
+          },
+          "automatic_qualification_allowed": {
+            "type": "boolean",
+            "title": "Automatic Qualification Allowed"
+          },
+          "qualify_count": {
+            "type": "integer",
+            "title": "Qualify Count"
+          },
+          "standings": {
+            "items": {
+              "$ref": "#/components/schemas/TeamStandingRowOut"
+            },
+            "type": "array",
+            "title": "Standings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "provisional",
+          "ambiguous",
+          "automatic_qualification_allowed",
+          "qualify_count",
+          "standings"
+        ],
+        "title": "TeamGroupStandingsOut",
+        "description": "一个小组的团体排名（A6.2，只读、每次从真实事实重算）。\n\n**刻意不包含** `qualified: true/false`：晋级写入属于 A6.3。"
+      },
+      "TeamKnockoutMatchOut": {
+        "properties": {
+          "tie_id": {
+            "type": "integer",
+            "title": "Tie Id"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "round_name": {
+            "type": "string",
+            "title": "Round Name"
+          },
+          "match_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Index"
+          },
+          "teams_decided": {
+            "type": "boolean",
+            "title": "Teams Decided"
+          },
+          "team_a": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamKnockoutTeamOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "team_b": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamKnockoutTeamOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/TeamTieStatus"
+          },
+          "team_a_score": {
+            "type": "integer",
+            "title": "Team A Score"
+          },
+          "team_b_score": {
+            "type": "integer",
+            "title": "Team B Score"
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tie_id",
+          "round",
+          "round_name",
+          "match_index",
+          "teams_decided",
+          "team_a",
+          "team_b",
+          "status",
+          "team_a_score",
+          "team_b_score",
+          "winner_entry_id"
+        ],
+        "title": "TeamKnockoutMatchOut",
+        "description": "团体淘汰签的一场比赛（复用 TeamTie，`stage='KNOCKOUT'`）。\n\n本版本生成的对抗都是**首轮**（双方已确认）；后续轮次的槽位在读取时补全，\n不进 `ties`，等上游胜者产生后再建立。"
+      },
+      "TeamKnockoutOut": {
+        "properties": {
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "generated": {
+            "type": "boolean",
+            "title": "Generated"
+          },
+          "rounds": {
+            "items": {
+              "$ref": "#/components/schemas/TeamKnockoutRoundOut"
+            },
+            "type": "array",
+            "title": "Rounds"
+          },
+          "ties": {
+            "items": {
+              "$ref": "#/components/schemas/TeamKnockoutMatchOut"
+            },
+            "type": "array",
+            "title": "Ties"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament_id",
+          "generated",
+          "rounds",
+          "ties"
+        ],
+        "title": "TeamKnockoutOut",
+        "description": "团体淘汰签（A6.4）。\n\n比赛单位仍是 TeamTie（`stage='KNOCKOUT'`），**不创建**任何普通 Match；\n`generated=false` 表示尚未生成（`rounds` / `ties` 为空）。"
+      },
+      "TeamKnockoutRoundOut": {
+        "properties": {
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "round_name": {
+            "type": "string",
+            "title": "Round Name"
+          },
+          "match_count": {
+            "type": "integer",
+            "title": "Match Count"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/TeamKnockoutMatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "round",
+          "round_name",
+          "match_count",
+          "matches"
+        ],
+        "title": "TeamKnockoutRoundOut",
+        "description": "淘汰签的一轮。\n\n`match_count` 是**应有场次数**（按签表几何推导）；`matches` 只包含已经建立的对抗，\n因此后续轮次会出现 `match_count > len(matches)`（尚未产生参赛者）。"
+      },
+      "TeamKnockoutTeamOut": {
+        "properties": {
+          "team_entry_id": {
+            "type": "integer",
+            "title": "Team Entry Id"
+          },
+          "team_name": {
+            "type": "string",
+            "title": "Team Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "team_entry_id",
+          "team_name"
+        ],
+        "title": "TeamKnockoutTeamOut",
+        "description": "淘汰签里的一支队伍（后续轮次尚未产生参赛者时为 null）。"
+      },
+      "TeamLineupOptionOut": {
+        "properties": {
+          "player_id": {
+            "type": "integer",
+            "title": "Player Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player_id",
+          "name",
+          "available"
+        ],
+        "title": "TeamLineupOptionOut",
+        "description": "某一边的候选上场队员（B 直接渲染成可点选列表）。"
+      },
+      "TeamLineupOptionsOut": {
+        "properties": {
+          "home": {
+            "items": {
+              "$ref": "#/components/schemas/TeamLineupOptionOut"
+            },
+            "type": "array",
+            "title": "Home"
+          },
+          "away": {
+            "items": {
+              "$ref": "#/components/schemas/TeamLineupOptionOut"
+            },
+            "type": "array",
+            "title": "Away"
+          }
+        },
+        "type": "object",
+        "required": [
+          "home",
+          "away"
+        ],
+        "title": "TeamLineupOptionsOut",
+        "description": "候选阵容按边分组：每边的候选只来自本队，不做跨边混合。"
+      },
+      "TeamLineupRequest": {
+        "properties": {
+          "home_player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Home Player Ids"
+          },
+          "away_player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Away Player Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "home_player_ids",
+          "away_player_ids"
+        ],
+        "title": "TeamLineupRequest",
+        "description": "提交一盘的实际参赛人（覆盖式写入）。"
+      },
+      "TeamPermissionOut": {
+        "properties": {
+          "can_edit_lineup": {
+            "type": "boolean",
+            "title": "Can Edit Lineup"
+          },
+          "can_confirm_lineup": {
+            "type": "boolean",
+            "title": "Can Confirm Lineup"
+          },
+          "can_start": {
+            "type": "boolean",
+            "title": "Can Start"
+          },
+          "can_record_score": {
+            "type": "boolean",
+            "title": "Can Record Score"
+          },
+          "can_revise_score": {
+            "type": "boolean",
+            "title": "Can Revise Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "can_edit_lineup",
+          "can_confirm_lineup",
+          "can_start",
+          "can_record_score",
+          "can_revise_score"
+        ],
+        "title": "TeamPermissionOut",
+        "description": "后端计算的操作权限；前端按钮直接消费这些字段，不得自行推导状态机。"
+      },
+      "TeamQualificationCandidateOut": {
+        "properties": {
+          "team_entry_id": {
+            "type": "integer",
+            "title": "Team Entry Id"
+          },
+          "team_name": {
+            "type": "string",
+            "title": "Team Name"
+          },
+          "auto_qualified": {
+            "type": "boolean",
+            "title": "Auto Qualified"
+          },
+          "on_boundary_tie": {
+            "type": "boolean",
+            "title": "On Boundary Tie"
+          }
+        },
+        "type": "object",
+        "required": [
+          "team_entry_id",
+          "team_name",
+          "auto_qualified",
+          "on_boundary_tie"
+        ],
+        "title": "TeamQualificationCandidateOut",
+        "description": "某组的晋级候选队伍（A6.3）。\n\n`auto_qualified`：名次完全落在晋级线内（不需要人工判断）。\n`on_boundary_tie`：名次区间**跨越**晋级线 → 该块并列无法由系统决定，必须人工确认。\n刻意不提供\"推荐晋级\"这类字段：系统不认识任何打破并列的规则。"
+      },
+      "TeamQualificationConfirmRequest": {
+        "properties": {
+          "qualified_team_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Qualified Team Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "qualified_team_ids"
+        ],
+        "title": "TeamQualificationConfirmRequest",
+        "description": "人工确认晋级名单（A6.3）。\n\n全量替换：请求要给出**所有**小组的晋级队伍。校验（数量、候选范围、\n跨线并列的取舍）全部在服务层基于最新排名执行。"
+      },
+      "TeamQualificationConfirmedOut": {
+        "properties": {
+          "team_entry_id": {
+            "type": "integer",
+            "title": "Team Entry Id"
+          },
+          "team_name": {
+            "type": "string",
+            "title": "Team Name"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "group_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "confirmed_at": {
+            "type": "string",
+            "title": "Confirmed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "team_entry_id",
+          "team_name",
+          "group_id",
+          "group_name",
+          "status",
+          "confirmed_at"
+        ],
+        "title": "TeamQualificationConfirmedOut",
+        "description": "一条已确认的团体晋级记录（A6.3）。"
+      },
+      "TeamQualificationOut": {
+        "properties": {
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "provisional": {
+            "type": "boolean",
+            "title": "Provisional"
+          },
+          "requires_manual_resolution": {
+            "type": "boolean",
+            "title": "Requires Manual Resolution"
+          },
+          "can_confirm": {
+            "type": "boolean",
+            "title": "Can Confirm"
+          },
+          "blocked_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Blocked Reasons"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/TeamGroupQualificationOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "confirmed": {
+            "items": {
+              "$ref": "#/components/schemas/TeamQualificationConfirmedOut"
+            },
+            "type": "array",
+            "title": "Confirmed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament_id",
+          "provisional",
+          "requires_manual_resolution",
+          "can_confirm",
+          "blocked_reasons",
+          "groups",
+          "confirmed"
+        ],
+        "title": "TeamQualificationOut",
+        "description": "团体晋级状态（A6.3）。\n\n`standings`（A6.2）永远是**事实**；本结构回答的是\"谁能晋级、是否需要人工确认\"。\n`confirmed` 是**人工/系统确认过的结果**，为空表示尚未确认。"
+      },
+      "TeamRosterPlayerDraft": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "rating_points": {
+            "type": "integer",
+            "maximum": 99999.0,
+            "minimum": 0.0,
+            "title": "Rating Points",
+            "default": 1000
+          },
+          "team_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Key"
+          },
+          "member_order": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "name"
+        ],
+        "title": "TeamRosterPlayerDraft"
+      },
+      "TeamRosterSaveRequest": {
+        "properties": {
+          "base_revision": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Base Revision"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/TeamRosterTeamDraft"
+            },
+            "type": "array",
+            "title": "Teams"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/TeamRosterPlayerDraft"
+            },
+            "type": "array",
+            "title": "Players"
+          },
+          "deleted_team_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Deleted Team Ids"
+          },
+          "deleted_player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Deleted Player Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "base_revision",
+          "teams",
+          "players"
+        ],
+        "title": "TeamRosterSaveRequest"
+      },
+      "TeamRosterSheetOut": {
+        "properties": {
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Teams"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerOut"
+            },
+            "type": "array",
+            "title": "Players"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tournament",
+          "teams",
+          "players",
+          "revision"
+        ],
+        "title": "TeamRosterSheetOut"
+      },
+      "TeamRosterTeamDraft": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "rating_points": {
+            "type": "integer",
+            "maximum": 99999.0,
+            "minimum": 0.0,
+            "title": "Rating Points",
+            "default": 0
+          },
+          "sort_order": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sort Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "display_name",
+          "sort_order"
+        ],
+        "title": "TeamRosterTeamDraft"
+      },
+      "TeamRubberRecordOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "team_tie_id": {
+            "type": "integer",
+            "title": "Team Tie Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "rubber_type": {
+            "type": "string",
+            "title": "Rubber Type"
+          },
+          "home_slots_json": {
+            "type": "string",
+            "title": "Home Slots Json"
+          },
+          "away_slots_json": {
+            "type": "string",
+            "title": "Away Slots Json"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "match_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "home_player_ids_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Player Ids Json"
+          },
+          "away_player_ids_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away Player Ids Json"
+          },
+          "home_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Score"
+          },
+          "away_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away Score"
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "team_tie_id",
+          "sequence",
+          "rubber_type",
+          "home_slots_json",
+          "away_slots_json",
+          "status",
+          "created_at"
+        ],
+        "title": "TeamRubberRecordOut",
+        "description": "team_rubbers 表的落库形态：位置需求保持存储时的 JSON 文本，运行态字段一并导出。"
+      },
+      "TeamRubberRuntimeOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "team_tie_id": {
+            "type": "integer",
+            "title": "Team Tie Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "rubber_type": {
+            "$ref": "#/components/schemas/TeamRubberType"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TeamRubberStatus"
+          },
+          "home_slots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Home Slots"
+          },
+          "away_slots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Away Slots"
+          },
+          "home_player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Home Player Ids"
+          },
+          "away_player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Away Player Ids"
+          },
+          "home_players": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Home Players"
+          },
+          "away_players": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Away Players"
+          },
+          "home_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Score"
+          },
+          "away_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away Score"
+          },
+          "winner_side": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamSide"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          },
+          "match_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Id"
+          },
+          "lineup_valid": {
+            "type": "boolean",
+            "title": "Lineup Valid",
+            "default": true
+          },
+          "lineup_invalid_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lineup Invalid Reason"
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/TeamPermissionOut"
+          },
+          "lineup_options": {
+            "$ref": "#/components/schemas/TeamLineupOptionsOut"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "team_tie_id",
+          "sequence",
+          "rubber_type",
+          "status",
+          "home_slots",
+          "away_slots",
+          "home_player_ids",
+          "away_player_ids",
+          "home_players",
+          "away_players",
+          "permissions",
+          "lineup_options",
+          "created_at"
+        ],
+        "title": "TeamRubberRuntimeOut",
+        "description": "一盘的完整运行态：位置需求 + 实际阵容 + 比分 + 权限 + 候选阵容。"
+      },
+      "TeamRubberScoreRequest": {
+        "properties": {
+          "home_score": {
+            "type": "integer",
+            "title": "Home Score"
+          },
+          "away_score": {
+            "type": "integer",
+            "title": "Away Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "home_score",
+          "away_score"
+        ],
+        "title": "TeamRubberScoreRequest",
+        "description": "盘比分（胜局数）。合法性由后端按赛事 games_to_win 校验，前端不得自行放宽。"
+      },
+      "TeamRubberStatus": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "READY",
+          "PLAYING",
+          "FINISHED",
+          "SKIPPED"
+        ],
+        "title": "TeamRubberStatus",
+        "description": "团体对抗内单盘（Rubber）状态。\n\nA3 的 skeleton 只会生成 PENDING；A4.1 起真正使用状态机：\nPENDING（未绑定阵容）→ READY（阵容合法）→ PLAYING（已开始）→ FINISHED（已录比分）；\n对抗被一方提前结束时，未打的 PENDING/READY 盘 → SKIPPED。"
+      },
+      "TeamRubberType": {
+        "type": "string",
+        "enum": [
+          "SINGLES",
+          "DOUBLES"
+        ],
+        "title": "TeamRubberType",
+        "description": "单盘类型：只允许单打或双打盘（TEAM 不是盘类型）。"
+      },
+      "TeamSide": {
+        "type": "string",
+        "enum": [
+          "HOME",
+          "AWAY"
+        ],
+        "title": "TeamSide",
+        "description": "团体对抗的两边（主队 / 客队）；用于盘结果与权限表达，不是球队身份。"
+      },
+      "TeamStandingRowOut": {
+        "properties": {
+          "team_entry_id": {
+            "type": "integer",
+            "title": "Team Entry Id"
+          },
+          "team_name": {
+            "type": "string",
+            "title": "Team Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "match_points": {
+            "type": "integer",
+            "title": "Match Points"
+          },
+          "ties_played": {
+            "type": "integer",
+            "title": "Ties Played"
+          },
+          "ties_won": {
+            "type": "integer",
+            "title": "Ties Won"
+          },
+          "ties_lost": {
+            "type": "integer",
+            "title": "Ties Lost"
+          },
+          "rubber_wins": {
+            "type": "integer",
+            "title": "Rubber Wins"
+          },
+          "rubber_losses": {
+            "type": "integer",
+            "title": "Rubber Losses"
+          },
+          "games_won": {
+            "type": "integer",
+            "title": "Games Won"
+          },
+          "games_lost": {
+            "type": "integer",
+            "title": "Games Lost"
+          },
+          "rank_start": {
+            "type": "integer",
+            "title": "Rank Start"
+          },
+          "rank_end": {
+            "type": "integer",
+            "title": "Rank End"
+          },
+          "ambiguous": {
+            "type": "boolean",
+            "title": "Ambiguous"
+          },
+          "eligible_for_qualification": {
+            "type": "boolean",
+            "title": "Eligible For Qualification"
+          },
+          "qualification_position_state": {
+            "type": "string",
+            "title": "Qualification Position State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "team_entry_id",
+          "team_name",
+          "status",
+          "match_points",
+          "ties_played",
+          "ties_won",
+          "ties_lost",
+          "rubber_wins",
+          "rubber_losses",
+          "games_won",
+          "games_lost",
+          "rank_start",
+          "rank_end",
+          "ambiguous",
+          "eligible_for_qualification",
+          "qualification_position_state"
+        ],
+        "title": "TeamStandingRowOut",
+        "description": "团体小组排名的一行（A6.2）。\n\n名次用**区间**表示：`rank_start == rank_end` 表示名次唯一；\n并列时同组所有队伍共享同一区间且 `ambiguous = true`（绝不按 id 打破同分）。"
+      },
+      "TeamSummaryOut": {
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "title": "Entry Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/EntryMemberOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_id",
+          "display_name",
+          "status",
+          "members"
+        ],
+        "title": "TeamSummaryOut",
+        "description": "对抗的一边；成员内嵌，避免前端为显示队伍再发多次请求。"
+      },
+      "TeamTieCreate": {
+        "properties": {
+          "entry_a_id": {
+            "type": "integer",
+            "title": "Entry A Id"
+          },
+          "entry_b_id": {
+            "type": "integer",
+            "title": "Entry B Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/MatchStage",
+            "default": "GROUP"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Round",
+            "default": 1
+          },
+          "match_index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Index"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_a_id",
+          "entry_b_id"
+        ],
+        "title": "TeamTieCreate"
+      },
+      "TeamTieOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/MatchStage"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "match_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Index"
+          },
+          "entry_a_id": {
+            "type": "integer",
+            "title": "Entry A Id"
+          },
+          "entry_b_id": {
+            "type": "integer",
+            "title": "Entry B Id"
+          },
+          "team_a_score": {
+            "type": "integer",
+            "title": "Team A Score"
+          },
+          "team_b_score": {
+            "type": "integer",
+            "title": "Team B Score"
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TeamTieStatus"
+          },
+          "format_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Code"
+          },
+          "format_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Version"
+          },
+          "format_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Snapshot"
+          },
+          "called_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "stage",
+          "group_id",
+          "round",
+          "match_index",
+          "entry_a_id",
+          "entry_b_id",
+          "team_a_score",
+          "team_b_score",
+          "winner_entry_id",
+          "status",
+          "format_code",
+          "format_version",
+          "format_snapshot",
+          "called_at",
+          "started_at",
+          "finished_at",
+          "created_at"
+        ],
+        "title": "TeamTieOut"
+      },
+      "TeamTieRecordOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "match_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Index"
+          },
+          "entry_a_id": {
+            "type": "integer",
+            "title": "Entry A Id"
+          },
+          "entry_b_id": {
+            "type": "integer",
+            "title": "Entry B Id"
+          },
+          "team_a_score": {
+            "type": "integer",
+            "title": "Team A Score"
+          },
+          "team_b_score": {
+            "type": "integer",
+            "title": "Team B Score"
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "format_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Code"
+          },
+          "format_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Version"
+          },
+          "format_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Snapshot"
+          },
+          "called_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "stage",
+          "round",
+          "entry_a_id",
+          "entry_b_id",
+          "team_a_score",
+          "team_b_score",
+          "status",
+          "created_at"
+        ],
+        "title": "TeamTieRecordOut",
+        "description": "team_ties 表的落库形态（A3 追加，单打/双打赛事恒为空列表）。"
+      },
+      "TeamTieRuntimeOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tournament_id": {
+            "type": "integer",
+            "title": "Tournament Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/MatchStage"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "match_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Index"
+          },
+          "entry_a_id": {
+            "type": "integer",
+            "title": "Entry A Id"
+          },
+          "entry_b_id": {
+            "type": "integer",
+            "title": "Entry B Id"
+          },
+          "team_a_score": {
+            "type": "integer",
+            "title": "Team A Score"
+          },
+          "team_b_score": {
+            "type": "integer",
+            "title": "Team B Score"
+          },
+          "winner_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Entry Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TeamTieStatus"
+          },
+          "format_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Code"
+          },
+          "format_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Version"
+          },
+          "format_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Snapshot"
+          },
+          "called_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "home_team": {
+            "$ref": "#/components/schemas/TeamSummaryOut"
+          },
+          "away_team": {
+            "$ref": "#/components/schemas/TeamSummaryOut"
+          },
+          "home_score": {
+            "type": "integer",
+            "title": "Home Score"
+          },
+          "away_score": {
+            "type": "integer",
+            "title": "Away Score"
+          },
+          "target_wins": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Wins"
+          },
+          "format": {
+            "$ref": "#/components/schemas/TeamFormatRuntimeOut"
+          },
+          "rubbers": {
+            "items": {
+              "$ref": "#/components/schemas/TeamRubberRuntimeOut"
+            },
+            "type": "array",
+            "title": "Rubbers"
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/TeamPermissionOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tournament_id",
+          "stage",
+          "group_id",
+          "round",
+          "match_index",
+          "entry_a_id",
+          "entry_b_id",
+          "team_a_score",
+          "team_b_score",
+          "winner_entry_id",
+          "status",
+          "format_code",
+          "format_version",
+          "format_snapshot",
+          "called_at",
+          "started_at",
+          "finished_at",
+          "created_at",
+          "home_team",
+          "away_team",
+          "home_score",
+          "away_score",
+          "format",
+          "rubbers",
+          "permissions"
+        ],
+        "title": "TeamTieRuntimeOut",
+        "description": "对抗的统一运行态契约（A4.1）。\n\n它是 A3 详情响应（TeamTieOut + rubbers）的**超集**：原有字段与命名全部保留，\n只追加 B 需要的运行态字段，因此升级是向后兼容的（旧消费方不会因为改名而断裂）。\n所有修改运行态的写接口都直接返回这个结构，前端整体替换即可，无需二次拉取。"
+      },
+      "TeamTieStatus": {
+        "type": "string",
+        "enum": [
+          "WAITING",
+          "PLAYING",
+          "FINISHED"
+        ],
+        "title": "TeamTieStatus",
+        "description": "团体对抗（TeamTie）状态。A3 只建立状态模型，状态机由 A4 实现。"
       },
       "TournamentCreate": {
         "properties": {
@@ -3306,6 +8158,10 @@
             "minimum": 1.0,
             "title": "Points To Win",
             "default": 11
+          },
+          "operation_mode": {
+            "$ref": "#/components/schemas/TournamentMode",
+            "default": "LIVE"
           }
         },
         "type": "object",
@@ -3317,6 +8173,176 @@
           "qualify_per_group"
         ],
         "title": "TournamentCreate"
+      },
+      "TournamentExport": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "exported_at": {
+            "type": "string",
+            "title": "Exported At"
+          },
+          "tournament": {
+            "$ref": "#/components/schemas/TournamentOut"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerOut"
+            },
+            "type": "array",
+            "title": "Players"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "type": "array",
+            "title": "Entries"
+          },
+          "entry_members": {
+            "items": {
+              "$ref": "#/components/schemas/EntryMemberRecordOut"
+            },
+            "type": "array",
+            "title": "Entry Members"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GroupRecordOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/TableOut"
+            },
+            "type": "array",
+            "title": "Tables"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/MatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          },
+          "match_games": {
+            "items": {
+              "$ref": "#/components/schemas/MatchGameOut"
+            },
+            "type": "array",
+            "title": "Match Games"
+          },
+          "qualification_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/QualificationDecisionExport"
+            },
+            "type": "array",
+            "title": "Qualification Decisions"
+          },
+          "score_requests": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreRequestOut"
+            },
+            "type": "array",
+            "title": "Score Requests"
+          },
+          "team_ties": {
+            "items": {
+              "$ref": "#/components/schemas/TeamTieRecordOut"
+            },
+            "type": "array",
+            "title": "Team Ties"
+          },
+          "team_rubbers": {
+            "items": {
+              "$ref": "#/components/schemas/TeamRubberRecordOut"
+            },
+            "type": "array",
+            "title": "Team Rubbers"
+          },
+          "derived": {
+            "$ref": "#/components/schemas/TournamentExportDerived"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "exported_at",
+          "tournament",
+          "players",
+          "entries",
+          "entry_members",
+          "groups",
+          "tables",
+          "matches",
+          "match_games",
+          "qualification_decisions",
+          "score_requests",
+          "team_ties",
+          "team_rubbers",
+          "derived"
+        ],
+        "title": "TournamentExport",
+        "description": "赛事结构化导出：schema_version + 落库数据 + 推导结果。"
+      },
+      "TournamentExportDerived": {
+        "properties": {
+          "rankings": {
+            "items": {
+              "$ref": "#/components/schemas/GroupRankingOut"
+            },
+            "type": "array",
+            "title": "Rankings"
+          },
+          "champion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runner_up": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "placements": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Placements",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "rankings"
+        ],
+        "title": "TournamentExportDerived",
+        "description": "运行期推导结果，不属于落库数据。"
+      },
+      "TournamentMode": {
+        "type": "string",
+        "enum": [
+          "LIVE",
+          "DEMO"
+        ],
+        "title": "TournamentMode",
+        "description": "赛事运行模式。正式赛事禁止调用演示数据接口。"
       },
       "TournamentOut": {
         "properties": {
@@ -3389,6 +8415,10 @@
               }
             ],
             "title": "Confirmed At"
+          },
+          "operation_mode": {
+            "$ref": "#/components/schemas/TournamentMode",
+            "default": "LIVE"
           }
         },
         "type": "object",

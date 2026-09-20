@@ -36,19 +36,11 @@ def _add_players(client, tid, count):
 def _normal_score(client, match_id):
     response = client.post(
         f"/api/matches/{match_id}/score",
-        json={
-            "games": [
-                {"side_a_score": 11, "side_b_score": 6},
-                {"side_a_score": 9, "side_b_score": 11},
-                {"side_a_score": 12, "side_b_score": 10},
-            ],
-            "result_type": "NORMAL",
-        },
+        json={"player_a_score": 2, "player_b_score": 1, "result_type": "NORMAL"},
     )
     assert response.status_code == 200, response.text
     assert response.json()["player_a_score"] == 2
     assert response.json()["player_b_score"] == 1
-    assert len(response.json()["games"]) == 3
 
 
 def test_doubles_pairing_is_reproducible_and_complete(client):

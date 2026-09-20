@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, Dashboard, Match, Player, Tournament } from '../api'
+import { api, ApiError, Dashboard, Match, Player, ScheduleEstimateMatch, ScoreAudit, TableWithMatch, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import ScoreSheet from '../components/ScoreSheet'
 import LiveTableCard from '../components/LiveTableCard'
+import QueueEstimate from '../components/field/QueueEstimate'
 
 export default function ConsolePage() {
   const [params] = useSearchParams()
@@ -16,12 +17,16 @@ export default function ConsolePage() {
   const [finished, setFinished] = useState<Match[]>([])
   const [waiting, setWaiting] = useState<Match[]>([])
   const [groupNames, setGroupNames] = useState<Record<number, string>>({})
+  const [groupOrder, setGroupOrder] = useState<number[]>([])
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [scoringMatch, setScoringMatch] = useState<Match | null>(null)
   const [scoreMode, setScoreMode] = useState<'record' | 'revise'>('record')
   const [scoreDetailMode, setScoreDetailMode] = useState(false)
+  const [auditMatch, setAuditMatch] = useState<Match | null>(null)
+  const [audits, setAudits] = useState<ScoreAudit[]>([])
+  const [estimateByMatchId, setEstimateByMatchId] = useState<Map<number, ScheduleEstimateMatch>>(new Map())
 
   const nameOf = useCallback(
     (id: number | null) => {
@@ -37,13 +42,14 @@ export default function ConsolePage() {
 
   const load = useCallback(async () => {
     if (tid === null) return
-    const [t, d, ps, fs, ws, gs] = await Promise.all([
+    const [t, d, ps, fs, ws, gs, estimates] = await Promise.all([
       api.getTournament(tid),
       api.getDashboard(tid),
       api.listPlayers(tid),
       api.listMatches(tid, { status: 'FINISHED' }),
       api.listMatches(tid, { status: 'WAITING' }),
       api.getGroups(tid),
+      api.getScheduleEstimates(tid).catch(() => null),
     ])
     setTournament(t)
     setDash(d)
@@ -53,6 +59,8 @@ export default function ConsolePage() {
     const names: Record<number, string> = {}
     for (const g of gs.groups) names[g.id] = g.name
     setGroupNames(names)
+    setGroupOrder(gs.groups.map((g) => g.id))
+    setEstimateByMatchId(new Map((estimates?.matches ?? []).map((item) => [item.match_id, item])))
     setLoaded(true)
   }, [tid])
 
@@ -91,7 +99,7 @@ export default function ConsolePage() {
     setBusy(true)
     setError(null)
     try {
-      if (scoreMode === 'revise') await api.reviseScore(scoringMatch.id, payload)
+      if (scoreMode === 'revise') await api.reviseScore(scoringMatch.id, payload as import('../api').ScoreRevisionPayload)
       else await api.recordScore(scoringMatch.id, payload)
       setScoringMatch(null)
       await refresh()
@@ -100,6 +108,28 @@ export default function ConsolePage() {
     } finally {
       setBusy(false)
     }
+  }
+
+  const showAudits = async (match: Match) => {
+    setError(null)
+    try {
+      setAudits(await api.listScoreAudits(match.id))
+      setAuditMatch(match)
+    } catch (e) {
+      fail(e)
+    }
+  }
+
+  const formatTime = (value: string | null | undefined) => value
+    ? new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN', { hour12: false })
+    : '—'
+
+  const auditScore = (snapshot: Record<string, unknown>) => {
+    const type = snapshot.result_type
+    if (type && type !== 'NORMAL') return '弃权判负'
+    const a = snapshot.player_a_score
+    const b = snapshot.player_b_score
+    return a === null || b === null ? '未录入' : `${a} : ${b}`
   }
 
   const release = async (m: Match) => {
@@ -115,8 +145,51 @@ export default function ConsolePage() {
     }
   }
 
+  // 与后端 group_table_affinity 一致（软约束）：第 i 个小组优先使用第 i 张球台，
+  // 小组多于球台时按球台数取模；没有对应小组的球台不做偏好。
+  const preferredGroupForTable = (tableId: number): number | undefined => {
+    const tables = dash?.tables ?? []
+    if (tables.length === 0) return undefined
+    return groupOrder.find((_, i) => tables[i % tables.length].id === tableId)
+  }
+
+  const preferredLabelForTable = (tableId: number): string | undefined => {
+    const gid = preferredGroupForTable(tableId)
+    if (gid === undefined) return undefined
+    return groupNames[gid] ?? `组${gid}`
+  }
+
+  /** 服务端调度建议（亲和 + 组间公平 + 连续上场惩罚由后端统一计算）。 */
+  const recommendedMatchForTable = (table: TableWithMatch): Match | undefined => {
+    const matchId = table.recommended_match_id
+    if (matchId === null || matchId === undefined) return undefined
+    return dash?.next_playable.find((m) => m.id === matchId)
+  }
+
+  /** 球台提示：优先显示服务端建议的对阵，其次显示该台的固定小组。 */
+  const tableHint = (table: TableWithMatch): string | undefined => {
+    const recommended = recommendedMatchForTable(table)
+    if (recommended) {
+      return `建议安排：${sideName(recommended, 'a')} vs ${sideName(recommended, 'b')}`
+    }
+    const label = preferredLabelForTable(table.id)
+    return label ? `本台优先：${label}` : undefined
+  }
+
+  /** 该球台要安排的比赛：服务端建议优先，其次本台对应小组，最后任意一场。 */
+  const nextMatchForTable = (table: TableWithMatch): Match | undefined => {
+    const playable = dash?.next_playable ?? []
+    if (playable.length === 0) return undefined
+    const recommended = recommendedMatchForTable(table)
+    if (recommended) return recommended
+    const gid = preferredGroupForTable(table.id)
+    if (gid === undefined) return playable[0]
+    return playable.find((m) => m.group_id === gid) ?? playable[0]
+  }
+
   const assignFreeTable = async (tableId: number) => {
-    const next = dash?.next_playable[0]
+    const table = dash?.tables.find((t) => t.id === tableId)
+    const next = table ? nextMatchForTable(table) : undefined
     if (!next) {
       setError('当前没有可安排的比赛')
       return
@@ -161,8 +234,14 @@ export default function ConsolePage() {
     finishedGroupMatches.length === groupTotal &&
     waitingGroupMatches.length === 0 &&
     playingGroupMatches.length === 0
-  // 展示用：仅当赛事仍在小组赛阶段且小组赛全部结束时给出"已完成"状态
-  const showGroupCompleted = tournament?.stage === 'GROUP_STAGE' && groupStageCompleted
+  // 小组赛阶段已经全部结束、但还没生成淘汰赛签表的过渡窗口。
+  // 注意：不能沿用 showGroupCompleted —— 淘汰赛生成后 stage 会变成 KNOCKOUT，
+  // 它随即翻回 false，会让"自动安排下一批比赛"和球台上的"安排比赛"重新出现（原缺陷）。
+  // 这个窗口里既没有可安排的小组赛、也还没有淘汰赛，所以此时隐藏所有排台入口才是正确的。
+  const inGroupStage = tournament?.stage === 'GROUP_STAGE'
+  const groupStageClosedWithoutKnockout = inGroupStage && groupStageCompleted
+  // 横幅只在赛事仍处于小组赛阶段时显示；进入淘汰赛后由淘汰赛页面负责后续引导。
+  const showGroupCompleted = groupStageClosedWithoutKnockout
 
   const hasUnfinishedGroup = stats !== undefined && (stats.waiting > 0 || stats.playing > 0)
 
@@ -217,7 +296,10 @@ export default function ConsolePage() {
         </h2>
         {tournament && (
           <p className="muted">
-            阶段 <span className="badge">{tournament.stage}</span>
+            阶段 <span className="badge">{tournament.stage}</span>{' '}·{' '}
+            <span className={`badge mode-badge ${tournament.operation_mode === 'LIVE' ? 'live' : 'demo'}`}>
+              {tournament.operation_mode === 'LIVE' ? '正式赛事' : '演示赛事'}
+            </span>
           </p>
         )}
         {dash && (
@@ -225,6 +307,14 @@ export default function ConsolePage() {
             <p className="muted">
               比赛进度 {dash.stats.finished} / {dash.stats.total} · 正在进行 {dash.stats.playing} ·
               等待 {dash.stats.waiting} · 球台 {dash.tables.length}
+              {groupStageClosedWithoutKnockout && (
+                <>
+                  {' '}·{' '}
+                  <span className="status-ok">
+                    小组赛 {finishedGroupMatches.length} / {groupTotal} 已完成
+                  </span>
+                </>
+              )}
             </p>
             <div className="progress-bar">
               <div
@@ -238,12 +328,12 @@ export default function ConsolePage() {
         )}
         {error && <p className="status-error">{error}</p>}
         <div className="button-row">
-          {tournament?.stage !== 'FINISHED' && !showGroupCompleted && (
+          {tournament?.stage !== 'FINISHED' && !groupStageClosedWithoutKnockout && (
             <button className="btn primary" onClick={scheduleBatch} disabled={busy}>
               自动安排下一批比赛
             </button>
           )}
-          {tournament?.stage === 'GROUP_STAGE' && hasUnfinishedGroup && (
+          {tournament?.operation_mode === 'DEMO' && tournament.stage === 'GROUP_STAGE' && hasUnfinishedGroup && (
             <button className="btn" onClick={confirmDemoFinish} disabled={busy}>
               <span className="demo-tag">Demo</span> 模拟完成剩余小组赛
             </button>
@@ -263,9 +353,12 @@ export default function ConsolePage() {
       {showGroupCompleted && (
         <div className="card">
           <p className="status-ok">✅ 小组赛已全部完成，晋级名单已经确定，可以进入淘汰赛。</p>
+          <p className="muted">
+            小组赛 {finishedGroupMatches.length} / {groupTotal} 场已全部录分结束，本阶段不再有可安排的比赛。
+          </p>
           <div className="button-row">
             <Link className="btn" to={`/rankings?tid=${tid}`}>
-              查看小组排名
+              查看排名
             </Link>
             <Link className="btn primary" to={`/knockout?tid=${tid}`}>
               进入淘汰赛
@@ -290,7 +383,7 @@ export default function ConsolePage() {
           </div>
           <div className="stat-card">
             <div className="stat-num">{stats.finished}</div>
-            <div className="stat-label">已完成</div>
+            <div className="stat-label">{groupStageClosedWithoutKnockout ? '已完成（小组赛已结束）' : '已完成'}</div>
           </div>
           <div className="stat-card playing">
             <div className="stat-num">{stats.playing}</div>
@@ -306,7 +399,11 @@ export default function ConsolePage() {
       <div className="card live-floor-card">
         <div className="live-floor-heading">
           <div><span className="eyebrow">LIVE FLOOR</span><h3>比赛现场</h3></div>
-          <span className="live-floor-hint">点击球台录入本场大比分</span>
+          <span className="live-floor-hint">
+            {groupStageClosedWithoutKnockout
+              ? '小组赛已结束：本阶段没有可安排的比赛，请先进入淘汰赛生成签表'
+              : '点击球台录入本场大比分'}
+          </span>
         </div>
         <div className="live-table-stack">
           {dash?.tables.map((table) => <LiveTableCard
@@ -315,7 +412,9 @@ export default function ConsolePage() {
             sideName={sideName}
             stageLabel={stageLabel}
             busy={busy}
-            groupFinished={showGroupCompleted}
+            groupFinished={groupStageClosedWithoutKnockout}
+            stageClosed={groupStageClosedWithoutKnockout}
+            hintLabel={tableHint(table)}
             onAssign={assignFreeTable}
             onScore={(match) => { setScoreDetailMode(false); setScoreMode('record'); setScoringMatch(match) }}
             onRelease={release}
@@ -335,6 +434,11 @@ export default function ConsolePage() {
               {sec.matches.map((m) => (
                 <article key={m.id} className="waiting-match-card">
                   <span>#{m.id}</span><strong>{sideName(m, 'a')}</strong><i>VS</i><strong>{sideName(m, 'b')}</strong>
+                  <QueueEstimate
+                    ahead={estimateByMatchId.get(m.id)?.queue_ahead}
+                    estimatedStartAt={estimateByMatchId.get(m.id)?.estimated_start_at}
+                    unavailableReason={estimateByMatchId.get(m.id)?.unavailable_reason}
+                  />
                 </article>
               ))}
             </div>
@@ -351,6 +455,7 @@ export default function ConsolePage() {
               <th>赛段</th>
               <th>对阵</th>
               <th>比分</th>
+              <th>开赛 / 结束</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -366,6 +471,7 @@ export default function ConsolePage() {
                     {m.result_type && m.result_type !== 'NORMAL' ? 'W/O' : `${m.player_a_score} : ${m.player_b_score}`}{' '}
                     {m.games.length > 0 && <span className="muted">{m.games.map((g) => `${g.side_a_score}-${g.side_b_score}`).join(' / ')}</span>}
                   </td>
+                  <td className="match-time-cell"><span>{formatTime(m.started_at)}</span><span>{formatTime(m.finished_at)}</span></td>
                   <td>
                     <button className="btn small" onClick={() => { setScoreDetailMode(false); setScoreMode('revise'); setScoringMatch(m) }}>
                       修改大比分
@@ -373,6 +479,8 @@ export default function ConsolePage() {
                     {m.stage === 'GROUP' && m.result_type === 'NORMAL' && <button className="btn small" onClick={() => { setScoreDetailMode(true); setScoreMode('revise'); setScoringMatch(m) }}>
                       {m.games.length ? '修改小比分' : '补录小比分'}
                     </button>}
+                    <button className="btn small" onClick={() => showAudits(m)}>操作记录</button>
+                    <Link className="btn small" to={`/match-print?tid=${tid}&mid=${m.id}`}>打印成绩单</Link>
                   </td>
                 </tr>
               )
@@ -389,9 +497,30 @@ export default function ConsolePage() {
           pointsToWin={tournament.points_to_win}
           busy={busy}
           detailMode={scoreDetailMode}
+          auditMode={scoreMode}
           onClose={() => setScoringMatch(null)}
           onSave={saveScoreSheet}
         />
+      )}
+      {auditMatch && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="比分操作记录">
+          <div className="score-audit-panel">
+            <button className="modal-close" onClick={() => setAuditMatch(null)} aria-label="关闭">×</button>
+            <span className="eyebrow">MATCH #{auditMatch.id} · AUDIT TRAIL</span>
+            <h2>比分操作记录</h2>
+            <p className="muted">{sideName(auditMatch, 'a')} VS {sideName(auditMatch, 'b')} · 共 {audits.length} 条记录</p>
+            <div className="score-audit-list">
+              {audits.length === 0 && <p className="muted">该场比赛暂无审计记录。历史版本录入的比分不会自动伪造记录。</p>}
+              {audits.map((audit) => (
+                <article key={audit.id}>
+                  <div><strong>{audit.action === 'REVISE' ? '修改比分' : '首次录入'}</strong><time>{formatTime(audit.created_at)}</time></div>
+                  <div className="audit-score-change"><span>{auditScore(audit.before_snapshot)}</span><b>→</b><span>{auditScore(audit.after_snapshot)}</span></div>
+                  <p>{audit.operator_name || '未登记操作人'} · {audit.change_reason || '未填写原因'}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, Match, RankingsResult, ScorePayload, Tournament } from '../api'
+import { api, ApiError, GroupRanking, Match, RankingsResult, ScorePayload, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import ScoreSheet from '../components/ScoreSheet'
 
@@ -16,6 +16,10 @@ export default function RankingsPage() {
   const [busy, setBusy] = useState(false)
   const [matches, setMatches] = useState<Match[]>([])
   const [detailMatch, setDetailMatch] = useState<Match | null>(null)
+  const [decisionGroup, setDecisionGroup] = useState<GroupRanking | null>(null)
+  const [decisionSelected, setDecisionSelected] = useState<number[]>([])
+  const [decisionReason, setDecisionReason] = useState('')
+  const [operatorName, setOperatorName] = useState(() => localStorage.getItem('pingpong_referee_name') ?? '')
 
   const load = useCallback(async () => {
     if (tid === null) return
@@ -75,11 +79,68 @@ export default function RankingsPage() {
     setBusy(true)
     setError(null)
     try {
-      await api.reviseScore(detailMatch.id, payload)
+      await api.reviseScore(detailMatch.id, payload as import('../api').ScoreRevisionPayload)
       setDetailMatch(null)
       await load()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '保存小分失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const openDecision = (group: GroupRanking) => {
+    setDecisionGroup(group)
+    setDecisionSelected([])
+    setDecisionReason('')
+  }
+
+  const toggleDecisionEntry = (entryId: number) => {
+    setDecisionSelected((current) => current.includes(entryId)
+      ? current.filter((id) => id !== entryId)
+      : current.length < (decisionGroup?.manual_slots_remaining ?? 0)
+        ? [...current, entryId]
+        : current)
+  }
+
+  const saveDecision = async () => {
+    if (!decisionGroup || tid === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.createQualificationDecision(tid, decisionGroup.group_id, {
+        selected_entry_ids: decisionSelected,
+        reason: decisionReason.trim(),
+        operator_name: operatorName.trim(),
+      })
+      localStorage.setItem('pingpong_referee_name', operatorName.trim())
+      setDecisionGroup(null)
+      await load()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '保存人工裁定失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const revokeDecision = async (group: GroupRanking) => {
+    if (tid === null || !group.qualification_decision) return
+    const reason = window.prompt('请输入撤销人工裁定的原因：')
+    if (!reason) return
+    const operator = operatorName.trim() || window.prompt('请输入当前主裁判姓名：')?.trim()
+    if (!operator) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.revokeQualificationDecision(tid, group.group_id, {
+        reason,
+        operator_name: operator,
+      })
+      setOperatorName(operator)
+      localStorage.setItem('pingpong_referee_name', operator)
+      await load()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '撤销人工裁定失败')
     } finally {
       setBusy(false)
     }
@@ -119,10 +180,13 @@ export default function RankingsPage() {
         {tournament && (
           <p className="muted">
             各组出线人数可独立设置 · 排序：胜场 &gt; 净胜局 &gt; 积分；仍并列时按相互比赛与乒联小分比率判定
+            {' '}· <span className={`badge mode-badge ${tournament.operation_mode === 'LIVE' ? 'live' : 'demo'}`}>
+              {tournament.operation_mode === 'LIVE' ? '正式赛事' : '演示赛事'}
+            </span>
           </p>
         )}
         {error && <p className="status-error">{error}</p>}
-        {tournament?.stage === 'GROUP_STAGE' &&
+        {tournament?.operation_mode === 'DEMO' && tournament.stage === 'GROUP_STAGE' &&
           rankings.rankings.some((g) => g.finished_matches < g.total_matches) && (
             <div className="button-row">
               <button className="btn" onClick={confirmDemoFinish} disabled={busy}>
@@ -159,7 +223,16 @@ export default function RankingsPage() {
             </div>
           </div>}
           {g.ambiguous_qualification && !g.needs_point_scores && (
-            <p className="status-error">⚠️ 已应用直接交锋和小分比率后仍无法区分，请由裁判长人工裁决。</p>
+            <div className="ranking-decision-callout">
+              <div><strong>晋级线仍无法区分</strong><p>系统不会擅自选择。请主裁判从并列参赛位中指定 {g.manual_slots_remaining} 个晋级名额，并记录依据。</p></div>
+              <button className="btn primary" onClick={() => openDecision(g)} disabled={busy}>主裁判人工裁定</button>
+            </div>
+          )}
+          {g.manually_resolved && g.qualification_decision && (
+            <div className="ranking-decision-record">
+              <div><strong>已由主裁判完成人工裁定</strong><p>{g.qualification_decision.operator_name} · {g.qualification_decision.created_at} · {g.qualification_decision.reason}</p></div>
+              <button className="btn small" onClick={() => revokeDecision(g)} disabled={busy}>撤销裁定</button>
+            </div>
           )}
           <table className="data-table">
             <thead>
@@ -181,15 +254,17 @@ export default function RankingsPage() {
                     {e.rank}
                     {e.tied && <span title="并列，未分先后"> *</span>}
                   </td>
-                  <td>{e.name}</td>
+                  <td>{e.name} {e.entry_status === 'WITHDRAWN' && <span className="withdrawn-badge">已退赛</span>}</td>
                   <td>{e.wins}</td>
                   <td>{e.losses}</td>
                   <td>{e.games_won - e.games_lost}</td>
                   <td>{e.match_points}</td>
                   <td>{e.points_won || e.points_lost ? `${e.points_won}:${e.points_lost}` : '按需补录'}</td>
                   <td>
-                    {e.qualified ? (
-                      <span className="status-ok">✅ 晋级</span>
+                    {e.entry_status === 'WITHDRAWN' ? (
+                      <span className="muted">不参与晋级</span>
+                    ) : e.qualified ? (
+                      <span className="status-ok">✅ {g.qualification_decision?.selected_entry_ids.includes(e.player_id) ? '裁定晋级' : '晋级'}</span>
                     ) : g.finished_matches === g.total_matches && g.total_matches > 0 ? (
                       '—'
                     ) : (
@@ -210,9 +285,47 @@ export default function RankingsPage() {
         pointsToWin={tournament.points_to_win}
         busy={busy}
         detailMode
+        auditMode="revise"
         onClose={() => setDetailMatch(null)}
         onSave={savePointScores}
       />}
+      {decisionGroup && (
+        <div className="modal-overlay" onClick={() => setDecisionGroup(null)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <h3>{decisionGroup.group_name} · 人工指定晋级</h3>
+            <p className="status-warn">仅解决当前晋级线并列。相关比赛成绩或出线人数变化后，本裁定会自动失效。</p>
+            <p>请选择 <strong>{decisionGroup.manual_slots_remaining}</strong> 个参赛位：</p>
+            <div className="decision-candidate-list">
+              {decisionGroup.entries
+                .filter((entry) => decisionGroup.manual_candidate_entry_ids.includes(entry.player_id))
+                .map((entry) => (
+                  <label key={entry.player_id}>
+                    <input
+                      type="checkbox"
+                      checked={decisionSelected.includes(entry.player_id)}
+                      onChange={() => toggleDecisionEntry(entry.player_id)}
+                    />
+                    <span>{entry.name}</span><small>并列第 {entry.rank} 名</small>
+                  </label>
+                ))}
+            </div>
+            <label>裁定理由
+              <textarea value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} placeholder="必填：如现场抽签、组委会确认或赛事规程条款" />
+            </label>
+            <label>操作者（主裁判）
+              <input value={operatorName} onChange={(event) => setOperatorName(event.target.value)} placeholder="必填：姓名" />
+            </label>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setDecisionGroup(null)}>取消</button>
+              <button
+                className="btn primary"
+                onClick={saveDecision}
+                disabled={busy || decisionSelected.length !== decisionGroup.manual_slots_remaining || decisionReason.trim().length < 2 || !operatorName.trim()}
+              >确认并记录裁定</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

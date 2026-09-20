@@ -58,5 +58,7 @@ def set_group_qualification(
     if body.qualify_count >= member_count and member_count > 1:
         raise HTTPException(status_code=422, detail="出线人数必须少于本组参赛单位数")
     updated = repo.update_group_qualify_count(conn, group_id, body.qualify_count)
+    repo.invalidate_qualification_decision(conn, group_id, "小组出线人数已修改")
+    conn.commit()
     decorated = groups_service.get_groups_with_players(conn, tournament_id)
     return next(g for g in decorated if g["id"] == updated["id"])

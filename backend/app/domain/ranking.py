@@ -94,22 +94,14 @@ def compute_group_rankings(
     rank = 1
     for key in sorted(buckets, key=lambda k: (-k[0], -k[1], -k[2])):
         bucket = buckets[key]
-        if len(bucket) == 1:
-            pid = bucket[0]
-            result.append({**stats[pid], "rank": rank, "tied": False})
-            rank += 1
-            continue
-        order, resolved = _resolve_head_to_head(finished, bucket)
-        if not resolved and len(bucket) > 2:
-            order, resolved = _resolve_by_point_ratio(finished, bucket)
-        if resolved:
-            for pid in order:
-                result.append({**stats[pid], "rank": rank, "tied": False})
+        for subgroup in _resolve_bucket(finished, bucket):
+            if len(subgroup) == 1:
+                result.append({**stats[subgroup[0]], "rank": rank, "tied": False})
                 rank += 1
-        else:
-            for pid in order:
-                result.append({**stats[pid], "rank": rank, "tied": True})
-            rank += len(bucket)
+            else:
+                for pid in subgroup:
+                    result.append({**stats[pid], "rank": rank, "tied": True})
+                rank += len(subgroup)
     return result
 
 
@@ -122,10 +114,12 @@ def _ratio(won: int, lost: int) -> float:
 
 def _resolve_by_point_ratio(
     finished: list[dict[str, Any]], bucket: list[int]
-) -> tuple[list[int], bool]:
-    """三人及以上循环同分时，按相互比赛的小分得失比率排序。
+) -> list[list[int]] | None:
+    """三人及以上循环同分时，按相互比赛的小分得失比率分组。
 
-    相关正常完赛场次必须全部有逐局小分；否则返回未解决，让 UI 精确提示补录。
+    返回按 ratio 降序排列的子组列表：每个子组内 ratio 相同（组内按 pid 升序），
+    因此 singleton 子组可确定名次，多元素子组仍并列。
+    相关正常完赛场次缺逐局小分时返回 None（无法解析，整桶并列）。
     """
     ids = set(bucket)
     relevant = []
@@ -135,7 +129,7 @@ def _resolve_by_point_ratio(
         if a in ids and b in ids and match.get("result_type") in (None, "NORMAL"):
             relevant.append(match)
     if not relevant or any(not match.get("games") for match in relevant):
-        return sorted(bucket), False
+        return None
 
     points = {pid: [0, 0] for pid in bucket}
     for match in relevant:
@@ -148,8 +142,13 @@ def _resolve_by_point_ratio(
             points[b][1] += game["side_a_score"]
     ratios = {pid: _ratio(*points[pid]) for pid in bucket}
     order = sorted(bucket, key=lambda pid: (-ratios[pid], pid))
-    resolved = len({round(ratios[pid], 12) for pid in bucket}) == len(bucket)
-    return order, resolved
+    groups: list[list[int]] = []
+    for pid in order:
+        if not groups or round(ratios[pid], 12) != round(ratios[groups[-1][0]], 12):
+            groups.append([pid])
+        else:
+            groups[-1].append(pid)
+    return groups
 
 
 def missing_point_score_match_ids(
@@ -191,16 +190,49 @@ def _resolve_head_to_head(
     return (sorted(bucket), False)
 
 
+def _resolve_bucket(
+    finished: list[dict[str, Any]], bucket: list[int]
+) -> list[list[int]]:
+    """把同分 bucket 解析为若干按名次排序的子组。
+
+    - singleton 子组 → 已确定名次（tied=False）；
+    - 多元素子组 → 仍并列（组内共享 rank、tied=True）；
+    - 整桶无法解析时返回单个整桶子组。
+    """
+    if len(bucket) == 1:
+        return [list(bucket)]
+    order, resolved = _resolve_head_to_head(finished, bucket)
+    if resolved:
+        return [[pid] for pid in order]
+    if len(bucket) > 2:
+        subgroups = _resolve_by_point_ratio(finished, bucket)
+        if subgroups is not None:
+            return subgroups
+    return [sorted(bucket)]
+
+
 def compute_qualification(
     entries: list[dict[str, Any]], qualify_per_group: int
 ) -> tuple[list[int], bool]:
-    """按排名决定晋级名单。返回 (晋级选手 id 列表, 是否出现无法判定的并列)。"""
+    """按排名决定晋级名单。返回 (晋级选手 id 列表, 是否出现并列跨晋级线)。
+
+    以"完整同 rank 组"为单位处理：
+    - 整组能放进剩余名额 → 整组晋级（并列不等于 ambiguity）；
+    - 晋级线切开某个组（组人数 > 剩余名额）→ ambiguous=True，不从该组任选成员。
+    """
     qualified: list[int] = []
     ambiguous = False
+    groups: dict[int, list[int]] = {}
     for e in sorted(entries, key=lambda e: (e["rank"], e["player_id"])):
-        if e["rank"] <= qualify_per_group:
-            if e["tied"]:
-                ambiguous = True
-            else:
-                qualified.append(e["player_id"])
+        groups.setdefault(e["rank"], []).append(e["player_id"])
+    for rank in sorted(groups):
+        group = groups[rank]
+        remaining = qualify_per_group - len(qualified)
+        if remaining <= 0:
+            break
+        if len(group) <= remaining:
+            qualified.extend(group)
+        else:
+            ambiguous = True
+            break
     return qualified, ambiguous

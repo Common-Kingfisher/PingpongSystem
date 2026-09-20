@@ -1,285 +1,94 @@
 /**
  * 后端 API 类型定义与 fetch 封装。
- * 类型与后端 Enum code 一一对应（backend/app/models.py）。
+ *
+ * 契约源：backend/app/schemas.py → FastAPI OpenAPI → docs/openapi-v0.2.json
+ *         → frontend/src/generated/openapi.d.ts（由 openapi-typescript 生成）。
+ * 下面的 API DTO 一律从 generated contract 派生，不再手工复制。
  */
 
-export type MatchStatus = 'WAITING' | 'PLAYING' | 'FINISHED'
-export type TableStatus = 'FREE' | 'OCCUPIED'
-export type TournamentStage = 'REGISTRATION' | 'GROUP_STAGE' | 'KNOCKOUT' | 'FINISHED'
-export type MatchStage = 'GROUP' | 'KNOCKOUT'
-export type EventType = 'SINGLES' | 'DOUBLES'
-export type BronzeMode = 'BRONZE_MATCH' | 'JOINT_BRONZE'
-export type PlacementMode = 'OFF' | 'COMPLETE' | 'TIERED'
-export type MatchBracket = 'GROUP' | 'MAIN' | 'PLACEMENT'
-export type ResultType = 'NORMAL' | 'FORFEIT' | 'WALKOVER' | 'NO_SHOW' | 'DISQUALIFIED'
+import type { components } from './generated/openapi'
 
-export interface Tournament {
-  id: number
-  name: string
-  date: string
-  table_count: number
-  group_count: number
-  qualify_per_group: number
-  stage: TournamentStage
-  created_at: string
-  event_type: EventType
-  bronze_mode: BronzeMode
-  placement_mode: PlacementMode
-  games_to_win: number
-  points_to_win: number
-  roster_confirmed: boolean
-  confirmed_at: string | null
+type Schemas = components['schemas']
+
+// ------------------------------------------------------------------ 枚举（来自 OpenAPI 独立 schema）
+
+export type MatchStatus = Schemas['MatchStatus']
+export type TableStatus = Schemas['TableStatus']
+export type TournamentStage = Schemas['TournamentStage']
+export type MatchStage = Schemas['MatchStage']
+export type EventType = Schemas['EventType']
+export type TeamTieStatus = Schemas['TeamTieStatus']
+export type TeamRubberStatus = Schemas['TeamRubberStatus']
+export type TeamRubberType = Schemas['TeamRubberType']
+export type TournamentMode = Schemas['TournamentMode']
+export type BronzeMode = Schemas['BronzeMode']
+export type PlacementMode = Schemas['PlacementMode']
+export type MatchBracket = Schemas['MatchBracket']
+export type ResultType = Schemas['ResultType']
+
+// ------------------------------------------------------------------ 响应 / 请求 DTO（来自 OpenAPI schema）
+
+export type Tournament = Schemas['TournamentOut']
+export type Player = Schemas['PlayerOut']
+export type EntryMember = Schemas['EntryMemberOut']
+export type Entry = Schemas['EntryOut']
+export type EntryWithdrawalResult = Schemas['EntryWithdrawalResult']
+export type PairingResult = Schemas['PairingResult']
+export type ConfirmRosterResult = Schemas['ConfirmRosterResult']
+// 团体赛（A3 领域 + A4.1 Runtime）：队伍就是 entry_type='TEAM' 的 Entry，所以复用 Entry 类型。
+export type TeamTie = Schemas['TeamTieOut']
+// 详情/写操作统一返回运行态契约（A3 字段的超集 + 阵容/比分/权限）。
+export type TeamTieDetail = Schemas['TeamTieRuntimeOut']
+export type TeamRubber = Schemas['TeamRubberRuntimeOut']
+export type TeamLineupOptions = Schemas['TeamLineupOptionsOut']
+export type TeamPermission = Schemas['TeamPermissionOut']
+export type TeamGroupStandings = Schemas['TeamGroupStandingsOut']
+export type TeamStandingRow = Schemas['TeamStandingRowOut']
+export type TeamQualification = Schemas['TeamQualificationOut']
+export type TeamGroupQualification = Schemas['TeamGroupQualificationOut']
+export type TeamKnockout = Schemas['TeamKnockoutOut']
+export type GenerateTeamGroupTiesResult = Schemas['GenerateTeamGroupTiesResult']
+export type TeamRosterSheet = Schemas['TeamRosterSheetOut']
+export type TeamRosterSaveRequest = Schemas['TeamRosterSaveRequest']
+export type GroupPlayer = Schemas['GroupPlayerOut']
+export type GroupInfo = Schemas['GroupOut']
+export type GroupingResult = Schemas['GroupingResult']
+export type MatchGame = Schemas['MatchGameOut']
+export type ScorePayload = Schemas['ScoreRequest']
+export type ScoreRevisionPayload = Schemas['ScoreRevisionRequest']
+export type ScoreAudit = Schemas['ScoreAuditOut']
+export type GenerateMatchesResult = Schemas['GenerateMatchesResult']
+export type DashboardStats = Schemas['DashboardStats']
+export type ScheduleNextResult = Schemas['ScheduleNextResult']
+export type ImportRowError = Schemas['ImportRowError']
+export type ImportPlayersResult = Schemas['ImportPlayersResult']
+export type ImportPreviewResult = Schemas['ImportPreviewResult']
+export type RankingEntry = Schemas['RankingEntryOut']
+export type GroupRanking = Schemas['GroupRankingOut']
+export type RankingsResult = Schemas['RankingsResult']
+export type QualificationDecision = Schemas['QualificationDecisionOut']
+export type PlayerBrief = Schemas['PlayerBrief']
+export type KnockoutMatch = Schemas['KnockoutMatchOut']
+export type KnockoutRound = Schemas['KnockoutRoundOut']
+export type ScheduleEstimateMatch = Schemas['ScheduleEstimateMatch']
+export type ScheduleEstimates = Schemas['ScheduleEstimates']
+
+export type Match = Schemas['MatchOut']
+export type TableWithMatch = Schemas['TableWithMatch']
+export type Dashboard = Schemas['Dashboard']
+export type OrderBookSnapshot = Schemas['OrderBookSnapshot']
+export type KnockoutTree = Schemas['KnockoutTree']
+export type PreflightResult = Schemas['PreflightResult']
+
+// Client request helper（非 transport contract）：
+// generated TournamentCreate 将带非 null 默认值的字段标为 required，
+// 但客户端可省略 games_to_win / points_to_win（由服务端填充默认值）。
+type TournamentCreateRequest = Omit<Schemas['TournamentCreate'], 'games_to_win' | 'points_to_win'> & {
+  games_to_win?: number
+  points_to_win?: number
 }
 
-export interface Player {
-  id: number
-  tournament_id: number
-  name: string
-  college: string | null
-  group_id: number | null
-  seed_no: number | null
-  rating_points: number
-}
-
-export interface EntryMember {
-  player_id: number
-  name: string
-  college: string | null
-  rating_points: number
-  member_order: number
-}
-
-export interface Entry {
-  id: number
-  tournament_id: number
-  entry_type: EventType
-  display_name: string
-  rating_points: number
-  group_id: number | null
-  seed_no: number | null
-  status: 'ACTIVE' | 'WITHDRAWN'
-  members: EntryMember[]
-}
-
-export interface PairingResult {
-  entries: Entry[]
-  unpaired_players: Player[]
-  pairing_seed: number
-}
-
-export interface ConfirmRosterResult {
-  tournament: Tournament
-  entries: Entry[]
-}
-
-export interface TableInfo {
-  id: number
-  tournament_id: number
-  name: string
-  status: TableStatus
-}
-
-export interface GroupPlayer {
-  id: number
-  name: string
-  college: string | null
-}
-
-export interface GroupInfo {
-  id: number
-  name: string
-  sort_order: number
-  qualify_count: number | null
-  players: GroupPlayer[]
-  entries: Entry[]
-}
-
-export interface GroupingResult {
-  groups: GroupInfo[]
-}
-
-export interface Match {
-  id: number
-  tournament_id: number
-  stage: MatchStage
-  group_id: number | null
-  round: number
-  match_index: number | null
-  player_a_id: number | null
-  player_b_id: number | null
-  player_a_score: number | null
-  player_b_score: number | null
-  winner_id: number | null
-  table_id: number | null
-  status: MatchStatus
-  prev_match_a_id: number | null
-  prev_match_b_id: number | null
-  entry_a_id: number | null
-  entry_b_id: number | null
-  winner_entry_id: number | null
-  entry_a_name: string | null
-  entry_b_name: string | null
-  result_type: ResultType | null
-  forfeit_entry_id: number | null
-  bracket: MatchBracket
-  placement_min: number | null
-  placement_max: number | null
-  games: MatchGame[]
-}
-
-export interface MatchGame {
-  id: number
-  match_id: number
-  game_no: number
-  side_a_score: number
-  side_b_score: number
-  winner_entry_id: number | null
-}
-
-export interface ScorePayload {
-  player_a_score?: number
-  player_b_score?: number
-  games?: { side_a_score: number; side_b_score: number }[]
-  result_type?: ResultType
-  forfeit_entry_id?: number | null
-  note?: string
-}
-
-export interface GenerateMatchesResult {
-  matches_generated: number
-  per_group: Record<string, number>
-  tournament: Tournament
-}
-
-export interface DashboardStats {
-  total: number
-  finished: number
-  playing: number
-  waiting: number
-}
-
-export interface TableWithMatch {
-  id: number
-  name: string
-  status: TableStatus
-  match: Match | null
-}
-
-export interface Dashboard {
-  tournament: Tournament
-  stats: DashboardStats
-  tables: TableWithMatch[]
-  next_playable: Match[]
-}
-
-export interface ScheduleNextResult {
-  assigned: number
-  assignments: { match_id: number; table_id: number }[]
-}
-
-export interface ImportRowError {
-  row: number
-  message: string
-}
-
-export interface ImportPlayersResult {
-  total_rows: number
-  imported: number
-  skipped: number
-  errors: ImportRowError[]
-}
-
-export interface ImportPreviewResult {
-  total_rows: number
-  valid_rows: number
-  skipped: number
-  errors: ImportRowError[]
-  rows: Array<{
-    row: number
-    name: string
-    college: string | null
-    rating_points: number
-    seed_no: number | null
-    status: 'valid' | 'warning' | 'error'
-    message: string | null
-  }>
-}
-
-export interface RankingEntry {
-  player_id: number
-  name: string
-  wins: number
-  losses: number
-  games_won: number
-  games_lost: number
-  rank: number
-  tied: boolean
-  qualified: boolean
-  entry_id: number | null
-  match_points: number
-  points_won: number
-  points_lost: number
-  point_difference: number
-  point_ratio: number
-}
-
-export interface GroupRanking {
-  group_id: number
-  group_name: string
-  qualify_count: number
-  total_matches: number
-  finished_matches: number
-  ambiguous_qualification: boolean
-  needs_point_scores: boolean
-  point_score_match_ids: number[]
-  entries: RankingEntry[]
-}
-
-export interface RankingsResult {
-  rankings: GroupRanking[]
-}
-
-export interface PlayerBrief {
-  id: number
-  name: string | null
-  seed_no: number | null
-  member_names: string[]
-}
-
-export interface KnockoutMatch {
-  id: number
-  round: number
-  match_index: number
-  status: MatchStatus
-  player_a: PlayerBrief | null
-  player_b: PlayerBrief | null
-  player_a_score: number | null
-  player_b_score: number | null
-  winner_id: number | null
-  table_id: number | null
-  prev_match_a_id: number | null
-  prev_match_b_id: number | null
-  bracket: MatchBracket
-  placement_min: number | null
-  placement_max: number | null
-  result_type: ResultType | null
-}
-
-export interface KnockoutRound {
-  round: number
-  label: string
-  matches: KnockoutMatch[]
-}
-
-export interface KnockoutTree {
-  tournament: Tournament
-  rounds: KnockoutRound[]
-  champion: PlayerBrief | null
-  runner_up: PlayerBrief | null
-  placements: Array<Record<string, unknown>>
-  placement_matches: Array<{ range: [number | null, number | null]; match: KnockoutMatch }>
-  champion_path_match_ids: number[]
-}
+// ------------------------------------------------------------------ client-only
 
 export class ApiError extends Error {
   status: number
@@ -312,41 +121,73 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await resp.json()) as T
 }
 
+// ------------------------------------------------------------------ client-only view model（非 API contract DTO）
+
+// 后端 KnockoutTree.placement_matches 是 list[dict]，OpenAPI 只能生成 Record<string, unknown>[]；
+// 这里描述其真实运行时结构，供 UI 使用。
+export interface PlacementMatch {
+  range: [number | null, number | null]
+  match: KnockoutMatch
+}
+
+export function normalizePlacementMatches(raw: KnockoutTree['placement_matches']): PlacementMatch[] {
+  const result: PlacementMatch[] = []
+  for (const item of raw) {
+    const range = item.range
+    const match = item.match
+    if (Array.isArray(range) && range.length === 2 && typeof match === 'object' && match !== null) {
+      const [a, b] = range
+      if ((a === null || typeof a === 'number') && (b === null || typeof b === 'number')) {
+        result.push({ range: [a, b], match: match as KnockoutMatch })
+      }
+    }
+  }
+  return result
+}
+
+function newRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  // 局域网 HTTP 访问可能没有 secure-context Web Crypto；仍生成合法 UUID 供后端幂等键使用。
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16)
+    return (char === 'x' ? value : (value & 0x3) | 0x8).toString(16)
+  })
+}
+
+async function submitScore(path: string, payload: ScorePayload): Promise<Match> {
+  const body = JSON.stringify({
+    ...payload,
+    request_id: payload.request_id ?? newRequestId(),
+  })
+  try {
+    return await request<Match>(path, { method: 'POST', body })
+  } catch (error) {
+    // 网络在服务端提交成功后中断时，用同一 request_id 重试一次；后端会返回同一结果而不重复写入。
+    if (error instanceof ApiError) throw error
+    return request<Match>(path, { method: 'POST', body })
+  }
+}
+
 export const api = {
   health: () => request<{ status: string }>('/api/health'),
 
   listTournaments: () => request<Tournament[]>('/api/tournaments'),
-  createTournament: (body: {
-    name: string
-    date: string
-    table_count: number
-    group_count: number
-    qualify_per_group: number
-    event_type?: EventType
-    bronze_mode?: BronzeMode
-    placement_mode?: PlacementMode
-    games_to_win?: number
-    points_to_win?: number
-  }) => request<Tournament>('/api/tournaments', { method: 'POST', body: JSON.stringify(body) }),
+  createTournament: (body: TournamentCreateRequest) =>
+    request<Tournament>('/api/tournaments', { method: 'POST', body: JSON.stringify(body) }),
   getTournament: (id: number) => request<Tournament>(`/api/tournaments/${id}`),
-  deleteTournament: (id: number) =>
-    request<void>(`/api/tournaments/${id}`, { method: 'DELETE' }),
+  deleteTournament: (id: number, confirmName?: string) =>
+    request<void>(`/api/tournaments/${id}${confirmName ? `?confirm_name=${encodeURIComponent(confirmName)}` : ''}`, { method: 'DELETE' }),
 
   listPlayers: (tournamentId: number) =>
     request<Player[]>(`/api/tournaments/${tournamentId}/players`),
-  addPlayer: (
-    tournamentId: number,
-    body: { name: string; college?: string | null; rating_points?: number },
-  ) =>
+  addPlayer: (tournamentId: number, body: Schemas['PlayerCreate']) =>
     request<Player>(`/api/tournaments/${tournamentId}/players`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  updatePlayer: (
-    tournamentId: number,
-    playerId: number,
-    body: { name?: string; college?: string | null; rating_points?: number },
-  ) =>
+  updatePlayer: (tournamentId: number, playerId: number, body: Schemas['PlayerUpdate']) =>
     request<Player>(`/api/tournaments/${tournamentId}/players/${playerId}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
@@ -357,18 +198,21 @@ export const api = {
   setSeeds: (tournamentId: number, playerIds: number[]) =>
     request<Player[]>(`/api/tournaments/${tournamentId}/seeds`, {
       method: 'PUT',
-      body: JSON.stringify({ player_ids: playerIds }),
+      body: JSON.stringify({ player_ids: playerIds } satisfies Schemas['SetSeedsRequest']),
     }),
+  autoSeeds: (tournamentId: number) =>
+    request<Player[]>(`/api/tournaments/${tournamentId}/seeds/auto`, { method: 'POST' }),
 
   generateDemoPlayers: (tournamentId: number, count: number, with_seeds: boolean) =>
     request<Player[]>(`/api/tournaments/${tournamentId}/demo/generate-players`, {
       method: 'POST',
-      body: JSON.stringify({ count, with_seeds }),
+      body: JSON.stringify({ count, with_seeds } satisfies Schemas['GenerateDemoPlayersRequest']),
     }),
   finishGroupStage: (tournamentId: number) =>
-    request<{ finished: number }>(`/api/tournaments/${tournamentId}/demo/finish-group-stage`, {
-      method: 'POST',
-    }),
+    request<Schemas['DemoFinishGroupStageResult']>(
+      `/api/tournaments/${tournamentId}/demo/finish-group-stage`,
+      { method: 'POST' },
+    ),
   importPlayers: (tournamentId: number, file: File) => {
     const form = new FormData()
     form.append('file', file)
@@ -391,12 +235,116 @@ export const api = {
   pairDoubles: (tournamentId: number, pairingSeed?: number) =>
     request<PairingResult>(`/api/tournaments/${tournamentId}/pair-doubles`, {
       method: 'POST',
-      body: JSON.stringify({ pairing_seed: pairingSeed ?? null }),
+      body: JSON.stringify({ pairing_seed: pairingSeed ?? null } satisfies Schemas['PairingRequest']),
     }),
   confirmRoster: (tournamentId: number) =>
     request<ConfirmRosterResult>(`/api/tournaments/${tournamentId}/confirm-roster`, {
       method: 'POST',
     }),
+  withdrawEntry: (tournamentId: number, entryId: number, body: Schemas['EntryWithdrawRequest']) =>
+    request<EntryWithdrawalResult>(`/api/tournaments/${tournamentId}/entries/${entryId}/withdraw`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  // 团体赛（A3）：队伍即 Entry（entry_type='TEAM'），队员即 entry_members。
+  // 这些接口暂时没有对应界面（队伍名单/团体对抗编排不在本版本范围内），先按契约收口，
+  // 便于后续直接接入；所有业务错误（非团体赛事、名单已锁定、队员重复等）由后端返回可读 detail。
+  listTeams: (tournamentId: number) =>
+    request<Entry[]>(`/api/tournaments/${tournamentId}/teams`),
+  createTeam: (tournamentId: number, body: Schemas['TeamEntryCreate']) =>
+    request<Entry>(`/api/tournaments/${tournamentId}/teams`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getTeam: (tournamentId: number, entryId: number) =>
+    request<Entry>(`/api/tournaments/${tournamentId}/teams/${entryId}`),
+  updateTeam: (tournamentId: number, entryId: number, body: Schemas['TeamEntryUpdate']) =>
+    request<Entry>(`/api/tournaments/${tournamentId}/teams/${entryId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteTeam: (tournamentId: number, entryId: number) =>
+    request<void>(`/api/tournaments/${tournamentId}/teams/${entryId}`, { method: 'DELETE' }),
+
+  getTeamRoster: (tournamentId: number) =>
+    request<TeamRosterSheet>(`/api/tournaments/${tournamentId}/team-roster`),
+  saveTeamRoster: (tournamentId: number, body: TeamRosterSaveRequest) =>
+    request<TeamRosterSheet>(`/api/tournaments/${tournamentId}/team-roster`, {
+      method: 'PUT', body: JSON.stringify(body),
+    }),
+  unconfirmTeamRoster: (tournamentId: number) =>
+    request<TeamRosterSheet>(`/api/tournaments/${tournamentId}/team-roster/unconfirm`, { method: 'POST' }),
+
+  // 团体对抗与盘骨架：A3 只能建"骨架"（每盘需要几个出场位置），不创建任何普通比赛。
+  // 赛制必须来自后端已冻结的注册表，未登记的赛制会返回 422，前端不做任何本地兜底规则。
+  listTeamTies: (tournamentId: number) =>
+    request<TeamTie[]>(`/api/tournaments/${tournamentId}/team-ties`),
+  createTeamTie: (tournamentId: number, body: Schemas['TeamTieCreate']) =>
+    request<TeamTie>(`/api/tournaments/${tournamentId}/team-ties`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getTeamTie: (tournamentId: number, tieId: number) =>
+    request<TeamTieDetail>(`/api/tournaments/${tournamentId}/team-ties/${tieId}`),
+  buildRubberSkeleton: (
+    tournamentId: number,
+    tieId: number,
+    body: Schemas['RubberSkeletonRequest'],
+  ) =>
+    request<TeamTieDetail>(`/api/tournaments/${tournamentId}/team-ties/${tieId}/rubber-skeleton`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  generateTeamGroupTies: (tournamentId: number) =>
+    request<GenerateTeamGroupTiesResult>(`/api/tournaments/${tournamentId}/team-ties/generate-group-ties`, {
+      method: 'POST',
+    }),
+
+  // 团体小组排名（A6.2）：只读事实，每次请求由后端从对抗/单盘事实重算。
+  getTeamGroupStandings: (tournamentId: number) =>
+    request<TeamGroupStandings[]>(`/api/tournaments/${tournamentId}/team-groups/standings`),
+  getTeamQualification: (tournamentId: number) =>
+    request<TeamQualification>(`/api/tournaments/${tournamentId}/qualification`),
+  confirmTeamQualification: (tournamentId: number, qualifiedTeamIds: number[]) =>
+    request<TeamQualification>(`/api/tournaments/${tournamentId}/qualification/confirm`, {
+      method: 'POST', body: JSON.stringify({ qualified_team_ids: qualifiedTeamIds }),
+    }),
+  getTeamKnockout: (tournamentId: number) =>
+    request<TeamKnockout>(`/api/tournaments/${tournamentId}/team-knockout`),
+  generateTeamKnockout: (tournamentId: number) =>
+    request<TeamKnockout>(`/api/tournaments/${tournamentId}/team-knockout/generate`, { method: 'POST' }),
+
+  // 团体赛 Runtime（A4.1）：形状与权限全部由后端计算，前端只消费 permissions 与返回的完整视图。
+  getTeamLineupOptions: (tournamentId: number, tieId: number, rubberId: number) =>
+    request<TeamLineupOptions>(
+      `/api/tournaments/${tournamentId}/team-ties/${tieId}/rubbers/${rubberId}/lineup-options`,
+    ),
+  setTeamLineup: (
+    tournamentId: number,
+    tieId: number,
+    rubberId: number,
+    body: Schemas['TeamLineupRequest'],
+  ) =>
+    request<TeamTieDetail>(
+      `/api/tournaments/${tournamentId}/team-ties/${tieId}/rubbers/${rubberId}/lineup`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  startTeamRubber: (tournamentId: number, tieId: number, rubberId: number) =>
+    request<TeamTieDetail>(
+      `/api/tournaments/${tournamentId}/team-ties/${tieId}/rubbers/${rubberId}/start`,
+      { method: 'POST' },
+    ),
+  recordTeamRubberScore: (
+    tournamentId: number,
+    tieId: number,
+    rubberId: number,
+    body: Schemas['TeamRubberScoreRequest'],
+  ) =>
+    request<TeamTieDetail>(
+      `/api/tournaments/${tournamentId}/team-ties/${tieId}/rubbers/${rubberId}/score`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
 
   getGroups: (tournamentId: number) =>
     request<GroupingResult>(`/api/tournaments/${tournamentId}/groups`),
@@ -407,7 +355,7 @@ export const api = {
   setGroupQualification: (tournamentId: number, groupId: number, qualifyCount: number) =>
     request<GroupInfo>(`/api/tournaments/${tournamentId}/groups/${groupId}/qualification`, {
       method: 'PATCH',
-      body: JSON.stringify({ qualify_count: qualifyCount }),
+      body: JSON.stringify({ qualify_count: qualifyCount } satisfies Schemas['GroupQualifyUpdate']),
     }),
 
   generateGroupMatches: (tournamentId: number) =>
@@ -429,7 +377,7 @@ export const api = {
   assignTable: (matchId: number, tableId: number) =>
     request<Match>(`/api/matches/${matchId}/assign-table`, {
       method: 'POST',
-      body: JSON.stringify({ table_id: tableId }),
+      body: JSON.stringify({ table_id: tableId } satisfies Schemas['AssignTableRequest']),
     }),
   releaseMatch: (matchId: number) =>
     request<Match>(`/api/matches/${matchId}/release`, { method: 'POST' }),
@@ -444,30 +392,40 @@ export const api = {
     matchId: number,
     player_a_score: number | ScorePayload,
     player_b_score?: number,
-  ) =>
-    request<Match>(`/api/matches/${matchId}/score`, {
-      method: 'POST',
-      body: JSON.stringify(
-        typeof player_a_score === 'number'
-          ? { player_a_score, player_b_score }
-          : player_a_score,
-      ),
-    }),
-  reviseScore: (
-    matchId: number,
-    player_a_score: number | ScorePayload,
-    player_b_score?: number,
-  ) =>
-    request<Match>(`/api/matches/${matchId}/revise-score`, {
-      method: 'POST',
-      body: JSON.stringify(
-        typeof player_a_score === 'number'
-          ? { player_a_score, player_b_score }
-          : player_a_score,
-      ),
-    }),
+  ) => submitScore(
+    `/api/matches/${matchId}/score`,
+    typeof player_a_score === 'number'
+      ? { player_a_score, player_b_score, result_type: 'NORMAL' }
+      : player_a_score,
+  ),
+  reviseScore: (matchId: number, payload: ScoreRevisionPayload) => submitScore(
+    `/api/matches/${matchId}/revise-score`,
+    payload,
+  ),
+  listScoreAudits: (matchId: number) =>
+    request<ScoreAudit[]>(`/api/matches/${matchId}/score-audits`),
   getRankings: (tournamentId: number) =>
     request<RankingsResult>(`/api/tournaments/${tournamentId}/rankings`),
+  createQualificationDecision: (
+    tournamentId: number,
+    groupId: number,
+    body: Schemas['QualificationDecisionCreate'],
+  ) => request<QualificationDecision>(
+    `/api/tournaments/${tournamentId}/groups/${groupId}/qualification-decision`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ),
+  revokeQualificationDecision: (
+    tournamentId: number,
+    groupId: number,
+    body: Schemas['QualificationDecisionRevoke'],
+  ) => request<QualificationDecision>(
+    `/api/tournaments/${tournamentId}/groups/${groupId}/qualification-decision/revoke`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ),
+  listQualificationDecisions: (tournamentId: number, groupId: number) =>
+    request<QualificationDecision[]>(
+      `/api/tournaments/${tournamentId}/groups/${groupId}/qualification-decisions`,
+    ),
 
   generateKnockout: (tournamentId: number) =>
     request<KnockoutTree>(`/api/tournaments/${tournamentId}/generate-knockout`, {
@@ -475,4 +433,21 @@ export const api = {
     }),
   getKnockout: (tournamentId: number) =>
     request<KnockoutTree>(`/api/tournaments/${tournamentId}/knockout`),
+  // 撤销淘汰签表：淘汰赛未开始时可用，已开赛返回 409（后端保护，前端只需展示错误）。
+  undoKnockout: (tournamentId: number) =>
+    request<Schemas['KnockoutUndoResult']>(`/api/tournaments/${tournamentId}/knockout/undo`, {
+      method: 'POST',
+    }),
+  // 赛事结构化导出（只读）：可用于删除前的人工备份。
+  exportTournament: (tournamentId: number) =>
+    request<Schemas['TournamentExport']>(`/api/tournaments/${tournamentId}/export`),
+  // 预计上场时间（只读模拟，与自动排台同一套规则）；签位未定的场次为 null。
+  getScheduleEstimates: (tournamentId: number) =>
+    request<Schemas['ScheduleEstimates']>(
+      `/api/tournaments/${tournamentId}/schedule-estimates`,
+    ),
+  getOrderBookSnapshot: (tournamentId: number) =>
+    request<OrderBookSnapshot>(`/api/tournaments/${tournamentId}/order-book-snapshot`),
+  getPreflight: (tournamentId: number) =>
+    request<PreflightResult>(`/api/tournaments/${tournamentId}/preflight`),
 }

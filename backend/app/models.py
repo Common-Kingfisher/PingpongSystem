@@ -39,10 +39,61 @@ class MatchStage(str, Enum):
 
 
 class EventType(str, Enum):
-    """参赛项目。第一版完整支持单打与固定搭档双打。"""
+    """参赛项目。
+
+    SINGLES / DOUBLES 走现有 Match（Entry vs Entry）引擎；
+    TEAM 走 TeamTie / TeamRubber 两层的团体赛引擎（A3 只建立领域模型，
+    不生成普通 Match：见 services/teams.py 与 services/team_ties.py）。
+    任何"非单打即双打"的二元假设都必须显式改成三分支。
+    """
 
     SINGLES = "SINGLES"
     DOUBLES = "DOUBLES"
+    TEAM = "TEAM"
+
+
+class TeamTieStatus(str, Enum):
+    """团体对抗（TeamTie）状态。A3 只建立状态模型，状态机由 A4 实现。"""
+
+    WAITING = "WAITING"
+    PLAYING = "PLAYING"
+    FINISHED = "FINISHED"
+
+
+class TeamRubberStatus(str, Enum):
+    """团体对抗内单盘（Rubber）状态。
+
+    A3 的 skeleton 只会生成 PENDING；A4.1 起真正使用状态机：
+    PENDING（未绑定阵容）→ READY（阵容合法）→ PLAYING（已开始）→ FINISHED（已录比分）；
+    对抗被一方提前结束时，未打的 PENDING/READY 盘 → SKIPPED。
+    """
+
+    PENDING = "PENDING"
+    READY = "READY"
+    PLAYING = "PLAYING"
+    FINISHED = "FINISHED"
+    SKIPPED = "SKIPPED"
+
+
+class TeamRubberType(str, Enum):
+    """单盘类型：只允许单打或双打盘（TEAM 不是盘类型）。"""
+
+    SINGLES = "SINGLES"
+    DOUBLES = "DOUBLES"
+
+
+class TeamSide(str, Enum):
+    """团体对抗的两边（主队 / 客队）；用于盘结果与权限表达，不是球队身份。"""
+
+    HOME = "HOME"
+    AWAY = "AWAY"
+
+
+class TournamentMode(str, Enum):
+    """赛事运行模式。正式赛事禁止调用演示数据接口。"""
+
+    LIVE = "LIVE"
+    DEMO = "DEMO"
 
 
 class BronzeMode(str, Enum):
@@ -68,3 +119,9 @@ class MatchBracket(str, Enum):
     GROUP = "GROUP"
     MAIN = "MAIN"
     PLACEMENT = "PLACEMENT"
+
+
+class PreflightLevel(str, Enum):
+    READY = "READY"
+    WARN = "WARN"
+    BLOCK = "BLOCK"
