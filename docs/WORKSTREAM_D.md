@@ -725,12 +725,31 @@ production 前后端同源 `:8000`，不依赖 CORS，因此没有为 LAN 改成
 | 后端全量 | `backend> python -m pytest` | **758 passed, 30 skipped, 2 warnings** |
 | 后端基线（改动前） | 同一命令（stash 后实测） | 722 passed, 30 skipped, 2 warnings |
 | 本轮新增测试 | `pytest tests/test_static_hosting.py` | 36 passed |
+| 前端回归测试 | `frontend> pnpm test` | **13 passed**（PR #44 review 后新增） |
 | 前端构建 | `frontend> pnpm build` | 通过（`tsc` 无错误，66 modules，dist 生成） |
 
 * failed = 0
 * skipped = 30（与改动前一致，均为既有 skip）
 * warning = 2（与改动前**完全相同**，未新增任何项目级 warning）
 * 新增测试 36 例，全部集中在后端；未引入任何前端测试框架。
+
+> 后续（PR #44 review 后）补充了最小前端测试设施，见 15.3。
+
+### 15.2b 前端测试设施（PR #44 review 后新增，最小集）
+
+原 D2 未引入前端测试框架。reviewer 要求为 Public 路由加回归保护，故补充**最小**设施：
+
+| 文件 | 作用 |
+| --- | --- |
+| `frontend/vitest.config.ts` | 仅设置 `environment: 'jsdom'`；build 仍走 `vite.config.ts`，互不影响 |
+| `frontend/src/__tests__/PublicRoutes.test.tsx` | Public 路由 tid 来源回归测试（13 例） |
+| `frontend/package.json` | 新增 `test: vitest run` 与 devDependencies |
+
+新增 devDependencies：`vitest@^3.2.7`、`jsdom`、`@testing-library/react`、`@testing-library/dom`。
+
+* 刻意**未**引入 Playwright / Cypress / 任何 E2E 框架；
+* `vitest` 固定 `^3.2.7`：vitest 4.1+ / 5.x 的 peer 要求 Vite ≥6，而本仓库仍用 Vite 5.4.11；
+* 测试源码不进生产包：除 `__tests__` 外，`src` 中无任何 `vitest` / `@testing-library` 引用（已验证）。
 
 ### 15.2 新增测试覆盖（`backend/tests/test_static_hosting.py`）
 
@@ -801,6 +820,40 @@ production 前后端同源 `:8000`，不依赖 CORS，因此没有为 LAN 改成
 
 `spa_fallback(request)` 未标注 `Request` 类型时，FastAPI 会把它当成必填 query 参数，所有 fallback 请求返回 422。
 已改为 `spa_fallback(request: Request)`。
+
+### 17.2b 【已修复，PR #44 P1】PublicRoutes 在 `<Routes>` 外读取 descendant `:tid`
+
+**现象**：把 `/public/t/12/live` 这条链接复制到另一台设备/新浏览器打开，页面显示的却是
+`localStorage.activeTournamentId` 里那一场赛事，而不是 URL 里的 `12`。
+
+**原因**：`PublicRoutes()` 在自身**顶层**调用了 `useTidFromPath()`（内部是 `useParams()`），
+但 `/public/t/:tid` 是它下面 `<Routes>` 声明的 **descendant** Route。
+`useParams()` 只能读到**当前组件已经处于的**匹配 Route 及祖先 Route 的参数，读不到后代 Route 的 param。
+
+实测（渲染真实 `App`）该层调用得到：
+
+```text
+DEBUG PublicRoutes tid= undefined params= {}
+```
+
+于是 `tid` 变成 `undefined` 传给 `BigScreenPage` 等旧页面，旧页面按
+`prop > ?tid= > localStorage` 兼容链回退到 `localStorage`。
+
+**修复**：把 tid 解析下沉到 **已匹配的 child route adapter**（`PublicLiveAdapter` 等），
+`PublicRoutes()` 顶层不再读取任何 param。非法 `:tid` 时 adapter 只渲染「链接不可用」提示，
+**不渲染** legacy 页面，因此不会回退到 `?tid=` 或 localStorage。
+
+**回归保护（两层）**
+
+1. `frontend/src/__tests__/PublicRoutes.test.tsx`（`pnpm test`，13 例）：渲染真实 `App`，
+   只替换网络层。断言落在**页面自身发起**的请求（`/dashboard`、`/groups`、`/rankings`、`/knockout`）上。
+   > 注意：`PublicLayout` 头部也会请求 `/api/tournaments/:tid`，而它本来就在匹配上下文内、
+   > 任何情况下都用正确 tid。若只断言它，即使 Public 路由漏传 tid 也会「通过」——
+   > 这个坑在编写测试时真实踩到过，故断言必须针对页面自身的请求。
+2. 端到端（真实 headless Chrome + 真实后端 + 用服务端 access log 取证）：
+   先用 `localStorage=99` 的持久化 profile 打开 `/`，再打开 `/public/t/12/live`。
+   修复前：run2 请求 `tournaments/99` 30 次、`tournaments/12/dashboard` 0 次（FAIL）；
+   修复后：run2 只请求 `tournaments/12`（31 次）与 `tournaments/12/dashboard`（5 次），`99` 0 次（PASS）。
 
 ### 17.3 【已确认非本项目代码问题】venv uvicorn 出现父/子解释器路径不一致
 
