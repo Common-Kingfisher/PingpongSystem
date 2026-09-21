@@ -101,8 +101,10 @@ python -m pytest tests/test_v03_rule_engine_contract.py -q -p no:cacheprovider
 
 结果：
 
+- 当前 HEAD：`ba4a0a6ae7d97235e399a289a3e11663dc730188`
 - 32 skipped
 - 0 failed
+- 2 条依赖弃用警告。
 
 32 个场景均为 Day 1 显式跳过的未来实现契约，不代表相应 V0.3 功能已经完成。
 
@@ -115,6 +117,7 @@ python -m pytest -q -p no:cacheprovider
 
 结果：
 
-- 仍存在已知基线失败：`tests/test_team_group_ties.py::test_generated_tie_continues_into_production_runtime`。
-- D1B 新增测试未引入新的失败。
-- 该团体赛失败不属于 D1B 范围，本 PR 不顺手修复。
+- 当前 HEAD：`ba4a0a6ae7d97235e399a289a3e11663dc730188`
+- 633 passed，32 skipped，0 failed。
+- 2 条依赖弃用警告；完整回归耗时约 3 分钟。
+- 此前记录的 `tests/test_team_group_ties.py::test_generated_tie_continues_into_production_runtime` 已随当前 HEAD 的测试夹具修正解决，不再作为当前基线失败记录。
