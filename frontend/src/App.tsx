@@ -57,7 +57,7 @@ function AppNav() {
     { to: `/team-ties${qs}`, label: '团体对抗' },
     { to: `/team-rankings${qs}`, label: '团体排名' },
     { to: `/team-qualification${qs}`, label: '晋级确认' },
-    { to: `/team-knockout${qs}`, label: '团体淘汰赛' },
+    { to: `/team-knockout${qs}`, label: '团体淘汰签' },
   ]
   const navItems = isTeamEvent === null ? [{ to: '/', label: '赛事首页', end: true }] : isTeamEvent ? teamNavItems : standardNavItems
   return (
