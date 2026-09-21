@@ -7,6 +7,7 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
+from ..services import formats as format_service
 from ..services import matches as matches_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["matches"])
@@ -15,7 +16,10 @@ router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["matches"])
 @router.post("/generate-group-matches", response_model=schemas.GenerateMatchesResult)
 def generate_group_matches(tournament_id: int, conn: Connection = Depends(get_db)):
     try:
-        total, per_group = matches_service.generate_group_matches(conn, tournament_id)
+        handler = format_service.resolve_format_handler(format_service.GROUP_KNOCKOUT)
+        result = handler.generate_matches(conn, tournament_id)
+    except format_service.FormatHandlerError as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc))
     except matches_service.TournamentNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except (
@@ -25,8 +29,8 @@ def generate_group_matches(tournament_id: int, conn: Connection = Depends(get_db
     ) as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return schemas.GenerateMatchesResult(
-        matches_generated=total,
-        per_group=per_group,
+        matches_generated=result.matches_generated,
+        per_group=result.per_group,
         tournament=schemas.TournamentOut(**repo.get_tournament(conn, tournament_id)),
     )
 

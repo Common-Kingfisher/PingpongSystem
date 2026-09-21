@@ -112,7 +112,12 @@ def _create_bracket(
         )
 
 
-def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
+def prepare_knockout_generation(conn: sqlite3.Connection, tournament_id: int) -> dict:
+    """只读校验并准备淘汰签表生成所需数据。
+
+    此函数是淘汰赛生成前置条件的单一来源：既供真正的写库生成路径使用，
+    也供赛制 Handler 查询“能否推进”。它绝不创建比赛、更新阶段或提交事务。
+    """
     tournament = _ensure_tournament(conn, tournament_id)
     if tournament["event_type"] == EventType.TEAM.value:
         raise KnockoutError("团体赛不生成单打式淘汰赛：团体对阵请使用团体对抗（TeamTie）接口")
@@ -138,7 +143,20 @@ def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
     try:
         rounds_spec = knockout.build_bracket(qualifiers_by_group, allow_extended=True)
     except ValueError as exc:
-        raise KnockoutError(str(exc))
+        raise KnockoutError(str(exc)) from exc
+
+    return {
+        "tournament": tournament,
+        "rankings": rankings,
+        "qualifiers_by_group": qualifiers_by_group,
+        "rounds_spec": rounds_spec,
+    }
+
+
+def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
+    prepared = prepare_knockout_generation(conn, tournament_id)
+    tournament = prepared["tournament"]
+    rounds_spec = prepared["rounds_spec"]
 
     id_by_position: dict[tuple[int, int], int] = {}
     for round_spec in rounds_spec:
