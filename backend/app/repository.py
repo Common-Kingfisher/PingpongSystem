@@ -1313,6 +1313,22 @@ def revoke_user_sessions(conn: sqlite3.Connection, user_id: int) -> int:
     return cur.rowcount
 
 
+def get_tournament_access(
+    conn: sqlite3.Connection, tournament_id: int, user_id: int
+) -> Optional[dict]:
+    """返回用户在指定赛事中的角色；不存在或无权访问时返回 None。"""
+    row = conn.execute(
+        "SELECT t.id AS tournament_id, "
+        "CASE WHEN t.owner_user_id = ? THEN 'OWNER' ELSE ta.role END AS role "
+        "FROM tournaments t "
+        "LEFT JOIN tournament_admins ta ON ta.tournament_id = t.id "
+        "AND ta.user_id = ? AND ta.revoked_at IS NULL "
+        "WHERE t.id = ? AND (t.owner_user_id = ? OR ta.role IS NOT NULL)",
+        (user_id, user_id, tournament_id, user_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def count_tournament_access(conn: sqlite3.Connection, user_id: int) -> int:
     row = conn.execute(
         "SELECT COUNT(*) AS count FROM tournaments t "
