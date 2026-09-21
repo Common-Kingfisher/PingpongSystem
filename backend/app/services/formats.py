@@ -139,12 +139,15 @@ class GroupKnockoutHandler(FormatHandler):
         if stage != TournamentStage.GROUP_STAGE.value:
             return {"state": "GROUP_MATCHES_NOT_GENERATED", "can_advance": False, "completed": False}
 
-        group_matches = repo.list_matches(conn, tournament_id, MatchStage.GROUP.value)
-        all_finished = all(
-            match["status"] == MatchStatus.FINISHED.value for match in group_matches
-        )
-        state = "KNOCKOUT_READY" if all_finished else "GROUP_STAGE_IN_PROGRESS"
-        return {"state": state, "can_advance": all_finished, "completed": False}
+        # 与既有 generate_knockout 使用同一排名聚合结果，确保查询状态不会比
+        # 真实推进更乐观。有效人工裁定会由默认 include_decisions=True 的排名
+        # 服务消化，Handler 不复制裁定规则。
+        rankings = rankings_service.get_rankings(conn, tournament_id)
+        if any(group["finished_matches"] < group["total_matches"] for group in rankings):
+            return {"state": "GROUP_STAGE_IN_PROGRESS", "can_advance": False, "completed": False}
+        if any(group["ambiguous_qualification"] for group in rankings):
+            return {"state": "QUALIFICATION_UNRESOLVED", "can_advance": False, "completed": False}
+        return {"state": "KNOCKOUT_READY", "can_advance": True, "completed": False}
 
 
 _HANDLERS: dict[str, FormatHandler] = {GROUP_KNOCKOUT: GroupKnockoutHandler()}
