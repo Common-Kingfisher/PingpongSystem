@@ -1,0 +1,871 @@
+/**
+ * 手机录分页样式（D 轨 Day 3）。
+ *
+ * 设计约束（对应 Day 3 验收条款）：
+ *
+ * - 目标宽度 360 / 375 / 390 / 430px：**不出现横向滚动**；
+ * - 主按钮高度 ≥ 56px、大比分步进按钮 ≥ 56px：单手持机可点；
+ * - 不依赖 hover，也没有把功能藏在右键或 tooltip 里；
+ * - 双方姓名过长时换行/省略，绝不撑破版式；
+ * - 提交按钮固定在底部（safe-area-inset-bottom），键盘弹出后仍可见可提交；
+ * - 命名空间统一 `.ms-*`，不覆盖管理端既有 `.btn` / `.card` 等全局类。
+ *
+ * 断点说明：默认样式按 320–430px 书写（mobile-first），
+ * 只在 ≥560px（平板/桌面预览）时切换为并排布局。
+ */
+
+.ms-shell {
+  --ms-ink: #0b1f33;
+  --ms-muted: #5b6b7c;
+  --ms-line: #d7e0ea;
+  --ms-blue: #1769e0;
+  --ms-blue-soft: #eaf2ff;
+  --ms-red: #b42318;
+  --ms-red-soft: #fff1f0;
+  --ms-green: #067647;
+  --ms-green-soft: #ecfdf3;
+
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 12px 12px 0;
+  color: var(--ms-ink);
+  background: #eef2f7;
+  font-family: "Microsoft YaHei UI", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* 内部一律用 border-box，避免 padding + width:100% 撑出横向滚动 */
+.ms-shell *,
+.ms-shell *::before,
+.ms-shell *::after {
+  box-sizing: border-box;
+}
+
+.ms-shell :focus-visible {
+  outline: 3px solid #f79009;
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- 顶部信息 */
+
+/*
+ * 两行截断（确定性版）。
+ *
+ * ⚠️ 不用 `-webkit-line-clamp`：实测（Chrome 153）在 `.ms-side--b` 这种
+ * `text-align: right` 的盒子上，`-webkit-line-clamp` 不会生效（计算出的 display 是
+ * `flow-root` 而不是 `-webkit-box`），长 ASCII 名字仍然溢出容器
+ * —— 390px 下 `scrollWidth=159 > clientWidth=153`。
+ *
+ * 这里改成「按行高限死高度 + 断词 + 溢出隐藏」，行为只依赖 `line-height` 与
+ * `word-break`，在真实浏览器里可验证、也不依赖厂商私有属性。
+ */
+.ms-clamp-2 {
+  max-height: 2.6em;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ms-header {
+  padding: 14px;
+  color: #fff;
+  background: linear-gradient(135deg, #0e2a47, #143d63);
+  border-radius: 12px;
+}
+
+.ms-header-top {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ms-brand {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: #0e2a47;
+  background: #ffd166;
+  border-radius: 8px;
+  font: 800 14px Bahnschrift, "Arial Narrow", sans-serif;
+}
+
+.ms-header-title {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+/* 赛事名过长：两行内截断，不撑破网格（同 .ms-clamp-2 的确定性做法） */
+.ms-header-title strong {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.3;
+  max-height: 2.6em;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ms-header-title span {
+  color: #b9d2ea;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ms-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ms-chip {
+  padding: 4px 9px;
+  color: #dbe9f7;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- 对阵 */
+
+.ms-versus {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 14px 12px;
+  background: #fff;
+  border: 1px solid var(--ms-line);
+  border-radius: 12px;
+}
+
+.ms-side {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.ms-side--b {
+  text-align: right;
+}
+
+.ms-side-tag {
+  justify-self: start;
+  padding: 1px 7px;
+  color: var(--ms-blue);
+  background: var(--ms-blue-soft);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ms-side--b .ms-side-tag {
+  justify-self: end;
+}
+
+/* 姓名过长：最多两行后截断；长英文 / 学号也能断开（确定性 clamp，见 .ms-clamp-2 注释） */
+.ms-side-name {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.25;
+  max-height: 2.6em;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ms-versus-mark {
+  color: var(--ms-muted);
+  font: 800 13px Bahnschrift, "Arial Narrow", sans-serif;
+  letter-spacing: 0.08em;
+}
+
+/* ---------------------------------------------------------------- 通用卡片 / 表单 */
+
+.ms-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--ms-line);
+  border-radius: 12px;
+}
+
+.ms-field {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #33475b;
+}
+
+.ms-field > span,
+.ms-field > legend {
+  padding: 0;
+  color: #33475b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ms-field input[type='text'],
+.ms-field textarea,
+.ms-field select {
+  width: 100%;
+  min-height: 50px;
+  padding: 11px 12px;
+  color: var(--ms-ink);
+  background: #fff;
+  border: 1px solid #c7d3e0;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 16px; /* iOS 上 < 16px 会触发聚焦自动放大 */
+  font-weight: 500;
+}
+
+.ms-field textarea {
+  min-height: 66px;
+  resize: vertical;
+}
+
+.ms-field--radio {
+  gap: 8px;
+}
+
+.ms-radio {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 12px;
+  background: #f7fafc;
+  border: 1px solid #d7e0ea;
+  border-radius: 9px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ms-radio input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--ms-blue);
+}
+
+.ms-radio span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ms-hint {
+  margin: 0;
+  color: var(--ms-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.ms-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ms-notice--warn {
+  color: #7a4a04;
+  background: #fff8e9;
+  border: 1px solid #f1cf98;
+}
+
+/* ---------------------------------------------------------------- 模式切换 */
+
+.ms-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 5px;
+  background: #dfe7f0;
+  border-radius: 11px;
+}
+
+.ms-mode-tab {
+  min-height: 46px;
+  color: #3d556e;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ms-mode-tab.is-active {
+  color: var(--ms-ink);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(11, 31, 51, 0.16);
+}
+
+/* ---------------------------------------------------------------- 大比分 */
+
+.ms-score-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.ms-score-side {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.ms-score-side--b {
+  text-align: right;
+}
+
+.ms-score-who {
+  font-size: 15px;
+  font-weight: 800;
+  color: #33475b;
+  /* 单行截断：这是比分输入上方的辅助姓名，两侧各占半屏，不参与长文本换行 */
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-height: 1.6em;
+}
+
+.ms-score-row {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr) 60px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.ms-step {
+  min-height: 64px;
+  color: var(--ms-blue);
+  background: var(--ms-blue-soft);
+  border: 2px solid #9cbcf9;
+  border-radius: 10px;
+  font: 800 30px/1 Bahnschrift, "Arial Narrow", sans-serif;
+  cursor: pointer;
+  touch-action: manipulation; /* 去掉移动端 300ms 点击延迟与双击缩放 */
+}
+
+.ms-step:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ms-score-side--b .ms-step {
+  color: var(--ms-red);
+  background: var(--ms-red-soft);
+  border-color: #f5aaa6;
+}
+
+.ms-score-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 64px;
+  padding: 0 4px;
+  color: var(--ms-ink);
+  background: #fff;
+  border: 2px solid #c7d3e0;
+  border-radius: 10px;
+  font: 800 36px/1 Bahnschrift, "DIN Alternate", "Arial Narrow", sans-serif;
+  text-align: center;
+  /* 去掉 number 类型在移动端的上下箭头占位，避免小屏被挤压 */
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.ms-score-input::-webkit-outer-spin-button,
+.ms-score-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.ms-score-side--b .ms-score-input {
+  border-color: #f0c2bf;
+}
+
+.ms-score-colon {
+  text-align: center;
+  color: var(--ms-muted);
+  font: 800 24px/1 Bahnschrift, "Arial Narrow", sans-serif;
+}
+
+/* ---------------------------------------------------------------- 逐局小比分 */
+
+.ms-card--games {
+  gap: 10px;
+}
+
+.ms-games-toggle {
+  min-height: 52px;
+  color: var(--ms-blue);
+  background: var(--ms-blue-soft);
+  border: 1px dashed #9cbcf9;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.ms-games-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ms-games-head strong {
+  font-size: 14px;
+}
+
+.ms-games-close,
+.ms-link-btn {
+  min-height: 40px;
+  padding: 0 4px;
+  color: var(--ms-muted);
+  background: transparent;
+  border: 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ms-link-btn {
+  justify-self: start;
+  color: var(--ms-blue);
+  text-decoration: none;
+}
+
+.ms-games-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ms-game-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+}
+
+.ms-game-no {
+  color: var(--ms-muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ms-game-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+}
+
+.ms-game-inputs i {
+  color: var(--ms-muted);
+  font-style: normal;
+  font-weight: 800;
+}
+
+.ms-game-inputs input {
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  padding: 0 2px;
+  color: var(--ms-ink);
+  background: #fff;
+  border: 2px solid #c7d3e0;
+  border-radius: 9px;
+  font: 800 24px/1 Bahnschrift, "Arial Narrow", sans-serif;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.ms-game-inputs input::-webkit-outer-spin-button,
+.ms-game-inputs input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.ms-game-remove {
+  min-height: 44px;
+  min-width: 52px;
+  padding: 0 8px;
+  color: var(--ms-red);
+  background: var(--ms-red-soft);
+  border: 1px solid #f5aaa6;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.ms-games-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ms-games-count {
+  color: var(--ms-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------- 错误 / 确认 */
+
+.ms-error {
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--ms-red);
+  background: var(--ms-red-soft);
+  border: 1px solid #f5aaa6;
+  border-left-width: 4px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ms-confirm {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  color: #7a4a04;
+  background: #fff8e9;
+  border: 1px solid #f1cf98;
+  border-left-width: 4px;
+  border-radius: 10px;
+}
+
+.ms-confirm p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ms-confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* ---------------------------------------------------------------- 按钮 */
+
+.ms-btn {
+  display: inline-grid;
+  place-items: center;
+  min-height: 52px;
+  padding: 0 14px;
+  color: #fff;
+  background: var(--ms-blue);
+  border: 1px solid var(--ms-blue);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.ms-btn--ghost {
+  color: #24435f;
+  background: #fff;
+  border-color: #c7d3e0;
+}
+
+.ms-btn--danger {
+  background: var(--ms-red);
+  border-color: var(--ms-red);
+}
+
+.ms-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------- 底部固定提交 */
+
+.ms-submit-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: grid;
+  gap: 8px;
+  margin: 2px -12px 0;
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: rgba(255, 255, 255, 0.97);
+  border-top: 1px solid var(--ms-line);
+  box-shadow: 0 -6px 18px rgba(11, 31, 51, 0.08);
+  backdrop-filter: blur(6px);
+}
+
+.ms-submit-hint {
+  margin: 0;
+  color: var(--ms-muted);
+  font-size: 12.5px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ms-submit {
+  min-height: 58px;
+  color: #fff;
+  background: var(--ms-blue);
+  border: 0;
+  border-radius: 11px;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.ms-submit:disabled {
+  background: #9db4cc;
+  cursor: not-allowed;
+}
+
+.ms-submit-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  justify-content: center;
+}
+
+.ms-submit-links a {
+  min-height: 32px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--ms-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------- 完成态 */
+
+.ms-finished {
+  display: grid;
+  gap: 12px;
+}
+
+.ms-done {
+  display: grid;
+  gap: 10px;
+  padding: 18px 14px;
+  background: var(--ms-green-soft);
+  border: 1px solid #b7e4c7;
+  border-left-width: 5px;
+  border-radius: 12px;
+}
+
+.ms-done--abnormal {
+  color: #7a4a04;
+  background: #fff8e9;
+  border-color: #f1cf98;
+}
+
+.ms-done-title {
+  margin: 0;
+  color: var(--ms-green);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.ms-done--abnormal .ms-done-title {
+  color: #92400e;
+}
+
+.ms-done-score {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+}
+
+.ms-done-score span {
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ms-done-score span:last-child {
+  text-align: right;
+}
+
+.ms-done-score span.is-winner {
+  font-weight: 800;
+  color: var(--ms-green);
+}
+
+.ms-done-score b {
+  padding: 6px 12px;
+  color: #fff;
+  background: var(--ms-ink);
+  border-radius: 9px;
+  font: 800 26px/1 Bahnschrift, "DIN Alternate", sans-serif;
+  white-space: nowrap;
+}
+
+.ms-done-result {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.ms-versus-line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ms-versus-line i {
+  color: var(--ms-muted);
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ms-done-games,
+.ms-done-note,
+.ms-done-admin {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.ms-done-admin {
+  padding-top: 8px;
+  border-top: 1px dashed #e0c98a;
+  color: #7a4a04;
+}
+
+.ms-finished-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.ms-finished-hint {
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ---------------------------------------------------------------- 加载 / 错误页 */
+
+.ms-loading,
+.ms-message {
+  margin: 24px 0;
+  padding: 20px 16px;
+  background: #fff;
+  border: 1px solid var(--ms-line);
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ms-message h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.ms-message p {
+  margin: 0 0 14px;
+  color: var(--ms-muted);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.ms-message-actions {
+  display: grid;
+  gap: 8px;
+}
+
+/* ---------------------------------------------------------------- ≥560px（平板 / 桌面预览） */
+
+@media (min-width: 560px) {
+  .ms-shell {
+    max-width: 560px;
+    padding: 16px 16px 0;
+  }
+
+  .ms-score-grid {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .ms-score-row {
+    grid-template-columns: 64px minmax(0, 1fr) 64px;
+  }
+
+  .ms-score-colon {
+    font-size: 30px;
+  }
+
+  .ms-submit-bar {
+    margin-inline: -16px;
+    padding-inline: 16px;
+  }
+
+  .ms-message-actions,
+  .ms-finished-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* 减少动效偏好：本页没有动画，这里只为未来的加载指示留一致性 */
+@media (prefers-reduced-motion: reduce) {
+  .ms-shell * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

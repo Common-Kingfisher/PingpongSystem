@@ -19,6 +19,7 @@ import TeamRankingsPage from './pages/TeamRankingsPage'
 import TeamQualificationPage from './pages/TeamQualificationPage'
 import TeamKnockoutPage from './pages/TeamKnockoutPage'
 import PublicRoutes from './PublicRoutes'
+import MobileScoreRoutes from './MobileScoreRoutes'
 import { getActiveTournamentId } from './activeTournament'
 import { api } from './api'
 
@@ -86,6 +87,13 @@ export default function App() {
   // 该分支只做入口分流，Public 路由本身全部收敛在 PublicRoutes.tsx，避免与 A/C 轨争抢 App.tsx。
   if (pathname === '/public' || pathname.startsWith('/public/')) {
     return <PublicRoutes />
+  }
+
+  // V0.3 手机录分（D 轨 Day 3）：`/admin/t/:tid/score/:matchId` 只渲染一场比赛的录分页。
+  // 与 Public 分支同理，提前返回是为了**不渲染管理端 App Shell**（顶部 11 个导航在手机上
+  // 无法使用，且会挤掉现场录分需要的空间）。认证接线点见 MobileScoreRoutes.tsx。
+  if (pathname.startsWith('/admin/')) {
+    return <MobileScoreRoutes />
   }
 
   return (
