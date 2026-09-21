@@ -85,6 +85,48 @@ def test_team_qualification_submits_full_manual_selection():
         browser.close()
 
 
+def test_team_qualification_recovers_after_candidate_change():
+    base_url = os.getenv("PINGPONG_E2E_URL", "http://localhost:4173")
+    stale_confirmed = [
+        *CONFIRMED_TEAMS[:1],
+        {"team_entry_id": 99, "team_name": "已退赛队", "group_id": 1, "group_name": "A组", "status": "WITHDRAWN", "confirmed_at": "2026-09-20 12:00:00"},
+    ]
+    submitted = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(channel=os.getenv("PLAYWRIGHT_CHANNEL", "msedge"), headless=True)
+        page = browser.new_page()
+
+        def route(route):
+            if route.request.url.endswith("/api/tournaments/42"):
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(TOURNAMENT))
+            elif route.request.url.endswith("/api/tournaments/42/qualification/confirm"):
+                payload = route.request.post_data_json
+                submitted.append(payload)
+                if 99 in payload["qualified_team_ids"]:
+                    route.fulfill(status=422, content_type="application/json", body=json.dumps({"detail": "队伍不属于当前晋级候选"}, ensure_ascii=False))
+                    return
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(qualification(CONFIRMED_TEAMS), ensure_ascii=False))
+            elif route.request.url.endswith("/api/tournaments/42/qualification"):
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(qualification(stale_confirmed), ensure_ascii=False))
+            else:
+                route.continue_()
+
+        page.route("**/api/**", route)
+        page.goto(f"{base_url}/team-qualification?tid=42")
+        expect(page.get_by_role("heading", name="团体晋级验收场 · 晋级确认")).to_be_visible()
+        candidates = page.get_by_label("A组 晋级队伍").locator('input[type="checkbox"]')
+        expect(candidates.nth(0)).to_be_checked()
+        expect(candidates.nth(1)).not_to_be_checked()
+        update = page.get_by_role("button", name="更新晋级名单")
+        expect(update).to_be_disabled()
+        candidates.nth(1).check()
+        expect(update).to_be_enabled()
+        update.click()
+        assert submitted == [{"qualified_team_ids": [11, 12]}]
+        expect(page.get_by_role("heading", name="已确认队伍")).to_be_visible()
+        browser.close()
+
+
 def test_team_qualification_respects_server_blocked_reasons():
     base_url = os.getenv("PINGPONG_E2E_URL", "http://localhost:4173")
     with sync_playwright() as playwright:

@@ -5,6 +5,15 @@ import { getActiveTournamentId } from '../activeTournament'
 
 const messageOf = (error: unknown) => error instanceof ApiError ? error.message : '无法加载团体晋级状态，请稍后重试'
 
+const selectionFromQualification = (qualification: TeamQualification) => {
+  const candidateIds = new Set(qualification.groups.flatMap((group) => group.candidates.map((candidate) => candidate.team_entry_id)))
+  const confirmedIds = qualification.confirmed
+    .map((item) => item.team_entry_id)
+    .filter((teamId) => candidateIds.has(teamId))
+  const autoQualifiedIds = qualification.groups.flatMap((group) => group.auto_qualified_team_ids)
+  return new Set([...confirmedIds, ...autoQualifiedIds])
+}
+
 export default function TeamQualificationPage() {
   const [params] = useSearchParams()
   const rawTid = params.get('tid')
@@ -24,8 +33,7 @@ export default function TeamQualificationPage() {
       const [nextTournament, nextQualification] = await Promise.all([api.getTournament(tid), api.getTeamQualification(tid)])
       setTournament(nextTournament)
       setQualification(nextQualification)
-      const confirmed = nextQualification.confirmed.map((item) => item.team_entry_id)
-      setSelected(new Set(confirmed.length ? confirmed : nextQualification.groups.flatMap((group) => group.auto_qualified_team_ids)))
+      setSelected(selectionFromQualification(nextQualification))
     } catch (requestError) {
       setTournament(null)
       setQualification(null)
@@ -51,9 +59,19 @@ export default function TeamQualificationPage() {
     setSubmitting(true)
     setError(null)
     try {
-      const next = await api.confirmTeamQualification(tid, [...selected])
+      const qualifiedTeamIds = qualification.groups.flatMap((group) => {
+        const autoQualifiedIds = new Set(group.auto_qualified_team_ids)
+        const candidateIds = group.candidates
+          .filter((candidate) => selected.has(candidate.team_entry_id) || autoQualifiedIds.has(candidate.team_entry_id))
+          .map((candidate) => candidate.team_entry_id)
+        const missingAutoQualifiedIds = group.auto_qualified_team_ids.filter((teamId) => (
+          !group.candidates.some((candidate) => candidate.team_entry_id === teamId)
+        ))
+        return [...candidateIds, ...missingAutoQualifiedIds]
+      })
+      const next = await api.confirmTeamQualification(tid, qualifiedTeamIds)
       setQualification(next)
-      setSelected(new Set(next.confirmed.map((item) => item.team_entry_id)))
+      setSelected(selectionFromQualification(next))
     } catch (requestError) { setError(messageOf(requestError)) }
     finally { setSubmitting(false) }
   }
