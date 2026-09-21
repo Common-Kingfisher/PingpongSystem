@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .db import init_db
+from .static_hosting import install_static_hosting
 from .routers import (
     demo,
     entries,
@@ -97,3 +98,9 @@ app.include_router(team_knockout.router)
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# D 轨 Day 2：production 单服务静态托管。
+# 必须在所有 API router 与 /api/health 之后调用——它注册的是 catch-all SPA fallback，
+# 提前注册会把 API 全部吞掉。frontend/dist 不存在时不注册任何路由，保持 API-only 开发模式。
+install_static_hosting(app)
