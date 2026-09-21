@@ -1,0 +1,77 @@
+.admin-dashboard {
+  display: grid;
+  gap: 16px;
+  max-width: 1480px;
+  margin: 0 auto;
+  font-family: "Microsoft YaHei UI", "PingFang SC", sans-serif;
+}
+
+.admin-dashboard--empty {
+  min-height: 420px;
+  place-content: center;
+  justify-items: start;
+  padding: 48px;
+  background: #fff;
+  border: 1px solid #d9e2ec;
+}
+.admin-dashboard--empty h1 { margin: 8px 0; color: #0b1f33; font: 800 40px Bahnschrift, "Arial Narrow", sans-serif; }
+.admin-dashboard--empty p { max-width: 680px; color: #5f7285; line-height: 1.8; }
+.admin-dashboard-kicker { color: #1769e0; font: 800 10px "Courier New", monospace; letter-spacing: .14em; }
+
+.admin-dashboard-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
+.admin-dashboard-heading h1 { margin: 5px 0 0; color: #0b1f33; font: 800 36px Bahnschrift, "Arial Narrow", sans-serif; }
+.admin-stage-chip { padding: 8px 12px; color: #fff; background: #102a43; font-size: 12px; font-weight: 800; }
+
+.admin-progress-panel {
+  display: grid;
+  grid-template-columns: 230px minmax(180px, 1fr) 72px;
+  align-items: center;
+  gap: 22px;
+  padding: 24px;
+  color: #fff;
+  background: #102a43;
+  border-left: 5px solid #1769e0;
+  box-shadow: inset 2px 0 0 #d84a4a;
+}
+.admin-progress-copy { display: grid; gap: 2px; }
+.admin-progress-copy > span { color: #9eb4c8; font-size: 11px; }
+.admin-progress-copy strong { font: 800 42px Bahnschrift, "Arial Narrow", sans-serif; }
+.admin-progress-copy strong small { color: #9eb4c8; font-size: 18px; }
+.admin-progress-copy p { margin: 0; color: #c7d6e3; font-size: 11px; }
+.admin-progress-track { height: 8px; overflow: hidden; background: #38536b; }
+.admin-progress-track span { display: block; height: 100%; background: #16825d; }
+.admin-progress-panel > b { font: 800 25px Bahnschrift, "Arial Narrow", sans-serif; text-align: right; }
+
+.admin-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.admin-overview-card { padding: 22px; background: #fff; border: 1px solid #d9e2ec; }
+.admin-overview-card > header { display: flex; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid #e5ebf1; }
+.admin-overview-card > header span { font-size: 14px; font-weight: 800; }
+.admin-overview-card > header small { color: #7b8fa3; font: 700 9px "Courier New", monospace; letter-spacing: .12em; }
+.admin-overview-card dl { display: grid; grid-template-columns: repeat(3, 1fr); margin: 20px 0 0; }
+.admin-overview-card dl div { padding-left: 14px; border-left: 2px solid #d9e2ec; }
+.admin-overview-card dt { color: #6b7f93; font-size: 11px; }
+.admin-overview-card dd { margin: 4px 0 0; color: #102a43; font: 800 30px Bahnschrift, "Arial Narrow", sans-serif; }
+.admin-next-action { border-top: 3px solid #1769e0; }
+.admin-next-action h2 { margin: 18px 0 4px; color: #102a43; font-size: 19px; }
+.admin-next-action p { color: #62778b; font-size: 12px; }
+.admin-next-action a { display: inline-block; margin-top: 8px; padding: 9px 13px; color: #fff; background: #1769e0; text-decoration: none; font-size: 12px; font-weight: 800; }
+
+.admin-live-match-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 8px; margin-top: 15px; }
+.admin-live-match-list article { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 13px; background: #f4f7fa; border-left: 3px solid #d84a4a; }
+.admin-live-match-list span { color: #1769e0; font-size: 10px; font-weight: 800; }
+.admin-live-match-list strong { overflow: hidden; color: #102a43; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-live-match-list i { color: #8ca0b3; font-size: 9px; font-style: normal; }
+.admin-dashboard-muted { color: #6b7f93; font-size: 12px; }
+
+.admin-public-shortcuts { display: flex; align-items: center; gap: 18px; padding: 16px 20px; background: #e9eef4; border: 1px solid #d9e2ec; }
+.admin-public-shortcuts > span { color: #52677b; font-size: 11px; font-weight: 800; }
+.admin-public-shortcuts > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-public-shortcuts a { color: #1769e0; font-size: 12px; font-weight: 750; text-decoration: none; }
+.admin-public-shortcuts small { color: #71869a; }
+
+@media (max-width: 860px) {
+  .admin-progress-panel { grid-template-columns: 1fr; }
+  .admin-progress-panel > b { text-align: left; }
+  .admin-overview-grid { grid-template-columns: 1fr; }
+  .admin-dashboard-heading { align-items: start; }
+}
