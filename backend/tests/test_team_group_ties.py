@@ -65,18 +65,13 @@ def _make_teams(conn, tid: int, count: int, *, size: int = 1) -> list[dict]:
 
 
 def _group_all(conn, tid: int, teams: list[dict], size: int) -> list[dict]:
-    """把队伍按 size 依次装进 A组 / B组……（每队 size 人，因此按队员的 group_id 反查）。"""
+    """把队伍按每组 size 支依次装进 A组 / B组……。"""
     groups = [
         repo.create_group(conn, tid, f"第{chr(ord('A') + i)}组", i)
         for i in range(len(teams) // size)
     ]
-    group_of_player = {}
-    for index, group in enumerate(groups):
-        for player in repo.list_players(conn, tid)[index * size : (index + 1) * size]:
-            group_of_player[player["id"]] = group["id"]
-    for entry in teams:
-        owner = repo.get_entry(conn, entry["id"])["members"][0]["player_id"]
-        repo.set_entry_group(conn, entry["id"], group_of_player[owner])
+    for index, entry in enumerate(teams):
+        repo.set_entry_group(conn, entry["id"], groups[index // size]["id"])
     conn.commit()
     return groups
 
@@ -509,8 +504,9 @@ def test_generation_does_not_touch_tournament_stage_or_roster_flag(conn):
 
 def test_generated_tie_continues_into_production_runtime(conn):
     """自动生成的对抗必须与手工 `create_team_tie` 得到的运行态完全兼容。"""
-    tid = _team_tournament(conn, players=4)
-    teams = _make_teams(conn, tid, 4)
+    # 生产赛制包含双打盘，因此每队至少准备 2 名不同队员。
+    tid = _team_tournament(conn, players=8)
+    teams = _make_teams(conn, tid, 4, size=2)
     group = _group_all(conn, tid, teams, 4)[0]
     tie_service.generate_group_ties(conn, tid)
 
