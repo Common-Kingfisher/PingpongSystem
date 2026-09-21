@@ -105,6 +105,7 @@ def test_group_knockout_handler_wraps_existing_main_flow(conn):
 
     tree = handler.advance_participants(conn, tournament_id)
     assert [len(round_["matches"]) for round_ in tree["rounds"]] == [4, 2, 1]
+    assert repo.get_tournament(conn, tournament_id)["stage"] == "KNOCKOUT"
     assert handler.handle_bye(conn, tournament_id) == {
         "handled_by": "existing_knockout_service", "walkover_match_ids": []
     }
@@ -146,7 +147,7 @@ def test_unresolved_qualification_blocks_completion_and_advancement(conn):
         handler.advance_participants(conn, tournament_id)
 
 
-def test_manual_qualification_decision_restores_completion_readiness(conn):
+def test_manual_decision_does_not_make_unbuildable_bracket_ready(conn):
     tournament_id, group_id, entry_ids = _fully_tied_group(conn)
     handler = formats.resolve_format_handler(formats.GROUP_KNOCKOUT)
 
@@ -158,5 +159,7 @@ def test_manual_qualification_decision_restores_completion_readiness(conn):
     assert ranking["manually_resolved"] is True
     assert ranking["ambiguous_qualification"] is False
     assert handler.get_completion_state(conn, tournament_id) == {
-        "state": "KNOCKOUT_READY", "can_advance": True, "completed": False
+        "state": "KNOCKOUT_NOT_READY", "can_advance": False, "completed": False
     }
+    with pytest.raises(knockout_service.KnockoutError, match="至少需要 2 名晋级者"):
+        handler.advance_participants(conn, tournament_id)

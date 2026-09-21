@@ -147,6 +147,13 @@ class GroupKnockoutHandler(FormatHandler):
             return {"state": "GROUP_STAGE_IN_PROGRESS", "can_advance": False, "completed": False}
         if any(group["ambiguous_qualification"] for group in rankings):
             return {"state": "QUALIFICATION_UNRESOLVED", "can_advance": False, "completed": False}
+
+        # 只有与真实 generate_knockout 共用的无副作用前置检查成功时，才可以
+        # 报告 READY；不能只凭排名完成度自行猜测签表一定可构造。
+        try:
+            knockout_service.prepare_knockout_generation(conn, tournament_id)
+        except knockout_service.KnockoutError:
+            return {"state": "KNOCKOUT_NOT_READY", "can_advance": False, "completed": False}
         return {"state": "KNOCKOUT_READY", "can_advance": True, "completed": False}
 
 
