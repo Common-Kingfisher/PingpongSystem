@@ -1,5 +1,7 @@
 """淘汰赛全流程测试：晋级、胜者晋级、输家不复活、改分级联重置、唯一冠军。"""
 
+import pytest
+
 from app import repository as repo
 from app.services import groups as groups_service
 from app.services import knockout as knockout_service
@@ -292,6 +294,114 @@ def test_revise_quarter_final_allowed_before_sf_played(conn):
     assert new_winner in (sf1["player_a_id"], sf1["player_b_id"])
     assert old_winner not in (sf1["player_a_id"], sf1["player_b_id"])
     assert sf1["status"] == MatchStatus.WAITING.value
+
+
+def test_revise_quarter_final_without_winner_change_preserves_playing_semifinal(conn):
+    """仅改局分时，下游参赛者未变，已开打的半决赛不得被重置或阻断。"""
+    tid = _build_tournament(conn)
+    _play_all(conn, tid)
+    knockout_service.generate_knockout(conn, tid)
+
+    qfs = sorted(
+        (m for m in repo.list_matches(conn, tid, stage="KNOCKOUT") if m["round"] == 1),
+        key=lambda m: m["match_index"],
+    )
+    for qf in qfs[:2]:
+        scores_service.record_score(conn, qf["id"], 2, 0)
+
+    qf1 = repo.get_match(conn, qfs[0]["id"])
+    semifinal = repo.list_matches_by_prev(conn, qf1["id"])[0]
+    table = repo.list_tables(conn, tid)[0]
+    scheduling_service.assign_table(conn, semifinal["id"], table["id"])
+    before = repo.get_match(conn, semifinal["id"])
+
+    updated = scores_service.revise_score(conn, qf1["id"], 2, 1)
+
+    assert (updated["player_a_score"], updated["player_b_score"]) == (2, 1)
+    after = repo.get_match(conn, semifinal["id"])
+    assert after["status"] == MatchStatus.PLAYING.value
+    assert after["table_id"] == before["table_id"]
+    assert (after["player_a_id"], after["player_b_id"]) == (
+        before["player_a_id"],
+        before["player_b_id"],
+    )
+
+
+def test_revise_quarter_final_winner_change_is_atomic_when_semifinal_playing(conn):
+    """胜者反转会换下游参赛者时，已开打半决赛必须阻止且不留下半写入。"""
+    tid = _build_tournament(conn)
+    _play_all(conn, tid)
+    knockout_service.generate_knockout(conn, tid)
+
+    qfs = sorted(
+        (m for m in repo.list_matches(conn, tid, stage="KNOCKOUT") if m["round"] == 1),
+        key=lambda m: m["match_index"],
+    )
+    for qf in qfs[:2]:
+        scores_service.record_score(conn, qf["id"], 2, 0)
+
+    qf1 = repo.get_match(conn, qfs[0]["id"])
+    semifinal = repo.list_matches_by_prev(conn, qf1["id"])[0]
+    table = repo.list_tables(conn, tid)[0]
+    scheduling_service.assign_table(conn, semifinal["id"], table["id"])
+    before_upstream = repo.get_match(conn, qf1["id"])
+    before_downstream = repo.get_match(conn, semifinal["id"])
+
+    with pytest.raises(scores_service.ScoreError, match="影响后续比赛"):
+        scores_service.revise_score(conn, qf1["id"], 0, 2)
+
+    after_upstream = repo.get_match(conn, qf1["id"])
+    after_downstream = repo.get_match(conn, semifinal["id"])
+    assert (after_upstream["player_a_score"], after_upstream["player_b_score"]) == (
+        before_upstream["player_a_score"],
+        before_upstream["player_b_score"],
+    )
+    assert (after_downstream["player_a_id"], after_downstream["player_b_id"]) == (
+        before_downstream["player_a_id"],
+        before_downstream["player_b_id"],
+    )
+    assert after_downstream["status"] == MatchStatus.PLAYING.value
+
+
+def test_revise_quarter_final_winner_change_is_atomic_when_final_finished(conn):
+    """胜者反转影响已完成决赛时，上下游事实都必须原样保留。"""
+    tid = _build_tournament(conn)
+    _play_all(conn, tid)
+    knockout_service.generate_knockout(conn, tid)
+    _finish_knockout(conn, tid)
+
+    qf = next(
+        match
+        for match in repo.list_matches(conn, tid, stage="KNOCKOUT")
+        if match["round"] == 1 and match["match_index"] == 0
+    )
+    final = next(
+        match
+        for match in repo.list_matches(conn, tid, stage="KNOCKOUT")
+        if match["round"] == 3
+    )
+    before_upstream = repo.get_match(conn, qf["id"])
+    before_final = repo.get_match(conn, final["id"])
+    reversed_score = (
+        (0, 2)
+        if before_upstream["player_a_score"] > before_upstream["player_b_score"]
+        else (2, 0)
+    )
+
+    with pytest.raises(scores_service.ScoreError, match="影响后续比赛"):
+        scores_service.revise_score(conn, qf["id"], *reversed_score)
+
+    after_upstream = repo.get_match(conn, qf["id"])
+    after_final = repo.get_match(conn, final["id"])
+    assert (after_upstream["player_a_score"], after_upstream["player_b_score"]) == (
+        before_upstream["player_a_score"],
+        before_upstream["player_b_score"],
+    )
+    assert (after_final["player_a_id"], after_final["player_b_id"]) == (
+        before_final["player_a_id"],
+        before_final["player_b_id"],
+    )
+    assert after_final["status"] == MatchStatus.FINISHED.value
 
 
 def test_revise_final_flips_champion(conn):
