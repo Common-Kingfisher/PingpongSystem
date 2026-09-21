@@ -2,14 +2,14 @@
 
 状态：Day 1 冻结稿
 负责人：C 轨｜管理端前端
-基线：`origin/master@d821b0d`（2026-09-21）
+基线：`origin/master@34fd8b7`（2026-09-21，包含 PR #35、PR #40）
 工作分支：`feat/v03-admin-layout`
 
 ## 1. Day 1 结论
 
 V0.3 管理端采用“我的赛事 → 选择赛事 → 进入赛事 Admin”的两层结构。赛事内部采用固定左侧导航与右侧工作区；旧 URL 暂时保留，通过 Layout 包装实现迁移，不在 Day 1 重写成熟业务页面或复制后端算法。
 
-当前协作状态：B 轨 Day 1 已合入 `master`；A 轨 PR #35 仍开放且修改 `App.tsx`、`api.ts`、`index.css`；D 轨已冻结 Public/mobile/deploy 设计但尚无开放 PR。因此 C Day 1 只新增独立文档、Layout、Dashboard 和共置 CSS，不改三份共享入口文件。
+当前协作状态：B 轨 Day 1、A 轨 PR #35 与后续 PR #40 均已合入 `master`；D 轨已冻结 Public/mobile/deploy 设计。C Day 1 已同步最新主线，继续只新增独立文档、Layout、Dashboard 和共置 CSS，不改 `App.tsx`、`api.ts`、`index.css` 等共享入口文件。PR #35 已带入团体赛运行链路，但当前主线仍未提供 User、TournamentAdmin、Organization、Venue、Registration、登录态与权限查询等管理端契约，C 轨不会为赶进度伪造这些接口。
 
 ## 2. 设计方向
 
@@ -195,8 +195,8 @@ Day 2 可以在不改变上述 URL 的前提下用 AdminLayout 包装。是否�
 
 ## 10. Day 2 接入清单
 
-1. 等 A PR #35 合入后先同步 `master`，复核 `App.tsx/api.ts/index.css`。
-2. 接入 Login、AuthGuard、当前用户和角色分流。
+1. 继续以最新 `master` 为集成基线，修改共享入口前复核 `App.tsx/api.ts/index.css` 的当前实现和各轨开放 PR。
+2. 等 A 轨提供并冻结登录态、当前用户与赛事权限契约后，再接入 Login、AuthGuard 和角色分流；契约到位前不建立假登录。
 3. 把“我的赛事”和赛事 Admin 路由拆成 route shell；旧 URL 作为 alias 保留。
 4. 将 AdminLayout 接到现有成熟 Page，不重写 Page 业务。
 5. 从 PlayersPage 抽出名单区与抽签区；先复用组件，再建立 `/draw`。
