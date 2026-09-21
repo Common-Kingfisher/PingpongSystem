@@ -38,6 +38,14 @@ class SystemRole(str, Enum):
     EVENT_ADMIN = "EVENT_ADMIN"
 
 
+class BootstrapStatus(str, Enum):
+    """Web 初始化入口状态。"""
+
+    NEEDS_INITIALIZATION = "NEEDS_INITIALIZATION"
+    READY = "READY"
+    RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
+
+
 class TournamentRole(str, Enum):
     """赛事级授权角色。"""
 

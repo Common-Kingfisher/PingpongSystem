@@ -13,6 +13,7 @@ from collections.abc import Callable
 
 VERSION_1_DESCRIPTION = "master baseline"
 VERSION_2_DESCRIPTION = "auth_users_and_admins"
+VERSION_3_DESCRIPTION = "bootstrap_state_and_user_profile"
 
 
 MIGRATION_TABLE_SQL = """
@@ -80,6 +81,23 @@ VERSION_2_SQL = (
 )
 
 
+
+VERSION_3_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS system_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        bootstrap_completed INTEGER NOT NULL DEFAULT 0
+            CHECK (bootstrap_completed IN (0, 1)),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    INSERT OR IGNORE INTO system_state (id, bootstrap_completed)
+    VALUES (1, 0)
+    """,
+)
+
+
 def _migration_1(_: sqlite3.Connection) -> None:
     """master 基线不重复建表，只负责在旧库中登记版本。"""
 
@@ -99,9 +117,27 @@ def _migration_2(conn: sqlite3.Connection) -> None:
     _add_owner_user_column(conn)
 
 
+
+def _add_user_column_if_missing(
+    conn: sqlite3.Connection, column: str, ddl: str
+) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE users ADD COLUMN {column} {ddl}")
+
+
+def _migration_3(conn: sqlite3.Connection) -> None:
+    """持久化 bootstrap 状态，并补齐用户可选资料字段。"""
+    for statement in VERSION_3_SQL:
+        conn.execute(statement)
+    _add_user_column_if_missing(conn, "phone", "TEXT")
+    _add_user_column_if_missing(conn, "note", "TEXT")
+
+
 MIGRATIONS: tuple[tuple[int, str, Callable[[sqlite3.Connection], None]], ...] = (
     (1, VERSION_1_DESCRIPTION, _migration_1),
     (2, VERSION_2_DESCRIPTION, _migration_2),
+    (3, VERSION_3_DESCRIPTION, _migration_3),
 )
 
 

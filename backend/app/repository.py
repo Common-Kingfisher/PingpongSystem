@@ -1171,3 +1171,154 @@ def decorate_match(conn: sqlite3.Connection, match: dict) -> dict:
     result["entry_b_name"] = (entries.get(result.get("entry_b_id")) or {}).get("display_name")
     result["games"] = list_match_games(conn, result["id"])
     return result
+
+
+# ------------------------------------------------------------------- auth
+
+_USER_COLS = (
+    "id, username, display_name, phone, note, password_hash, system_role, active, "
+    "created_at, updated_at"
+)
+
+
+def create_user(
+    conn: sqlite3.Connection,
+    username: str,
+    display_name: str,
+    password_hash: str,
+    system_role: str,
+    phone: str | None = None,
+    note: str | None = None,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO users "
+        "(username, display_name, password_hash, system_role, phone, note) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (username, display_name, password_hash, system_role, phone, note),
+    )
+    row = conn.execute(
+        f"SELECT {_USER_COLS} FROM users WHERE id = ?", (cur.lastrowid,)
+    ).fetchone()
+    return dict(row)
+
+
+def get_user_by_username(conn: sqlite3.Connection, username: str) -> Optional[dict]:
+    row = conn.execute(
+        f"SELECT {_USER_COLS} FROM users WHERE username = ? COLLATE NOCASE",
+        (username,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_id(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
+    row = conn.execute(
+        f"SELECT {_USER_COLS} FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_bootstrap_completed(conn: sqlite3.Connection) -> Optional[bool]:
+    row = conn.execute(
+        "SELECT bootstrap_completed FROM system_state WHERE id = 1"
+    ).fetchone()
+    return bool(row["bootstrap_completed"]) if row else None
+
+
+def has_active_system_admin(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT COUNT(*) AS count FROM users "
+        "WHERE system_role = 'SYSTEM_ADMIN' AND active = 1"
+    ).fetchone()
+    return int(row["count"]) > 0
+
+
+def mark_bootstrap_completed(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "UPDATE system_state SET bootstrap_completed = 1, "
+        "updated_at = datetime('now') WHERE id = 1"
+    )
+
+
+def update_user_password(
+    conn: sqlite3.Connection, user_id: int, password_hash: str
+) -> None:
+    conn.execute(
+        "UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?",
+        (password_hash, user_id),
+    )
+
+
+def set_user_active(conn: sqlite3.Connection, user_id: int, active: bool) -> None:
+    conn.execute(
+        "UPDATE users SET active = ?, updated_at = datetime('now') WHERE id = ?",
+        (1 if active else 0, user_id),
+    )
+
+
+def create_user_session(
+    conn: sqlite3.Connection,
+    user_id: int,
+    token_hash: str,
+    expires_at: str,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+        (user_id, token_hash, expires_at),
+    )
+    row = conn.execute(
+        "SELECT id, user_id, token_hash, expires_at, revoked_at, last_seen_at, created_at "
+        "FROM user_sessions WHERE id = ?",
+        (cur.lastrowid,),
+    ).fetchone()
+    return dict(row)
+
+
+def get_user_session_by_token_hash(
+    conn: sqlite3.Connection, token_hash: str
+) -> Optional[dict]:
+    row = conn.execute(
+        "SELECT s.id AS session_id, s.user_id, s.token_hash, s.expires_at, s.revoked_at, "
+        "s.last_seen_at, s.created_at, u.username, u.display_name, u.password_hash, "
+        "u.system_role, u.active, u.created_at AS user_created_at, "
+        "u.updated_at AS user_updated_at "
+        "FROM user_sessions s JOIN users u ON u.id = s.user_id "
+        "WHERE s.token_hash = ?",
+        (token_hash,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def touch_user_session(conn: sqlite3.Connection, session_id: int) -> None:
+    conn.execute(
+        "UPDATE user_sessions SET last_seen_at = datetime('now') WHERE id = ?",
+        (session_id,),
+    )
+
+
+def revoke_user_session_by_hash(conn: sqlite3.Connection, token_hash: str) -> bool:
+    cur = conn.execute(
+        "UPDATE user_sessions SET revoked_at = datetime('now') "
+        "WHERE token_hash = ? AND revoked_at IS NULL",
+        (token_hash,),
+    )
+    return cur.rowcount > 0
+
+
+def revoke_user_sessions(conn: sqlite3.Connection, user_id: int) -> int:
+    cur = conn.execute(
+        "UPDATE user_sessions SET revoked_at = datetime('now') "
+        "WHERE user_id = ? AND revoked_at IS NULL",
+        (user_id,),
+    )
+    return cur.rowcount
+
+
+def count_tournament_access(conn: sqlite3.Connection, user_id: int) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS count FROM tournaments t "
+        "WHERE t.owner_user_id = ? OR EXISTS ("
+        "SELECT 1 FROM tournament_admins ta WHERE ta.tournament_id = t.id "
+        "AND ta.user_id = ? AND ta.revoked_at IS NULL)",
+        (user_id, user_id),
+    ).fetchone()
+    return int(row["count"])

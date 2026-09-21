@@ -22,16 +22,30 @@ def test_empty_database_creates_auth_schema_and_records_versions(tmp_path, monke
     db_module.init_db()
     conn = db_module.connect()
     try:
-        assert {"users", "user_sessions", "tournament_admins", "schema_migrations"} <= _table_names(conn)
+        assert {
+            "users",
+            "user_sessions",
+            "tournament_admins",
+            "system_state",
+            "schema_migrations",
+        } <= _table_names(conn)
         versions = [
             row[0]
             for row in conn.execute(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
         ]
-        assert versions == [1, 2]
+        assert versions == [1, 2, 3]
         columns = {row[1] for row in conn.execute("PRAGMA table_info(tournaments)")}
         assert "owner_user_id" in columns
+        user_columns = {
+            row[1]: row for row in conn.execute("PRAGMA table_info(users)")
+        }
+        assert user_columns["phone"][3] == 0
+        assert user_columns["note"][3] == 0
+        assert conn.execute(
+            "SELECT bootstrap_completed FROM system_state WHERE id = 1"
+        ).fetchone()[0] == 0
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         conn.close()
@@ -44,7 +58,7 @@ def test_init_db_is_idempotent(tmp_path, monkeypatch):
     db_module.init_db()
     conn = db_module.connect()
     try:
-        assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 3
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         conn.close()
@@ -85,7 +99,13 @@ def test_legacy_database_upgrade_preserves_existing_rows(tmp_path, monkeypatch):
         }
         assert [row[0] for row in conn.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
-        )] == [1, 2]
+        )] == [1, 2, 3]
+        assert conn.execute(
+            "SELECT bootstrap_completed FROM system_state WHERE id = 1"
+        ).fetchone()[0] == 0
+        assert {
+            row[1] for row in conn.execute("PRAGMA table_info(users)")
+        } >= {"phone", "note"}
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         conn.close()
