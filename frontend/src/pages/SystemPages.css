@@ -26,4 +26,23 @@
 .system-user-actions button { padding: 5px 7px; color: #24435f; background: #fff; border: 1px solid #c9d5df; font-family: inherit; font-size: 10px; font-weight: 700; }
 .system-user-actions button:disabled { opacity: .45; }
 .system-user-empty td { height: 190px; color: #718498; text-align: center; }
+.system-user-create { padding: 22px; background: #fff; border: 1px solid #d6e0e8; border-top: 4px solid #1769e0; }
+.system-user-create > header { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
+.system-user-create > header span { color: #1769e0; font: 800 9px "Courier New", monospace; letter-spacing: .14em; }
+.system-user-create > header h2 { margin: 5px 0 0; font: 800 23px Bahnschrift, sans-serif; }
+.system-user-create > header b { padding: 5px 8px; color: #765719; background: #fff4cf; font: 800 9px "Courier New", monospace; }
+.system-user-create > p { color: #62768a; font-size: 12px; }
+.system-user-create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-top: 20px; }
+.system-user-create-grid label { display: grid; gap: 6px; }
+.system-user-create-grid label span { color: #496176; font-size: 11px; font-weight: 750; }
+.system-user-create-grid input { min-height: 40px; padding: 0 10px; color: #102a43; background: #fff; border: 1px solid #c7d3de; font-family: inherit; }
+.system-user-create-grid input:focus { outline: 3px solid rgba(23,105,224,.15); border-color: #1769e0; }
+.system-password-rules { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+.system-password-rules span { padding: 5px 7px; color: #7b5960; background: #fff1f2; font-size: 9px; font-weight: 700; }
+.system-password-rules span.is-valid { color: #14644f; background: #e9f7f1; }
+.system-user-create footer { display: flex; justify-content: flex-end; gap: 7px; margin-top: 20px; padding-top: 15px; border-top: 1px solid #e5ebf0; }
+.system-user-create footer button { padding: 9px 13px; color: #fff; background: #1769e0; border: 1px solid #1769e0; font-family: inherit; font-size: 11px; font-weight: 800; }
+.system-user-create footer button.secondary { color: #29465f; background: #fff; border-color: #c8d4df; }
+.system-user-create footer button:disabled { color: #7d8c99; background: #d9e2e9; border-color: #d9e2e9; }
 @media (max-width: 850px) { .system-metric-grid, .system-panel-grid { grid-template-columns: 1fr; } .system-user-table { min-width: 760px; } .system-users-table-wrap { overflow-x: auto; } }
+@media (max-width: 620px) { .system-user-create-grid { grid-template-columns: 1fr; } }

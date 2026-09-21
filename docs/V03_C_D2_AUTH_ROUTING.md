@@ -8,7 +8,7 @@
 
 ## 1. 本轮交付结论
 
-PR #42 当前只完成 A2.1 数据模型与数据库迁移，尚未提供稳定 Auth/OpenAPI contract。因此 C 轨本轮实现不依赖真实认证 API 的页面、ViewModel 和交互边界；不创建 AuthContext、Guard 或认证客户端，不修改 OpenAPI，不在 localStorage 写入登录状态，也不硬编码任何管理员。
+PR #42 当前已完成 A2.1 数据模型/迁移和 A2.2 认证安全/初始化服务，包含 Bootstrap 三态、`phone` / `note`、密码与 Session 服务；A2.3 Auth API 和 OpenAPI contract 尚未提供。因此 C 轨本轮实现不依赖真实认证 API 的页面、ViewModel 和交互边界；不创建 AuthContext、Guard 或认证客户端，不修改 OpenAPI，不在 localStorage 写入登录状态，也不硬编码任何管理员。
 
 本轮新增：
 
@@ -137,7 +137,7 @@ AdminLayout 接收后端授权结果映射出的 `manageableEvents`，不会从 
 
 ## 10. 用户管理边界
 
-SystemUsersPage 只建立表格和回调边界，字段为姓名、用户名、角色、状态、最近登录和操作。允许查看详情、重置密码、停用/启用、查看赛事授权；不提供删除用户、查看旧密码或 password_hash。
+SystemUsersPage 建立表格、创建 EVENT_ADMIN 表单和回调边界。创建表单遵循 A2.2 已实现的数据约束：username、display_name、初始密码为必填，phone、note 为可选，角色固定 EVENT_ADMIN，默认启用；提交仍等待用户管理 API。列表字段为姓名、用户名、角色、状态、最近登录和操作。允许查看详情、重置密码、停用/启用、查看赛事授权；不提供删除用户、查看旧密码或 password_hash。
 
 没有用户管理 API 时所有动作保持不可用，不显示假成功。创建 User 与 TournamentAdmin 赛事授权始终分离。
 
@@ -155,17 +155,19 @@ SystemUsersPage 只建立表格和回调边界，字段为姓名、用户名、�
 
 ## 12. 等待 A contract
 
+PR #42 的 A2.2 已具备后端 Bootstrap 状态、密码/Session 服务、登录/退出/改密服务函数、账号停用撤销 Session，以及 `phone` / `note` 数据字段；这些还不是前端可调用的 API contract。
+
 下列能力当前没有接线：
 
 - login、logout、me、change-password；
-- Bootstrap 状态查询与 setup；
+- Bootstrap 状态查询与 setup Router；
 - 当前用户及系统角色；
 - 当前用户可管理赛事列表与赛事权限；
 - 用户管理、停用/启用、重置密码；
 - 赛事创建成为 OWNER；
 - 服务端 401/403/404 错误 DTO。
 
-A 轨稳定 contract 合入后，C 轨才能新增 generated type 驱动的 Auth client、AuthContext、RequireAuth、RequireSystemAdmin、RequireTournamentAccess，并对 `App.tsx` 做最小接线。
+A 轨完成 A2.3/A2.4 并输出稳定 OpenAPI contract 后，C 轨才能新增 generated type 驱动的 Auth client、AuthContext、RequireAuth、RequireSystemAdmin、RequireTournamentAccess，并对 `App.tsx` 做最小接线。
 
 ## 13. 明确未做
 
