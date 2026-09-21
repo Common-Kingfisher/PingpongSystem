@@ -354,15 +354,41 @@ describe('正常比分：只录大比分', () => {
     expect(scorePosts).toEqual([])
   })
 
-  it('胜方局数与本赛事 2 局制不符时给出提示，不发请求', async () => {
+  it('胜方局数不符合本赛事局制时不在前端阻断，请求照样发给后端并展示服务端 detail', async () => {
+    // review 返工：前端不再用 gamesToWin 做业务合法性裁决。
+    // 三局两胜里 1:0 业务上非法，但必须允许它走到后端，由后端返回 422。
+    server.onScorePost = () => jsonResponse({ detail: '大比分胜局数必须为 2' }, 422)
+
     renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
     await waitForReady()
 
     fillBigScore('1', '0')
     await submitNormalScore()
 
-    await screen.findByText(/本赛事 2 局制：胜方大比分应为 2/)
-    expect(scorePosts).toEqual([])
+    await screen.findByText('服务端未接受本次比分：大比分胜局数必须为 2')
+    // 请求确实发出去了（前端没有把它挡在本地）
+    expect(scorePosts).toHaveLength(1)
+    expect(scorePosts[0].player_a_score).toBe(1)
+    expect(scorePosts[0].player_b_score).toBe(0)
+  })
+
+  it('步进按钮只做 +1 / −1 与下限 0，不受 gamesToWin 限制、也不改动另一方', async () => {
+    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    await waitForReady()
+
+    const plusA = screen.getByRole('button', { name: '张三 加一局' })
+    const minusB = screen.getByRole('button', { name: '李四 减一局' })
+
+    // 连点 4 次：本赛事是 2 局制，但前端不得用 gamesToWin 当上限
+    for (let i = 0; i < 4; i += 1) fireEvent.click(plusA)
+    expect(scoreInput('张三').value).toBe('4')
+    // 绝不自动改写另一方比分（旧实现会在达到 gamesToWin 时写 1）
+    expect(scoreInput('李四').value).toBe('')
+
+    // 下限仍然是 0
+    fireEvent.click(minusB)
+    fireEvent.click(minusB)
+    expect(scoreInput('李四').value).toBe('0')
   })
 })
 
@@ -552,6 +578,52 @@ describe('错误处理与防重复提交', () => {
     await screen.findByText('网络连接失败，请检查局域网连接后重试')
     expect(scoreInput('张三').value).toBe('2')
     expect(scoreInput('李四').value).toBe('1')
+  })
+
+  it('score POST 成功但随后刷新失败：必须报“比分已保存 + 刷新失败”，绝不能报“本次未保存”', async () => {
+    // review 返工回归：POST 成功、reload 网络失败 —— 旧实现把两者放在同一个 try/catch，
+    // 会显示“网络连接失败…”并诱导裁判重复提交，而比分其实已经落库。
+    const savedMatch = finishedMatch()
+    let reloadShouldFail = false
+    server.onScorePost = () => {
+      // 服务端接受了本次比分：后续任何一次 GET 都进入“网络故障”状态
+      reloadShouldFail = true
+      return jsonResponse(savedMatch)
+    }
+
+    const realFetch = globalThis.fetch
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const path = raw.replace(/^https?:\/\/[^/]+/, '')
+      const method = init?.method ?? 'GET'
+      if (reloadShouldFail && method === 'GET' && path.includes('/api/')) {
+        return Promise.reject(new TypeError('Failed to fetch'))
+      }
+      return realFetch(input as RequestInfo, init)
+    })
+
+    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    await waitForReady()
+
+    fillBigScore('2', '1')
+    await submitNormalScore()
+
+    // 1) 必须明确告诉裁判比分已经保存（提示条与完成卡都会出现该文案）
+    expect((await screen.findAllByText('比分已保存')).length).toBeGreaterThan(0)
+    // 2) 必须明确提示最新状态刷新失败 / 请重新加载
+    expect((await screen.findAllByText(/最新状态刷新失败/)).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText(/请重新加载/)).length).toBeGreaterThan(0)
+    // 提示条本身必须存在，且不是红色错误样式
+    const banner = document.querySelector('.ms-refresh-warning')
+    expect(banner).not.toBeNull()
+    expect(document.querySelector('.ms-error')).toBeNull()
+    // 3) 绝不能出现“本次未保存 / 提交失败”类文案
+    expect(document.body.textContent).not.toContain('网络连接失败')
+    expect(document.body.textContent).not.toContain('本次比分未保存')
+    expect(document.body.textContent).not.toContain('服务端出错')
+    // 4) score POST 只发出一次，且完成态里不再存在录分提交按钮（不可能再触发第二次提交）
+    expect(scorePosts).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '确认提交大比分' })).toBeNull()
   })
 
   it('提交期间按钮 disabled 且显示“提交中…”，连点只发出一次请求', async () => {
