@@ -564,6 +564,38 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * 「比分已保存，但最新状态刷新失败」提示。
+ *
+ * 刻意与 `.ms-error` 区分：POST 已经成功落库，这不是失败态，
+ * 不能用红色错误样式诱导裁判重复提交。
+ */
+.ms-refresh-warning {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 12px 14px;
+  color: #92400e;
+  background: #fff8e9;
+  border: 1px solid #f1cf98;
+  border-left-width: 4px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ms-refresh-warning strong {
+  color: var(--ms-green);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.ms-refresh-warning span {
+  color: #7a4a04;
+  font-size: 12.5px;
+}
+
 .ms-confirm {
   display: grid;
   gap: 10px;

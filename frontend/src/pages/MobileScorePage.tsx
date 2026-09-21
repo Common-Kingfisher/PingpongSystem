@@ -121,6 +121,16 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
   // ---- 提交状态 ----
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  /**
+   * score POST 已成功时服务端返回的真实 `MatchOut`。
+   *
+   * 用途：POST 成功后如果重新拉取比赛失败，用它作为“已保存结果”的兜底展示，
+   * 从而把「已保存但刷新失败」与「本次未保存」彻底分开（review 返工）。
+   * 成功刷新时页面仍以刷新后的 match 为准。
+   */
+  const [savedMatch, setSavedMatch] = useState<Match | null>(null)
+  /** POST 成功但 reload 失败时的提示（不是错误，不引导重复提交）。 */
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null)
 
   /**
    * 防重复提交的第二道锁（第一道是按钮 `disabled`）。
@@ -211,11 +221,16 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
 
   // ---------------------------------------------------------------- 大比分交互
   //
-  // 只做“数字输入 + 步进”这类交互便利，不做合法性业务判定（交给后端）。
-  // 唯一的自动补全发生在**步进按钮**上：点 `+` 加到本赛事胜局上限时，把另一方收敛到
-  // 有效区间，避免裁判在手机上敲出 5:4 这类必然被拒的值。
-  // 手动输入时**绝不**偷偷改另一方 —— 否则“只填了一边”的空值提示永远不会出现，
-  // 而且会掩盖裁判真正想录入的比分。
+  // 只做“数字输入 + 步进”这类交互便利，**不做任何合法性业务判定**（全部交给后端）。
+  //
+  // review 返工后刻意删掉了两件曾经做过的事：
+  //
+  // 1. 用 `gamesToWin` 当步进上限阻断输入：那等于在手机端复制“本赛事胜局数”规则，
+  //    赛制一改前端就要跟着改。现在步进只保证 `>= 0`，其余原样发给后端；
+  // 2. 一方达到 `gamesToWin` 时自动改写另一方比分：裁判输入什么就展示什么，
+  //    绝不替裁判改数（这类“贴心的自动补全”正是第二套规则的温床）。
+  //
+  // 于是三局两胜里填 `1:0` 会真的发出去，由后端返回 422，页面展示服务端文案。
   const applyBigScore = useCallback(
     (side: 'a' | 'b', value: string) => {
       if (side === 'a') setScoreA(value)
@@ -225,17 +240,10 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
   )
 
   const bumpScore = (side: 'a' | 'b', delta: number) => {
-    if (gamesToWin <= 0 || submitting) return
+    if (submitting) return
     const current = side === 'a' ? scoreA : scoreB
-    const other = side === 'a' ? scoreB : scoreA
-    const otherApply = side === 'a' ? setScoreB : setScoreA
     const base = parseScoreInput(current) ?? 0
-    const next = Math.max(0, Math.min(gamesToWin, base + delta))
-    applyBigScore(side, String(next))
-    if (next !== gamesToWin) return
-    const otherValue = parseScoreInput(other)
-    if (otherValue !== null && otherValue >= 0 && otherValue < gamesToWin) return
-    otherApply(String(gamesToWin - 1))
+    applyBigScore(side, String(Math.max(0, base + delta)))
   }
 
   // ---------------------------------------------------------------- 逐局小比分（可选）
@@ -259,15 +267,32 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
   const removeGame = (index: number) => setGames((current) => current.filter((_, i) => i !== index))
 
   // ---------------------------------------------------------------- 提交
+  //
+  // ⚠️ review 返工（重要状态区分）：score POST 与随后的 reload **不是同一件事**。
+  //
+  // 旧实现把 `await api.recordScore(...)` 与 `await load()` 放在同一个 try/catch 里，
+  // 于是「比分已经成功落库，但重新拉取比赛时网络失败」会被报成“本次提交失败”，
+  // 这是错误状态：它会诱导裁判重复提交，而服务端其实已经保存。
+  //
+  // 现在拆成两段：
+  //
+  // - POST 失败（4xx/5xx/网络）→ 仍然按 `describeSubmitError` 展示，输入不清空；
+  // - POST 成功 → 立即用响应里的真实 `MatchOut` 作为已保存结果；只有 reload 失败时
+  //   才显示“比分已保存，但最新状态刷新失败”，并明确要求刷新页面确认。
   const runSubmit = async (payload: ScorePayload) => {
     if (!match || inFlight.current) return
     inFlight.current = true
     setSubmitting(true)
     setFormError(null)
+    setRefreshWarning(null)
     setConfirmAbnormal(false)
+
+    let savedMatch: Match
     try {
+      savedMatch = await api.recordScore(match.id, payload)
+      // POST 已确认成功：先记下服务端返回的真实 Match，作为刷新失败时的兜底状态。
+      setSavedMatch(savedMatch)
       const trimmedOperator = operatorName.trim()
-      await api.recordScore(match.id, payload)
       if (trimmedOperator !== '') {
         try {
           localStorage.setItem(OPERATOR_STORAGE_KEY, trimmedOperator)
@@ -275,16 +300,24 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
           // 隐私模式下 localStorage 不可用；不影响录分主流程
         }
       }
-      // 不以本地 state 假装成功：重新拉取真实 Match（状态、比分、小比分均以服务端为准）。
-      // 成功态由重新加载后的 match.status === 'FINISHED' 驱动，不依赖本次提交参数。
-      await load()
     } catch (error) {
-      // 网络失败不得清空用户输入：这里只设置错误文案，表单状态保持原样。
+      // 到这里才是“本次比分没有保存”。网络失败同样不清空用户输入。
       if (error instanceof ApiError) {
         setFormError(describeSubmitError(error))
       } else {
         setFormError('网络连接失败，请检查局域网连接后重试')
       }
+      inFlight.current = false
+      setSubmitting(false)
+      return
+    }
+
+    try {
+      // 不用本地 state 假装成功：重新拉取真实 Match（状态、比分、小比分均以服务端为准）。
+      await load()
+    } catch {
+      // 刷新失败**不等于**提交失败：比分已经保存，必须如实告诉裁判，并且不要引导他再点一次。
+      setRefreshWarning('比分已保存，但最新状态刷新失败，请重新加载页面确认。')
     } finally {
       inFlight.current = false
       setSubmitting(false)
@@ -297,7 +330,6 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
       scoreA,
       scoreB,
       games: gamesOpen ? games : [],
-      gamesToWin,
       operatorName,
       note,
     })
@@ -365,20 +397,41 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
 
   // 提交成功后的“完成态”：依据**服务端返回的真实 Match**，不依据本地提交参数。
   const finished = match.status === 'FINISHED'
-  const finishedAbnormal = finished && match.result_type !== null && match.result_type !== 'NORMAL'
-  const finishedGames = match.games ?? []
 
-  if (finished) {
+  // reload 失败时的兜底：POST 已经成功，就用它返回的 `MatchOut` 展示已保存结果。
+  // 刻意只在 `refreshWarning` 存在（即 POST 成功但刷新失败）时启用，避免用旧响应
+  // 覆盖刷新后的真实状态。若服务端返回的结果不是 FINISHED，则继续保持表单并提示刷新。
+  const restoredFromSaved =
+    !finished && refreshWarning !== null && savedMatch !== null && savedMatch.status === 'FINISHED'
+
+  if (finished || restoredFromSaved) {
+    // EffectiveMatch 始终来自服务端：要么是重新拉取到的 match，要么是 POST 返回的 MatchOut。
+    const effectiveMatch = finished ? match : (savedMatch as Match)
+    const effectiveGames = effectiveMatch.games ?? []
     return (
       <div className="ms-shell">
+        {restoredFromSaved && refreshWarning && (
+          <p className="ms-refresh-warning" role="status">
+            <strong>比分已保存</strong>
+            {refreshWarning}
+            <span>请重新加载页面，核对最新比赛状态；不要重复提交。</span>
+          </p>
+        )}
         <FinishedView
           entryIds={entryIds}
           groupName={data.groupName}
-          match={match}
+          match={effectiveMatch}
           names={names}
-          resultLabel={abnormalResultLabel(match.result_type ?? 'NORMAL', match.forfeit_entry_id, names, entryIds)}
-          abnormal={finishedAbnormal}
-          gamesLabel={finishedGames.length > 0 ? gamesScoreLabel(finishedGames) : null}
+          resultLabel={abnormalResultLabel(
+            effectiveMatch.result_type ?? 'NORMAL',
+            effectiveMatch.forfeit_entry_id,
+            names,
+            entryIds,
+          )}
+          abnormal={
+            effectiveMatch.result_type !== null && effectiveMatch.result_type !== 'NORMAL'
+          }
+          gamesLabel={effectiveGames.length > 0 ? gamesScoreLabel(effectiveGames) : null}
           tableName={data.tableName}
           tournament={tournament}
           tid={tid}
@@ -388,10 +441,21 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
   }
 
   const sidesReady = matchSidesReady(match)
-  const normalHint = describeNormalHint(scoreA, scoreB, gamesToWin, gamesOpen ? games : [], pointsToWin)
+  const normalHint = describeNormalHint(scoreA, scoreB, gamesOpen ? games : [], pointsToWin)
 
   return (
     <div className="ms-shell">
+      {/*
+        兜底分支：POST 成功、reload 失败，但服务端返回的结果不是 FINISHED
+        （正常情况下不会走到）。仍然明确告知比分已保存，并阻止重复提交。
+      */}
+      {refreshWarning && (
+        <p className="ms-refresh-warning" role="status">
+          <strong>比分已保存</strong>
+          {refreshWarning}
+          <span>请重新加载页面，核对最新比赛状态；不要重复提交。</span>
+        </p>
+      )}
       <header className="ms-header">
         <div className="ms-header-top">
           <span className="ms-brand" aria-hidden="true">
@@ -769,13 +833,17 @@ function describeSubmitError(error: ApiError): string {
 /**
  * 大比分 / 小比分的**交互提示**（不是业务裁决）。
  *
- * 明确不做：合法局分判定、胜负汇总计算、一致性结论 —— 那些由后端返回。
- * 这里只说“还没填完 / 明显不是数字 / 明显平局”这类肉眼可见的问题。
+ * 明确不做：合法比分判定（胜方局数是否等于本赛事局制）、合法局分判定、
+ * 胜负汇总计算、一致性结论 —— 那些由后端返回。
+ * 这里只说“还没填完 / 明显不是数字 / 明显平局 / 某一局只填了一边”这类肉眼可见的问题。
+ *
+ * ⚠️ review 返工：这里**不再**比较 `Math.max(a, b)` 与 `gamesToWin`。
+ * 即使裁判填出的胜方局数不符合本赛事局制，也允许请求发到后端，由后端返回 422，
+ * 页面展示服务端真实文案。前端不保留第二套比分规则。
  */
 function describeNormalHint(
   scoreA: string,
   scoreB: string,
-  gamesToWin: number,
   games: GameDraft[],
   pointsToWin: number,
 ): string | null {
@@ -794,13 +862,10 @@ function describeNormalHint(
       (game) => (game.a.trim() === '') !== (game.b.trim() === ''),
     )
     if (half >= 0) return `第 ${half + 1} 局只填了一边，请补全或删除该局。`
+    return `逐局小比分将随大比分一起提交；每局 ${pointsToWin} 分制，最终一致性由服务端校验。`
   }
 
-  if (Math.max(a, b) !== gamesToWin) {
-    return `本赛事 ${gamesToWin} 局制：胜方大比分应为 ${gamesToWin}。`
-  }
-  if (games.length === 0) return null
-  return `逐局小比分将随大比分一起提交；每局 ${pointsToWin} 分制，最终一致性由服务端校验。`
+  return null
 }
 
 /** 已结束比赛的展示：区分「异常结果」与「正常逐局比分」，不复用改分流程。 */
