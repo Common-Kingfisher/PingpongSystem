@@ -6,19 +6,20 @@
  *   1. 只录大比分提交 → 服务端该场比赛 FINISHED、比分正确、games 为空（无伪造逐局）
  *   2. 连点提交按钮 3 次 → 服务端只留下 1 条 RECORD 审计（前端重复点击保护 + 后端幂等）
  *   3. 非法小比分（汇总与大比分不一致）→ 页面显示服务端业务文案，服务端状态不变
- *   4. 异常结果（弃权）→ 服务端 result_type/forfeit_entry_id 落库、无逐局小分；
+ *   4. 1:0（不符合本赛事局制）→ 前端不阻断，请求到达后端并展示服务端 422 文案
+ *   5. 异常结果（弃权）→ 服务端 result_type/forfeit_entry_id 落库、无逐局小分；
  *      页面显示「XX弃权」而不是正常比分
  *
  * 配套脚本与运行前置见 `scripts_mobile_viewport_check.mjs` 文件头（Day 3 验收四件套）。
  *
  * 用法：
- *   node day3_mobile_e2e.mjs <baseUrl> <tid> <matchIdForA> <matchIdForC> <matchIdForD>
- * 前置：后端已启动；`day3_e2e_fixture.py` 已输出上面三个 matchId（每次跑用新 fixture，
+ *   node day3_mobile_e2e.mjs <baseUrl> <tid> <matchIdForA> <matchIdForC> <matchIdForD> <matchIdForB>
+ * 前置：后端已启动；`day3_e2e_fixture.py` 已输出上面四个 matchId（每次跑用新 fixture，
  *      因为这些比赛在验收过程中会被真的写成 FINISHED）。
  */
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8099'
-const [tid, matchA, matchC, matchD] = process.argv.slice(3).map(Number)
+const [tid, matchA, matchC, matchD, matchB] = process.argv.slice(3).map(Number)
 const CDP = 'http://127.0.0.1:9333'
 
 const failures = []
@@ -196,6 +197,33 @@ check('C 页面显示服务端业务错误', typeof errorText === 'string' && er
 const afterC = (await api(`/api/tournaments/${tid}/matches`)).find((m) => m.id === matchC)
 check('C 服务端状态未被改动', afterC.status !== 'FINISHED' && afterC.games.length === 0, `status=${afterC.status} games=${afterC.games.length}`)
 check('C 输入未被清空', await evaluate(`[...document.querySelectorAll('.ms-score-input')].map((i) => i.value).join(',')`) === '2,1', 'inputs kept')
+
+// ---------------------------------------------------------------- 2b：前端不再用 gamesToWin 阻断
+lines.push('')
+lines.push('### scenario B: 1:0 in a 2-game format must still reach the backend (no client-side rule)')
+await openMatch(matchB)
+await setInputByLabel('大比分', 0, '1')
+await setInputByLabel('大比分', 1, '0')
+const localHint = await evaluate(`document.querySelector('.ms-submit-hint')?.textContent ?? null`)
+check(
+  'B 前端不再提示“胜方大比分必须为 2”',
+  typeof localHint !== 'string' || !localHint.includes('局制'),
+  `hint=${localHint}`,
+)
+await click('.ms-submit')
+let errorB = null
+for (let i = 0; i < 30; i += 1) {
+  await sleep(200)
+  errorB = await evaluate(`document.querySelector('.ms-error')?.textContent ?? null`)
+  if (errorB) break
+}
+check(
+  'B 非法局制比分由后端裁决并展示服务端文案',
+  typeof errorB === 'string' && errorB.includes('服务端未接受本次比分'),
+  `text=${errorB}`,
+)
+const afterB = (await api(`/api/tournaments/${tid}/matches`)).find((m) => m.id === matchB)
+check('B 服务端状态未被改动', afterB.status !== 'FINISHED', `status=${afterB.status}`)
 
 // ---------------------------------------------------------------- 4：异常结果
 lines.push('')

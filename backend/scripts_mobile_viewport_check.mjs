@@ -273,7 +273,9 @@ async function main() {
       m2.overflowRight.length === 0 ? 'none' : JSON.stringify(m2.overflowRight),
     )
 
-    // 点上「+」把大比分加到胜局上限（不填另一方），再提交：应显示可见错误文案
+    // 点上「+」一次（只加到 1，不填另一方），再提交：
+    // review 返工后步进按钮**不再**用 gamesToWin 当上限，也**不再**自动改写另一方，
+    // 因此这里应提示“还有一方的大比分没有填写”，而不是自动补出 2:1。
     await evaluate(`(() => {
       const plus = [...document.querySelectorAll('.ms-step')].find((b) => b.getAttribute('aria-label')?.includes('加一局'))
       plus?.click()
@@ -286,6 +288,11 @@ async function main() {
       `${width}px 错误文字可见（未被布局吞掉）`,
       m3.errorBox !== null && m3.errorBox.height > 0 && m3.errorBox.top < m3.innerHeight + 600,
       m3.errorText ? `text="${m3.errorText.slice(0, 40)}" height=${m3.errorBox?.height}` : '未出现错误框',
+    )
+    check(
+      `${width}px 步进不动另一方（无 gamesToWin 自动补全）`,
+      typeof m3.visibleText === 'string' && m3.visibleText.includes('还有一方的大比分没有填写'),
+      `errorText=${m3.errorText}`,
     )
   }
 

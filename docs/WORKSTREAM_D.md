@@ -956,7 +956,7 @@ Day 3 起点基线：`origin/master@c900e71`（含 PR #41 B 轨比分契约、PR
 | `frontend/src/MobileScoreRoutes.tsx` | 路由表 + route adapter + **Auth 接线边界**（未来 AuthGuard 唯一挂载点） |
 | `frontend/src/mobileScore.ts` | 载荷构造与展示 helper（严格按 OpenAPI contract，**不含任何比分业务算法**） |
 | `frontend/src/routeParams.ts` | 路由参数解析（纯函数，不读 localStorage / `?tid=`） |
-| `frontend/src/__tests__/MobileScorePage.test.tsx` | 前端自动化测试 26 例 |
+| `frontend/src/__tests__/MobileScorePage.test.tsx` | 前端自动化测试 28 例 |
 | `backend/day3_mobile_score_acceptance.ps1` | 后端契约层验收：A–F 六场景，22 项断言 |
 | `backend/scripts_mobile_viewport_check.mjs` | 360/375/390/430 布局事实测量（真实 Chrome CDP） |
 | `backend/day3_mobile_e2e.mjs` | 真机视口端到端：输入 → 提交 → 服务端核对 |
@@ -1039,6 +1039,11 @@ Day 3 起点基线：`origin/master@c900e71`（含 PR #41 B 轨比分契约、PR
 前端**保留**的检查只有肉眼可见的四类，且都只用于“省掉一次必然失败的往返”：
 空值、非整数、两边相同、小比分半局。任何被后端拒绝的载荷，页面都原样展示服务端文案。
 
+> **review 返工（见 33）**：初版还额外做了两处“按本赛事局制”的判定，已删除 ——
+> `buildNormalScorePayload()` 不再比较 `Math.max(a, b)` 与 `games_to_win`；
+> `bumpScore()` 不再用 `games_to_win` 当步进上限、也不再自动改写另一方比分。
+> 因此三局两胜里填 `1:0` 会真的发出请求，由后端返回 422。
+
 ## 27. Auth 集成状态（明确边界，不含“later”）
 
 **当前状态：未接线。**
@@ -1081,54 +1086,57 @@ Day 3 起点基线：`origin/master@c900e71`（含 PR #41 B 轨比分契约、PR
 | --- | --- | --- |
 | 后端全量 | `backend> python -m pytest` | **758 passed, 30 skipped, 2 warnings** |
 | 后端基线（Day 3 前） | 同一命令 | 722 → D2 后 758；本轮**未新增后端测试**，数量与 D2 基线一致 |
-| 前端全量 | `frontend> pnpm test` | **39 passed**（26 新增 + 13 既有 Public 路由回归） |
+| 前端全量 | `frontend> pnpm test` | **41 passed**（28 新增 + 13 既有 Public 路由回归） |
 | 前端类型 | `frontend> pnpm exec tsc --noEmit` | 通过（exit 0） |
 | 生产构建 | `frontend> pnpm build` | 通过（71 modules，dist 生成） |
 | 契约一致性 | `frontend> pnpm contract:check` | 通过（`generated/openapi.d.ts` 无 diff） |
 
 warning 数（2）与改动前完全一致，均为既有基线技术债（见 18）。
 
-### 28.2 前端自动化测试覆盖（`MobileScorePage.test.tsx`，26 例）
+### 28.2 前端自动化测试覆盖（`MobileScorePage.test.tsx`，28 例）
 
 * **路由（5 例）**：请求全部命中 URL 里的 tid；URL 与 `localStorage` 冲突时 URL 胜；
   比赛不属于该赛事时明确报错且不去别的赛事找；非法 param 不发任何赛事请求；
   不渲染管理端 11 个导航入口。
-* **正常比分（4 例）**：只录大比分时 payload **不含 `games`**；提交后重新拉取真实 Match；
-  空值 / 平局 / 局数不符时前端提示且不发请求。
+* **正常比分（5 例）**：只录大比分时 payload **不含 `games`**；提交后重新拉取真实 Match；
+  空值 / 平局时前端提示且不发请求；**胜方局数不符合本赛事局制时不阻断，请求照样发给后端
+  并展示服务端 detail**；**步进按钮只做 ±1 与下限 0，不受 `gamesToWin` 限制、也不改动另一方**。
 * **可选小比分（3 例）**：大比分 + 完整小比分同次提交且使用 contract 字段；
   半局被拦下；删除局后重新提交不携带被删除的局。
 * **异常结果（6 例）**：`FORFEIT` / `NO_SHOW` / `WALKOVER` / `DISQUALIFIED` 四种类型
   各自断言 `result_type` + `forfeit_entry_id` 正确且**不带 games**；未选异常方不提交；
   完成态显示「李四弃权」而不是 `2:1`。
-* **错误与防重复（5 例）**：422 业务文案原样展示且**不清空**输入；409 冲突文案；
-  网络失败提示检查局域网且不清空输入；连点 3 次只发 1 次请求且按钮 disabled / 显示“提交中…”；
+* **错误与防重复（6 例）**：422 业务文案原样展示且**不清空**输入；409 冲突文案；
+  网络失败提示检查局域网且不清空输入；**POST 成功但刷新失败时必须报“比分已保存 + 刷新失败”，
+  不得报“本次未保存”，且 score POST 只有一次**；连点 3 次只发 1 次请求且按钮 disabled / 显示“提交中…”；
   被拒绝后可再次提交（锁正确释放）。
 * **操作人（2 例）**：填写后随请求提交并记忆；不填时不发送 `operator_name`。
 * **已结束比赛（1 例）**：只展示结果并指向赛事管理端，不重开改分流程。
 
 ### 28.3 真机尺寸验收（真实 Chrome 153 + 真实后端，`scripts_mobile_viewport_check.mjs`）
 
-对 **正常名字**与**超长名字**两套真实数据各跑一遍，**56 项检查全部 PASS**：
+对 **正常名字**与**超长名字**两套真实数据各跑一遍，**60 项检查全部 PASS**（每断点 15 项 × 4 断点）：
 
-| 断点 | 无横向滚动 | 大比分输入 | 步进按钮 | 提交按钮 | 小比分输入 | 删除按钮 | 名字不破版 | 错误文字可见 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 360px | ✅ scrollWidth=360 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ |
-| 375px | ✅ scrollWidth=375 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ |
-| 390px | ✅ scrollWidth=390 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ |
-| 430px | ✅ scrollWidth=430 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ |
+| 断点 | 无横向滚动 | 大比分输入 | 步进按钮 | 提交按钮 | 小比分输入 | 删除按钮 | 名字不破版 | 错误文字可见 | 步进不动另一方 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 360px | ✅ scrollWidth=360 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ | ✅ |
+| 375px | ✅ scrollWidth=375 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ | ✅ |
+| 390px | ✅ scrollWidth=390 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ | ✅ |
+| 430px | ✅ scrollWidth=430 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ | ✅ |
 
 超长数据：赛事名 32 字、姓名 `张三丰·欧阳锋·令狐冲·东方不败` 与
 `AlexandertheGreatWangXiaoming`。
 
 ### 28.4 端到端验收（真实 Chrome 390×844 + 真实后端，`day3_mobile_e2e.mjs`）
 
-在手机视口里真的用键盘输入、真的点按钮，然后回服务端核对事实，**22 项全部 PASS**：
+在手机视口里真的用键盘输入、真的点按钮，然后回服务端核对事实，**21 项全部 PASS**：
 
 | 场景 | 断言 |
 | --- | --- |
 | A 只录大比分 | 页面显示「比分已保存」；服务端 `FINISHED`、`2:1`、`games=[]`（无伪造逐局） |
 | A 连点 3 次 | 服务端**只有 1 条 RECORD 审计** |
 | C 非法小比分（汇总 0:2 vs 大比分 2:1） | 页面显示 `服务端未接受本次比分：逐局小比分与大比分不一致`；服务端状态未变；输入未清空 |
+| B 局制不符（2 局制填 1:0） | 前端无本地赛制提示；请求到达后端；展示 `服务端未接受本次比分：大比分胜局数必须为 2`；服务端状态未变 |
 | D 异常结果（B 方弃权） | 提交前出现确认条；服务端 `result_type=FORFEIT`、`forfeit_entry_id` 正确、`games=[]`；页面显示「弃权」并标注「排名用行政比分」 |
 
 ### 28.5 后端契约层验收（`day3_mobile_score_acceptance.ps1`，22 项 PASS）
@@ -1210,8 +1218,126 @@ cd ..\frontend; pnpm build
 
 # 4. 端到端 + 小屏测量
 cd ..\backend
-.\.venv\Scripts\python.exe .\day3_e2e_fixture.py          # 打印 TID / MATCH_A / MATCH_C / MATCH_D
-node .\day3_mobile_e2e.mjs http://127.0.0.1:8099 <TID> <MATCH_A> <MATCH_C> <MATCH_D>
+.\.venv\Scripts\python.exe .\day3_e2e_fixture.py          # 打印 TID / MATCH_A / MATCH_C / MATCH_D / MATCH_B
+node .\day3_mobile_e2e.mjs http://127.0.0.1:8099 <TID> <MATCH_A> <MATCH_C> <MATCH_D> <MATCH_B>
 .\.venv\Scripts\python.exe .\day3_longname_fixture.py     # 打印超长名字赛事路径
 node .\scripts_mobile_viewport_check.mjs http://127.0.0.1:8099 /admin/t/<tid>/score/<mid>
 ```
+
+---
+---
+
+# D 轨 Day 3 Review 返工记录
+
+分支与 PR 未变：`feat/d-day3-mobile-score` / **PR #45**（review 返工继续追加在同一个 PR，未开新 PR、未合并）。
+本节只记录本轮两处 review 问题的修复，不改变 22–32 节的交付范围。
+
+## 33. 修复：POST 成功但刷新失败被报成“提交失败”
+
+### 33.1 问题
+
+`MobileScorePage.tsx::runSubmit()` 初版把 `await api.recordScore(...)` 与 `await load()`
+放在**同一个 try/catch**：
+
+```text
+POST /score 成功落库 → 重新 GET Match 时网络失败 → catch → 显示“网络连接失败…”
+```
+
+此时比分**事实上已经保存**，却告诉裁判“没保存”，会诱导重复提交。这是错误状态。
+
+### 33.2 修复
+
+拆成两段，并在 POST 成功后立即记录服务端返回的真实 `MatchOut`：
+
+```ts
+let savedMatch: Match
+try {
+  savedMatch = await api.recordScore(match.id, payload)   // ① 只有这里失败才算“未保存”
+  setSavedMatch(savedMatch)
+} catch (error) {
+  setFormError(/* 422/409/401/403/404/网络 文案，输入不清空 */)
+  return
+}
+
+try {
+  await load()                                            // ② 刷新失败 ≠ 提交失败
+} catch {
+  setRefreshWarning('比分已保存，但最新状态刷新失败，请重新加载页面确认。')
+}
+```
+
+* **A. score POST 失败**：仍按 `describeSubmitError` 展示，覆盖 422 / 409 / 401 / 403 / 404 / 网络错误，输入不清空。
+* **B. POST 成功但刷新失败**：新增 `savedMatch` / `refreshWarning` 两个状态，用 POST 返回的真实
+  `MatchOut` 作为已保存结果兜底展示完成态，并给出醒目的 `.ms-refresh-warning` 提示条：
+  「**比分已保存** …… 请重新加载页面，核对最新比赛状态；不要重复提交。」
+  该提示条刻意**不是**红色错误样式，避免诱导重复提交。
+* 成功刷新时页面仍以刷新后的 match 为准（不拿旧响应覆盖真实状态）：兜底仅在
+  `refreshWarning !== null && savedMatch.status === 'FINISHED'` 时启用。
+* 未改后端、未新增第二条 API。
+
+### 33.3 回归测试
+
+新增 1 例（`MobileScorePage.test.tsx`）：`POST /score → 200` 成功，随后所有 `/api/*` GET 网络失败。断言：
+
+* `scorePosts.length === 1`（score POST 只有一次）
+* 页面出现「比分已保存」
+* 页面出现「最新状态刷新失败」与「请重新加载」
+* 存在 `.ms-refresh-warning` 提示条，且**不存在** `.ms-error`
+* `document.body.textContent` **不包含**「网络连接失败」「本次比分未保存」「服务端出错」
+* 完成态下不存在「确认提交大比分」按钮（不可能再触发第二次提交）
+
+## 34. 修复：删除前端对 `gamesToWin` 的业务合法性裁决
+
+### 34.1 删除的内容
+
+| 位置 | 删除的行为 |
+| --- | --- |
+| `mobileScore.ts::buildNormalScorePayload` | `if (Math.max(big.a, big.b) !== gamesToWin)` 阻断提交（连同该入参一起移除） |
+| `MobileScorePage.tsx::bumpScore` | 用 `gamesToWin` 当步进上限（`Math.min(gamesToWin, base + delta)`） |
+| `MobileScorePage.tsx::bumpScore` | 一方达到 `gamesToWin` 时**自动改写另一方**比分（`otherApply(String(gamesToWin - 1))`） |
+| `MobileScorePage.tsx::describeNormalHint` | 提示「本赛事 N 局制：胜方大比分应为 N」这条按赛制推导的结论 |
+
+这些都属于「本场比分是否合法」的业务判断，等于在手机端建立第二套合法比分算法；
+Day3D 的冻结边界是「移动端负责交互，后端负责规则」，且 Day4 调整赛制/规则时前端不应同步复制规则。
+
+### 34.2 保留的交互检查
+
+必填、必须为非负整数、双方大比分明显相同的提示、小比分“只填一边”的半局提示、
+防重复提交、数字键盘 / `inputMode` / 可点区域等纯交互约束 —— 全部保留。
+
+步进按钮仍为 `+1 / −1` 且下限 `0`，但不再受 `gamesToWin` 限制，也不改动另一方。
+
+### 34.3 现在的行为
+
+三局两胜里填 `1:0`（业务上非法）会**真的发出请求**：
+
+```text
+POST /api/matches/{id}/score  →  backend scores.py  →  422「大比分胜局数必须为 2」
+  →  手机端展示服务端真实 detail
+```
+
+### 34.4 回归测试
+
+* 新增 1 例：胜方局数不符合本赛事局制时**不阻断**，断言请求确实发出（`scorePosts.length === 1`）且展示服务端 detail。
+* 新增 1 例：步进按钮连点 4 次得到 `4`（不被 2 局制截断），另一方仍为空（不被自动改写），下限仍为 `0`。
+* 定向 E2E 新增 scenario B：真实 Chrome 里填 `1:0` 提交 → 前端无本地赛制提示 → 服务端 422 文案上屏 → 服务端状态未变。
+
+## 35. 本轮验证结果
+
+| 项目 | 结果 |
+| --- | --- |
+| `frontend> pnpm test` | **41 passed**（原 39 + 本轮净增 2） |
+| `frontend> pnpm exec tsc --noEmit` | 通过（exit 0） |
+| `frontend> pnpm build` | 通过 |
+| `frontend> pnpm contract:check` | 通过（未改 OpenAPI，无 diff） |
+| `backend> python -m pytest` | 本轮未改后端，沿用 **758 passed, 30 skipped, 2 warnings** |
+| `day3_mobile_score_acceptance.ps1` | **22 PASS / 0 FAIL** |
+| `day3_mobile_e2e.mjs`（真实 Chrome 390×844） | **21 PASS / 0 FAIL**（新增 scenario B 三例） |
+| `scripts_mobile_viewport_check.mjs`（360/375/390/430，含超长名字） | **60 PASS / 0 FAIL**（每断点 15 项，其中新增“步进不动另一方”1 项） |
+
+## 36. Auth 边界未变
+
+本轮**没有**触碰 token、Session、AuthContext、localStorage 登录、backend auth 或临时 Guard。
+`MobileScoreRoutes.tsx::AdminScoreGuardBoundary` 仍是唯一接线点，PR #45 描述中的
+`Auth final wiring blocked by A track contract` 状态不变。
+
