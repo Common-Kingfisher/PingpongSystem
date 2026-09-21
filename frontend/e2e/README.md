@@ -66,3 +66,21 @@ python e2e/test_team_ui_journey_live.py
 ```
 
 该用例不使用 seed/demo 脚本：浏览器创建 TEAM 赛事、录入队伍与队员、确认名单、调用后端分组和小组对抗生成、录入两场小组对抗、确认晋级并生成淘汰首轮。首轮生成后即停止；不覆盖未实现的胜者传播。
+
+## 团体晋级与淘汰签真实联调
+
+另开一个终端启动独立数据库与后端：
+
+```powershell
+cd backend
+python run_team_qualification_knockout_demo.py --fresh
+```
+
+再启动 `pnpm dev`，把启动器输出的赛事 id 填入后运行：
+
+```powershell
+$env:TEAM_QUALIFICATION_KNOCKOUT_E2E_TID = "<赛事 id>"
+python e2e/test_team_qualification_knockout_live.py
+```
+
+该验收不拦截 API；它以既有 Runtime 真实完成四个两队小组赛，再在浏览器中确认八支晋级队伍、生成四场首轮淘汰对抗，并验证两场半决赛与一场决赛保持待上游胜者状态。
