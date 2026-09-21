@@ -7,12 +7,15 @@
 
 const KEY = 'pingpong_active_tournament_id'
 
+export function parseTournamentId(raw: string | null | undefined): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null
+  const id = Number(raw)
+  return Number.isSafeInteger(id) && id > 0 ? id : null
+}
+
 export function getActiveTournamentId(): number | null {
   try {
-    const raw = localStorage.getItem(KEY)
-    if (!raw) return null
-    const n = Number(raw)
-    return Number.isInteger(n) && n > 0 ? n : null
+    return parseTournamentId(localStorage.getItem(KEY))
   } catch {
     return null
   }

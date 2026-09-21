@@ -150,7 +150,9 @@
   color: #24435f;
   background: #fff;
   border: 1px solid #c9d5e1;
-  font: 700 12px inherit;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
   text-decoration: none;
 }
 .admin-public-link.is-disabled,

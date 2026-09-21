@@ -1,6 +1,6 @@
 import { ReactNode, useMemo, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from 'react-router-dom'
-import { getActiveTournamentId } from '../activeTournament'
+import { getActiveTournamentId, parseTournamentId } from '../activeTournament'
 import './AdminLayout.css'
 
 export type AdminNavKey =
@@ -60,10 +60,7 @@ export default function AdminLayout({
   const location = useLocation()
   const [params] = useSearchParams()
   const [accessMessage, setAccessMessage] = useState<string | null>(null)
-  const urlTournamentId = params.get('tid')
-  const tournamentId = urlTournamentId && /^\d+$/.test(urlTournamentId)
-    ? Number(urlTournamentId)
-    : getActiveTournamentId()
+  const tournamentId = parseTournamentId(params.get('tid')) ?? getActiveTournamentId()
   const tournamentQuery = tournamentId === null ? '' : `?tid=${tournamentId}`
   const dense = location.pathname === '/console'
 
