@@ -217,24 +217,26 @@ C 轨 D2 不实现复杂权限编辑器；前端只根据后端返回的允许�
 
 实施内容：
 
-1. 新增 `backend/app/routers/auth.py`，并新增或扩展系统 Router。
-2. 在 `backend/app/main.py` 注册认证与系统 Router。
-3. 在 `backend/app/schemas.py` 增加登录、当前用户、改密、bootstrap 状态/初始化请求、`EVENT_ADMIN` 创建 DTO。
-4. 实现 Cookie 设置和清除，保持 Bearer 响应不设置明文 Token 到 Cookie。
-5. 对认证失败统一返回稳定错误码；业务接口不泄露密码哈希、Token 和会话内部字段。
-6. 实现 `GET /api/v1/system/bootstrap/status`，只返回三种冻结状态之一。
-7. 实现 `POST /api/v1/system/bootstrap`：
+1. 新增 `backend/app/routers/auth.py` 和 `backend/app/routers/system.py`。
+2. 新增 `backend/app/auth_dependencies.py`，只承载 A2.3 所需的当前用户、凭据解析和系统角色校验；赛事级授权依赖留给 A2.4，避免 A2.3 反向依赖后续工作包。
+3. 在 `backend/app/main.py` 注册认证与系统 Router。
+4. 在 `backend/app/schemas.py` 增加登录、当前用户、改密、bootstrap 状态/初始化请求、`EVENT_ADMIN` 创建 DTO。
+5. 实现 Cookie 设置和清除，保持 Bearer 响应不设置明文 Token 到 Cookie。
+6. 对认证失败统一返回稳定错误码；业务接口不泄露密码哈希、Token 和会话内部字段。
+7. 实现 `GET /api/v1/system/bootstrap/status`，只返回三种冻结状态之一。
+8. 实现 `POST /api/v1/system/bootstrap`：
    - 仅接受服务器本机连接，不信任 `X-Forwarded-For` 等可伪造请求头；
    - 原子创建首个 `SYSTEM_ADMIN`；
    - 已初始化、并发失败或 `RECOVERY_REQUIRED` 时绝不重复创建 Web 管理员；
    - 非本机访问按 `404 RESOURCE_NOT_FOUND` 处理。
-8. 实现 `POST /api/v1/system/users`，仅允许 `SYSTEM_ADMIN` 创建 `EVENT_ADMIN`，字段固定为 `username`、`display_name`、`password`、`phone`、`note`。
-9. A 轨不新增或修改 C 轨前端文件。
+9. 实现 `POST /api/v1/system/users`，仅允许 `SYSTEM_ADMIN` 创建 `EVENT_ADMIN`，字段固定为 `username`、`display_name`、`password`、`phone`、`note`。
+10. A 轨不新增或修改 C 轨前端文件。
 
 交付文件：
 
 - `backend/app/routers/auth.py`
-- 系统用户 Router（文件路径在 A2.3 实现前冻结）
+- `backend/app/routers/system.py`
+- `backend/app/auth_dependencies.py`
 - `backend/app/main.py`
 - `backend/app/schemas.py`
 - `backend/tests/test_auth_api.py`
@@ -262,7 +264,7 @@ C 轨 D2 不实现复杂权限编辑器；前端只根据后端返回的允许�
 
 实施内容：
 
-1. 新增 `backend/app/dependencies.py`。
+1. 新增 `backend/app/dependencies.py`，并复用或迁移 A2.3 的最小认证依赖；迁移不得改变 A2.3 已冻结的响应和错误语义。
 2. 实现：
    - `get_current_user`
    - `require_system_admin`

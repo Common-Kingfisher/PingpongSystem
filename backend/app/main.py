@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from .db import init_db
 from .routers import (
+    auth,
     demo,
     entries,
     groups,
@@ -21,6 +22,7 @@ from .routers import (
     scheduling,
     scores,
     seeds,
+    system,
     team_knockout,
     team_qualification,
     team_standings,
@@ -73,6 +75,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
+app.include_router(system.router)
 app.include_router(tournaments.router)
 app.include_router(players.router)
 app.include_router(entries.router)

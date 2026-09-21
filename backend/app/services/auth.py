@@ -62,6 +62,13 @@ def public_user(user: dict) -> dict:
     }
 
 
+def _normalize_optional(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
 def login(conn: sqlite3.Connection, username: str, password: str) -> dict:
     user = repo.get_user_by_username(conn, username)
     if (
@@ -201,8 +208,8 @@ def bootstrap(
             normalized_display_name,
             hash_password(password),
             SystemRole.SYSTEM_ADMIN.value,
-            phone=phone,
-            note=note,
+            phone=_normalize_optional(phone),
+            note=_normalize_optional(note),
         )
         repo.mark_bootstrap_completed(conn)
         conn.commit()
@@ -210,6 +217,47 @@ def bootstrap(
     except AuthError:
         conn.rollback()
         raise
+    except sqlite3.IntegrityError as exc:
+        conn.rollback()
+        if "users.username" in str(exc):
+            raise AuthError(409, "USERNAME_ALREADY_EXISTS", "用户名已存在") from exc
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def create_event_admin(
+    conn: sqlite3.Connection,
+    *,
+    username: str,
+    display_name: str,
+    password: str,
+    phone: str | None = None,
+    note: str | None = None,
+) -> dict:
+    """创建 EVENT_ADMIN；账号创建与赛事授权保持分离。"""
+    normalized_username = username.strip()
+    normalized_display_name = display_name.strip()
+    if not normalized_username or not normalized_display_name:
+        raise AuthError(422, "INVALID_EVENT_ADMIN_INPUT", "用户名和显示名称不能为空")
+    try:
+        validate_password_strength(password)
+    except ValueError as exc:
+        raise AuthError(422, "INVALID_EVENT_ADMIN_PASSWORD", str(exc)) from exc
+
+    try:
+        user = repo.create_user(
+            conn,
+            normalized_username,
+            normalized_display_name,
+            hash_password(password),
+            SystemRole.EVENT_ADMIN.value,
+            phone=_normalize_optional(phone),
+            note=_normalize_optional(note),
+        )
+        conn.commit()
+        return user
     except sqlite3.IntegrityError as exc:
         conn.rollback()
         if "users.username" in str(exc):

@@ -1,12 +1,13 @@
 """Pydantic 请求/响应模型。"""
 
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from .models import (
+    BootstrapStatus,
     BronzeMode,
     EventType,
     MatchBracket,
@@ -15,6 +16,7 @@ from .models import (
     PlacementMode,
     PreflightLevel,
     ResultType,
+    SystemRole,
     TableStatus,
     TeamRubberStatus,
     TeamRubberType,
@@ -56,6 +58,65 @@ class TournamentOut(BaseModel):
     roster_confirmed: bool = False
     confirmed_at: str | None = None
     operation_mode: TournamentMode = TournamentMode.LIVE
+
+
+class AuthLoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=500)
+    mode: Literal["browser", "bearer"] = "browser"
+
+
+class AuthUserOut(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    system_role: SystemRole
+
+
+class AuthLoginResponse(BaseModel):
+    access_token: str | None = None
+    token_type: Literal["Bearer"] | None = None
+    expires_at: str
+    user: AuthUserOut
+
+
+class AuthMeResponse(BaseModel):
+    user: AuthUserOut
+    tournament_access_count: int
+
+
+class AuthChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=500)
+    new_password: str = Field(min_length=12, max_length=500)
+
+
+class BootstrapStatusResponse(BaseModel):
+    status: BootstrapStatus
+
+
+class BootstrapRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    display_name: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=12, max_length=500)
+    phone: str | None = Field(default=None, max_length=50)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class BootstrapResponse(AuthUserOut):
+    pass
+
+
+class EventAdminCreateRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    display_name: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=12, max_length=500)
+    phone: str | None = Field(default=None, max_length=50)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class EventAdminOut(AuthUserOut):
+    phone: str | None = None
+    note: str | None = None
 
 
 class PlayerCreate(BaseModel):
