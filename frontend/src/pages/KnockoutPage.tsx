@@ -16,10 +16,21 @@ function placementRoundLabel(item: PlacementItem) {
   return `第 ${item.match.round} 轮`
 }
 
-export default function KnockoutPage() {
+/**
+ * 淘汰赛 / 签表页。
+ *
+ * D 轨 Day 2：新增可选 `readOnly`。Public 路由（`/public/t/:tid/bracket`）以只读方式复用本页，
+ * 只屏蔽**写操作与管理入口**（录入大比分、生成淘汰赛签表、季军赛录分、指向管理页的链接），
+ * 签表结构与晋级展示完全沿用后端结果，不复制任何淘汰赛推进算法。
+ */
+export default function KnockoutPage({
+  tid: tidProp,
+  readOnly = false,
+}: { tid?: number; readOnly?: boolean } = {}) {
   const [params] = useSearchParams()
   const urlTid = params.get('tid')
-  const tid = urlTid ? Number(urlTid) : getActiveTournamentId()
+  // tid 优先级：显式 prop（Public 路由的 path param）> ?tid= > localStorage（V0.2 兼容）
+  const tid = tidProp ?? (urlTid ? Number(urlTid) : getActiveTournamentId())
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [tree, setTree] = useState<KnockoutTree | null>(null)
@@ -177,7 +188,7 @@ export default function KnockoutPage() {
         {tournament && (
           <div className="section-heading">
             <p className="muted">阶段 <span className="badge">{tournament.stage}</span> · {tournament.bronze_mode === 'BRONZE_MATCH' ? '设季军赛' : '并列季军'} · {tournament.placement_mode === 'COMPLETE' ? '开启完整名次排位' : '常规名次'}</p>
-            <div className="button-row"><Link className="btn small" to={`/journey?tid=${tid}`}>冠军之路</Link><Link className="btn small" to={`/orderbook?tid=${tid}`}>打印秩序册</Link></div>
+            {!readOnly && <div className="button-row"><Link className="btn small" to={`/journey?tid=${tid}`}>冠军之路</Link><Link className="btn small" to={`/orderbook?tid=${tid}`}>打印秩序册</Link></div>}
           </div>
         )}
         {error && <p className="status-error">{error}</p>}
@@ -198,7 +209,7 @@ export default function KnockoutPage() {
             rounds={tree!.rounds}
             champion={tree!.champion}
             runnerUp={tree!.runner_up}
-            onScore={openScore}
+            onScore={readOnly ? undefined : openScore}
           />
           {tree!.placement_matches.length > 0 && <section className="card placement-board">
             <div className="section-heading"><div><span className="eyebrow">PLACEMENT BRACKET</span><h3>季军与完整名次排位</h3></div><span className="muted">每个名次区间独立比赛，负者不会返回冠军主签</span></div>
@@ -209,7 +220,7 @@ export default function KnockoutPage() {
                 return <article key={match.id} className="placement-match-card">
                   <span>{placementRoundLabel(item)}</span>
                   <strong>{match.player_a?.name ?? '待定'} <i>VS</i> {match.player_b?.name ?? '待定'}</strong>
-                  {match.status === 'FINISHED' ? <small>{match.result_type !== 'NORMAL' ? 'W/O' : `${match.player_a_score}:${match.player_b_score}`} · 已结束</small> : match.player_a && match.player_b ? <button className="btn small primary" onClick={() => openScore(match)}>录入大比分</button> : <small>等待上一轮结果</small>}
+                  {match.status === 'FINISHED' ? <small>{match.result_type !== 'NORMAL' ? 'W/O' : `${match.player_a_score}:${match.player_b_score}`} · 已结束</small> : match.player_a && match.player_b ? (readOnly ? <small>待录入比分</small> : <button className="btn small primary" onClick={() => openScore(match)}>录入大比分</button>) : <small>等待上一轮结果</small>}
                 </article>
               })}</div>
             </section>)}</div>
@@ -218,8 +229,9 @@ export default function KnockoutPage() {
         </>
       )}
 
-      {/* 状态 B：小组赛已全部结束、签表尚未生成 → 只显示"可以生成"，不再出现"请先完成小组赛" */}
-      {awaitingBracket && !bracketUnavailable && (
+      {/* 状态 B：小组赛已全部结束、签表尚未生成 → 管理端显示"可以生成"；
+          Public 只读视图只说明进度，不提供生成入口 */}
+      {awaitingBracket && !bracketUnavailable && !readOnly && (
         <div className="card">
           <p className="status-ok">✅ 小组赛已全部完成。晋级名单已经确定，可以生成淘汰赛。</p>
           {hasAmbiguousQualification && (
@@ -237,13 +249,24 @@ export default function KnockoutPage() {
         </div>
       )}
 
+      {awaitingBracket && !bracketUnavailable && readOnly && (
+        <div className="card">
+          <p className="status-ok">✅ 小组赛已全部完成，晋级名单已确定。</p>
+          <p className="muted">淘汰赛签表正在生成或等待裁判组发布，发布后本页会自动显示。</p>
+        </div>
+      )}
+
       {/* 状态 B 的例外：小组赛结束但晋级人数不足以生成签表（说清原因，而不是只报后端错误） */}
       {awaitingBracket && bracketUnavailable && (
         <div className="card">
           <p className="status-ok">✅ 小组赛已全部完成。</p>
           <p className="status-warn">
             但当前晋级人数不足以生成淘汰赛签表（每个小组都需要至少 1 名晋级者、总数至少 2 人）。
-            请到<Link to={`/rankings?tid=${tid}`}> 小组排名 </Link>页确认各组出线人数后再生成。
+            {!readOnly && (
+              <>
+                请到<Link to={`/rankings?tid=${tid}`}> 小组排名 </Link>页确认各组出线人数后再生成。
+              </>
+            )}
           </p>
         </div>
       )}
@@ -253,11 +276,19 @@ export default function KnockoutPage() {
         <div className="card">
           <p className="muted">小组赛尚未完成</p>
           {remainingGroupMatches > 0 ? (
-            <p className="muted">
-              剩余 {remainingGroupMatches} 场比赛。请先在
-              <Link to={`/console?tid=${tid}`}> 比赛控制台 </Link>
-              录入比分，完成后即可生成淘汰赛。
-            </p>
+            readOnly ? (
+              <p className="muted">
+                剩余 {remainingGroupMatches} 场比赛。全部结束后即进入淘汰赛阶段。
+              </p>
+            ) : (
+              <p className="muted">
+                剩余 {remainingGroupMatches} 场比赛。请先在
+                <Link to={`/console?tid=${tid}`}> 比赛控制台 </Link>
+                录入比分，完成后即可生成淘汰赛。
+              </p>
+            )
+          ) : readOnly ? (
+            <p className="muted">小组赛对阵尚未发布，请稍后再查看。</p>
           ) : (
             <p className="muted">
               请先在<Link to={`/players?tid=${tid}`}> 选手与分组 </Link>
@@ -267,7 +298,7 @@ export default function KnockoutPage() {
         </div>
       )}
 
-      {modal && tournament && <ScoreSheet
+      {modal && tournament && !readOnly && <ScoreSheet
         match={modal}
         sideA={modal.player_a?.name ?? '待定'}
         sideB={modal.player_b?.name ?? '待定'}

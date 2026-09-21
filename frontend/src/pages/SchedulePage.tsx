@@ -3,10 +3,11 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, Entry, GroupingResult, Match, Player, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 
-export default function SchedulePage() {
+export default function SchedulePage({ tid: tidProp }: { tid?: number } = {}) {
   const [params] = useSearchParams()
   const urlTid = params.get('tid')
-  const tid = urlTid ? Number(urlTid) : getActiveTournamentId()
+  // tid 优先级：显式 prop（Public 路由的 path param）> ?tid= > localStorage（V0.2 兼容）
+  const tid = tidProp ?? (urlTid ? Number(urlTid) : getActiveTournamentId())
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [players, setPlayers] = useState<Player[]>([])

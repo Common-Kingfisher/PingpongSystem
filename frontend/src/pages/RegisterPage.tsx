@@ -3,10 +3,20 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 
-export default function RegisterPage() {
+/**
+ * 在线报名页。
+ *
+ * ⚠️ legacy（V0.2 行为）：本页直接调用 `api.addPlayer` 创建**正式 Player**，
+ * 与 V0.3 冻结的 `Registration(pending) → EVENT_ADMIN 确认入赛` 契约不一致。
+ *
+ * D 轨 Day 2 只在 Public 路由下复用本页作为兼容入口，并显式标记 legacy；
+ * 正式报名契约（Registration schema/API、`registration_enabled`）由 A 轨提供后再切换。
+ */
+export default function RegisterPage({ tid: tidProp }: { tid?: number } = {}) {
   const [params] = useSearchParams()
   const urlTid = params.get('tid')
-  const tid = urlTid ? Number(urlTid) : getActiveTournamentId()
+  // tid 优先级：显式 prop（Public 路由的 path param）> ?tid= > localStorage（V0.2 兼容）
+  const tid = tidProp ?? (urlTid ? Number(urlTid) : getActiveTournamentId())
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [name, setName] = useState('')
