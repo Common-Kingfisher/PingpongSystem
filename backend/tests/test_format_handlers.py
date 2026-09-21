@@ -42,14 +42,26 @@ def test_unknown_format_is_explicitly_rejected():
         formats.resolve_format_handler("UNKNOWN")
 
 
+def test_personal_format_handler_rejects_team_tournament(conn):
+    tournament = repo.create_tournament(
+        conn, "团体赛", "2025-06-01", 4, 2, 1, event_type="TEAM"
+    )
+    handler = formats.resolve_format_handler(formats.GROUP_KNOCKOUT)
+
+    with pytest.raises(formats.FormatHandlerError, match="团体赛不使用个人赛赛制处理器"):
+        handler.validate_config(conn, tournament["id"])
+
+
 def test_group_knockout_handler_wraps_existing_main_flow(conn):
     tournament_id = _grouped_tournament(conn)
     handler = formats.resolve_format_handler(formats.GROUP_KNOCKOUT)
 
     assert handler.validate_config(conn, tournament_id)["id"] == tournament_id
-    total, per_group = handler.generate_matches(conn, tournament_id)
-    assert total == 4
-    assert per_group == {"A组": 1, "B组": 1, "C组": 1, "D组": 1}
+    result = handler.generate_matches(conn, tournament_id)
+    assert result == formats.MatchGenerationResult(
+        matches_generated=4,
+        per_group={"A组": 1, "B组": 1, "C组": 1, "D组": 1},
+    )
     assert handler.get_completion_state(conn, tournament_id) == {
         "state": "GROUP_STAGE_IN_PROGRESS", "can_advance": False, "completed": False
     }
