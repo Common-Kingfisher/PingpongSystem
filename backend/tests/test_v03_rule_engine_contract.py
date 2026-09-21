@@ -48,13 +48,13 @@ def test_revision_dependency_contract_scenarios(scenario, expected):
     raise AssertionError(f"待实现：{scenario} — {expected}")
 
 
-@pytest.mark.skip(reason="D1B：个人赛 Format Handler 接口已冻结，尚未建立实现")
+@pytest.mark.skip(reason="D1B：ROUND_ROBIN / SINGLE_ELIMINATION 等待 Day4 实现")
 @pytest.mark.parametrize(
     "format_code",
-    ["ROUND_ROBIN", "SINGLE_ELIMINATION", "GROUP_KNOCKOUT", "UNKNOWN"],
+    ["ROUND_ROBIN", "SINGLE_ELIMINATION"],
 )
 def test_format_handler_contract_scenarios(format_code):
-    """每个 Handler 均须覆盖六个冻结方法，未知 format 必须拒绝。"""
+    """Day4 未实现 Handler 保持为可定位的冻结契约。"""
     raise AssertionError(f"待实现的 Format Handler：{format_code}")
 
 

@@ -6,6 +6,7 @@ from sqlite3 import Connection
 from .. import schemas
 from ..db import get_db
 from ..services import knockout as knockout_service
+from ..services import formats as format_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["knockout"])
 
@@ -17,7 +18,10 @@ def _http(exc) -> HTTPException:
 @router.post("/generate-knockout", response_model=schemas.KnockoutTree)
 def generate_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
     try:
-        tree = knockout_service.generate_knockout(conn, tournament_id)
+        handler = format_service.resolve_format_handler(format_service.GROUP_KNOCKOUT)
+        tree = handler.advance_participants(conn, tournament_id)
+    except format_service.FormatHandlerError as exc:
+        raise _http(exc)
     except knockout_service.KnockoutError as exc:
         raise _http(exc)
     return _to_schema(tree)
