@@ -88,7 +88,7 @@ get_completion_state()
 
 `backend/tests/test_v03_rule_engine_contract.py` 建立了比分、改分依赖、Format、BYE／种子／单位与排名的 32 个可收集测试场景。它们目前均为明确跳过的未来实现契约，避免 Day 1 为追求全绿而提前实现 Day 2–Day 4 功能。
 
-Day 1 不实现三种赛制的完整流程、移动端录分、登录／报名、LAN 打包、Organization/Venue、Swiss、双败、复杂团体赛或规则 DSL；也不修复与 D1B 无关的既有失败。
+Day 1 不实现三种赛制的完整流程、移动端录分、登录／报名、LAN 打包、Organization/Venue、Swiss、双败、复杂团体赛或规则 DSL；也不修改与 D1B 无关的生产业务实现。
 
 ## 8. 验证记录
 
@@ -101,7 +101,8 @@ python -m pytest tests/test_v03_rule_engine_contract.py -q -p no:cacheprovider
 
 结果：
 
-- 当前 HEAD：`ba4a0a6ae7d97235e399a289a3e11663dc730188`
+- 测试执行提交（被验证的代码提交）：`ba4a0a6ae7d97235e399a289a3e11663dc730188`
+- 后续 `f7135e9` 仅同步本验证记录，未修改后端代码或测试。
 - 32 skipped
 - 0 failed
 - 2 条依赖弃用警告。
@@ -117,7 +118,8 @@ python -m pytest -q -p no:cacheprovider
 
 结果：
 
-- 当前 HEAD：`ba4a0a6ae7d97235e399a289a3e11663dc730188`
+- 测试执行提交（被验证的代码提交）：`ba4a0a6ae7d97235e399a289a3e11663dc730188`
+- 后续 `f7135e9` 仅同步本验证记录，未修改后端代码或测试。
 - 633 passed，32 skipped，0 failed。
 - 2 条依赖弃用警告；完整回归耗时约 3 分钟。
-- 此前记录的 `tests/test_team_group_ties.py::test_generated_tie_continues_into_production_runtime` 已随当前 HEAD 的测试夹具修正解决，不再作为当前基线失败记录。
+- 此前记录的 `tests/test_team_group_ties.py::test_generated_tie_continues_into_production_runtime` 已随测试执行提交中的夹具修正解决，不再作为当前基线失败记录。
