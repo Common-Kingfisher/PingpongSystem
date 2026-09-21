@@ -56,7 +56,7 @@ def test_record_score_draw_rejected(conn):
         scores_service.record_score(conn, match["id"], 2, 2)
         assert False, "平局应被拒绝"
     except scores_service.ScoreError as exc:
-        assert exc.code == 409
+        assert exc.code == 422
 
 
 def test_record_score_on_waiting_allowed(conn):
@@ -229,7 +229,7 @@ def test_api_score_flow(client):
     assert data["status"] == "FINISHED"
     assert data["winner_id"] == matches[0]["player_a_id"]
 
-    # 审计字段完整时，平局由业务层返回 409。
+    # 审计字段完整时，平局仍属于非法比分 payload，返回 422。
     resp = client.post(
         f"/api/matches/{matches[0]['id']}/revise-score",
         json={
@@ -239,7 +239,7 @@ def test_api_score_flow(client):
             "change_reason": "验证非法平局",
         },
     )
-    assert resp.status_code == 409
+    assert resp.status_code == 422
 
     # 负数 422
     resp = client.post(
@@ -371,7 +371,7 @@ def test_aggregate_invalid(conn, sa, sb):
         scores_service.record_score(conn, m["id"], sa, sb)
 
 
-# ------------------------------------------------------------------ 逐局小分（仅 FINISHED GROUP 补录）
+# ------------------------------------------------------------------ 逐局小分（首次录入或 FINISHED GROUP 后补）
 
 def _record_group(conn, sa, sb):
     """小组赛首次录分（aggregate-only），返回更新后的 match。"""
@@ -640,6 +640,17 @@ def test_api_score_without_games_field_allowed(client):
     assert resp.status_code == 200
     assert resp.json()["player_a_score"] == 2
     assert resp.json()["player_b_score"] == 0
+
+
+def test_api_record_score_draw_is_unprocessable(client):
+    """正常比赛平局属于非法比分 payload，应统一返回 HTTP 422。"""
+    _, mid = _api_two_player_match(client)
+    resp = client.post(
+        f"/api/matches/{mid}/score",
+        json={"player_a_score": 2, "player_b_score": 2, "result_type": "NORMAL"},
+    )
+
+    assert resp.status_code == 422
 
 
 def test_api_record_score_with_complete_games_allowed(client):

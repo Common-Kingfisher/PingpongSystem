@@ -27,7 +27,7 @@ def _validate_scores(score_a: int, score_b: int, games_to_win: int) -> None:
     if score_a < 0 or score_b < 0:
         raise ScoreError("比分不能为负数", 422)
     if score_a == score_b:
-        raise ScoreError("比赛不允许平局")
+        raise ScoreError("比赛不允许平局", 422)
     if max(score_a, score_b) != games_to_win:
         raise ScoreError(f"大比分胜局数必须为 {games_to_win}", 422)
 
@@ -303,8 +303,9 @@ def revise_score(
 ) -> dict:
     """修改已结束比赛的比分（纠错）。
 
-    淘汰赛限制：如果任一胜者线或负者排位线的下游比赛已经 PLAYING/FINISHED，
-    则阻止修改；全部下游尚未开始时允许修改并重新同步双方签位。
+    淘汰赛改分：胜者不变时只更新本场比分事实，不重置下游；胜者变化时分析全部
+    胜者线与负者排位线。任一下游已 PLAYING/FINISHED 时拒绝修改；全部下游未开始
+    时允许重置并重新同步签位。
     """
     match = _ensure_match(conn, match_id)
     before = _snapshot(conn, match_id)
