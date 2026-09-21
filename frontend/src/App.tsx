@@ -18,6 +18,7 @@ import TeamRosterPage from './pages/TeamRosterPage'
 import TeamRankingsPage from './pages/TeamRankingsPage'
 import TeamQualificationPage from './pages/TeamQualificationPage'
 import TeamKnockoutPage from './pages/TeamKnockoutPage'
+import PublicRoutes from './PublicRoutes'
 import { getActiveTournamentId } from './activeTournament'
 import { api } from './api'
 
@@ -79,6 +80,14 @@ function AppNav() {
 export default function App() {
   const { pathname } = useLocation()
   const fullwidth = ['/bigscreen', '/journey', '/orderbook'].includes(pathname)
+
+  // V0.3 Public 端（D 轨）：`/public/t/:tid/...` 使用独立的 PublicLayout。
+  // 这里刻意提前返回、不渲染管理端 App Shell —— 公共页面不得出现管理导航与管理员控件。
+  // 该分支只做入口分流，Public 路由本身全部收敛在 PublicRoutes.tsx，避免与 A/C 轨争抢 App.tsx。
+  if (pathname === '/public' || pathname.startsWith('/public/')) {
+    return <PublicRoutes />
+  }
+
   return (
     <div className="app">
       <header className="app-header">
