@@ -139,9 +139,23 @@ def test_revision_is_blocked_after_dependent_placement_match_finishes(conn):
         if match["bracket"] == "PLACEMENT"
     )
     _score_a_wins(conn, placement)
+    before_upstream = repo.get_match(conn, qf["id"])
+    before_placement = repo.get_match(conn, placement["id"])
 
     with pytest.raises(scores_service.ScoreError, match="影响后续比赛"):
         scores_service.revise_score(conn, qf["id"], 0, 2)
+
+    after_upstream = repo.get_match(conn, qf["id"])
+    after_placement = repo.get_match(conn, placement["id"])
+    assert (after_upstream["player_a_score"], after_upstream["player_b_score"]) == (
+        before_upstream["player_a_score"],
+        before_upstream["player_b_score"],
+    )
+    assert (after_placement["entry_a_id"], after_placement["entry_b_id"]) == (
+        before_placement["entry_a_id"],
+        before_placement["entry_b_id"],
+    )
+    assert after_placement["status"] == MatchStatus.FINISHED.value
 
 
 def test_group_result_is_locked_after_knockout_generation(conn):

@@ -416,20 +416,48 @@ def test_knockout_aggregate_only(conn):
     assert (updated["player_a_score"], updated["player_b_score"]) == (2, 1)
 
 
-# 首次录分显式带 games → 422（GROUP 与 KNOCKOUT 均如此）
-def test_record_score_with_games_rejected(conn):
+# 首次录分可带完整逐局小分，且必须与大比分一起持久化。
+def test_record_score_with_complete_games_persists(conn):
     tid = _rules_tournament(conn)
     m = _only_match(conn, tid)
-    with pytest.raises(scores_service.ScoreError) as exc_info:
-        scores_service.record_score(conn, m["id"], 2, 0, games=[(11, 8), (11, 7)])
-    assert exc_info.value.code == 422
+    updated = scores_service.record_score(conn, m["id"], 2, 0, games=[(11, 8), (11, 7)])
+
+    assert updated["status"] == MatchStatus.FINISHED.value
+    assert (updated["player_a_score"], updated["player_b_score"]) == (2, 0)
+    assert [(game["side_a_score"], game["side_b_score"]) for game in updated["games"]] == [
+        (11, 8),
+        (11, 7),
+    ]
 
 
-def test_knockout_record_with_games_rejected(conn):
+def test_knockout_record_with_complete_games_persists(conn):
     m = _knockout_match(conn)
-    with pytest.raises(scores_service.ScoreError) as exc_info:
-        scores_service.record_score(conn, m["id"], 2, 0, games=[(11, 8), (11, 7)])
+    updated = scores_service.record_score(conn, m["id"], 2, 0, games=[(11, 8), (11, 7)])
+
+    assert updated["status"] == MatchStatus.FINISHED.value
+    assert [(game["side_a_score"], game["side_b_score"]) for game in updated["games"]] == [
+        (11, 8),
+        (11, 7),
+    ]
+
+
+def test_record_score_rejects_games_inconsistent_with_aggregate_before_write(conn):
+    tid = _rules_tournament(conn)
+    m = _only_match(conn, tid)
+
+    with pytest.raises(scores_service.ScoreError, match="逐局小比分与大比分不一致") as exc_info:
+        scores_service.record_score(
+            conn,
+            m["id"],
+            2,
+            0,
+            games=[(11, 8), (9, 11), (11, 7)],
+        )
+
     assert exc_info.value.code == 422
+    unchanged = repo.get_match(conn, m["id"])
+    assert unchanged["status"] == MatchStatus.WAITING.value
+    assert repo.list_match_games(conn, m["id"]) == []
 
 
 # D/E：补录与数据库大比分一致 → ACCEPT，大比分/winner 不变
@@ -543,6 +571,27 @@ def test_revise_uses_same_validation(conn):
         scores_service.revise_score(conn, m["id"], 99, 0)
 
 
+def test_revise_rejects_invalid_aggregate_even_when_games_match_stored_score(conn):
+    """改分携带小比分时也必须校验其显式大比分，不得走补录分支绕过。"""
+    tid = _rules_tournament(conn)
+    m = _only_match(conn, tid)
+    scores_service.record_score(conn, m["id"], 2, 0)
+
+    with pytest.raises(scores_service.ScoreError) as exc_info:
+        scores_service.revise_score(
+            conn,
+            m["id"],
+            99,
+            0,
+            games=[(11, 8), (11, 7)],
+        )
+
+    assert exc_info.value.code == 422
+    unchanged = repo.get_match(conn, m["id"])
+    assert (unchanged["player_a_score"], unchanged["player_b_score"]) == (2, 0)
+    assert repo.list_match_games(conn, m["id"]) == []
+
+
 # ------------------------------------------------------------------ Router 层：games 缺失 vs 空数组
 
 def _api_two_player_match(client):
@@ -591,6 +640,68 @@ def test_api_score_without_games_field_allowed(client):
     assert resp.status_code == 200
     assert resp.json()["player_a_score"] == 2
     assert resp.json()["player_b_score"] == 0
+
+
+def test_api_record_score_with_complete_games_allowed(client):
+    """API 接受完整且与大比分一致的逐局数据。"""
+    _, mid = _api_two_player_match(client)
+    resp = client.post(
+        f"/api/matches/{mid}/score",
+        json={
+            "player_a_score": 2,
+            "player_b_score": 0,
+            "games": [
+                {"side_a_score": 11, "side_b_score": 8},
+                {"side_a_score": 12, "side_b_score": 10},
+            ],
+            "result_type": "NORMAL",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert [(game["side_a_score"], game["side_b_score"]) for game in resp.json()["games"]] == [
+        (11, 8),
+        (12, 10),
+    ]
+
+
+def test_api_record_score_requires_aggregate_when_games_present(client):
+    """逐局小分不能替代必填的大比分。"""
+    _, mid = _api_two_player_match(client)
+    resp = client.post(
+        f"/api/matches/{mid}/score",
+        json={
+            "games": [
+                {"side_a_score": 11, "side_b_score": 8},
+                {"side_a_score": 11, "side_b_score": 7},
+            ],
+            "result_type": "NORMAL",
+        },
+    )
+
+    assert resp.status_code == 422
+
+
+def test_api_revise_rejects_invalid_aggregate_when_games_present(client):
+    """改分接口不得因携带小比分而跳过大比分校验。"""
+    _, mid = _api_two_player_match(client)
+    client.post(f"/api/matches/{mid}/score", json={"player_a_score": 2, "player_b_score": 0})
+    resp = client.post(
+        f"/api/matches/{mid}/revise-score",
+        json={
+            "player_a_score": 99,
+            "player_b_score": 0,
+            "games": [
+                {"side_a_score": 11, "side_b_score": 8},
+                {"side_a_score": 11, "side_b_score": 7},
+            ],
+            "result_type": "NORMAL",
+            "operator_name": "裁判甲",
+            "change_reason": "修正录入",
+        },
+    )
+
+    assert resp.status_code == 422
 
 
 def test_api_supplement_mismatch_rejected(client):
