@@ -9,6 +9,8 @@ import os
 import sqlite3
 from pathlib import Path
 
+from .migrations import apply_migrations
+
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "demo.db"
 
 # tournaments 表单独提取为常量：TEAM 事件类型需要重建旧表（SQLite 不能直接改 CHECK），
@@ -457,6 +459,8 @@ def init_db() -> None:
         _upgrade_entry_type_for_team(conn)
         # New tables are created after legacy tables have been upgraded so their FKs target the final table.
         conn.executescript(SCHEMA)
+        # D2：业务表基线完成后执行版本化增量迁移。
+        apply_migrations(conn)
         conn.commit()
     finally:
         conn.close()

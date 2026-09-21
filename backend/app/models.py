@@ -31,6 +31,22 @@ class TournamentStage(str, Enum):
     FINISHED = "FINISHED"          # 已结束（产生冠军）
 
 
+class SystemRole(str, Enum):
+    """系统级账号角色。"""
+
+    SYSTEM_ADMIN = "SYSTEM_ADMIN"
+    EVENT_ADMIN = "EVENT_ADMIN"
+
+
+class TournamentRole(str, Enum):
+    """赛事级授权角色。"""
+
+    OWNER = "OWNER"
+    ADMIN = "ADMIN"
+    OPERATOR = "OPERATOR"
+    VIEWER = "VIEWER"
+
+
 class MatchStage(str, Enum):
     """比赛所属赛段。"""
 
