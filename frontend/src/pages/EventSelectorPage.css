@@ -1,0 +1,42 @@
+.event-selector-page {
+  min-height: 100dvh;
+  color: #0b1f33;
+  background: #eef3f7;
+  font-family: "Microsoft YaHei UI", "PingFang SC", sans-serif;
+}
+.event-selector-topbar { min-height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 clamp(22px, 5vw, 70px); background: #fff; border-bottom: 1px solid #d8e1e9; }
+.event-selector-brand { display: flex; align-items: center; gap: 10px; color: #102a43; font: 800 16px Bahnschrift, sans-serif; text-decoration: none; }
+.event-selector-brand span { display: grid; place-items: center; width: 34px; height: 34px; color: #fff; background: #1769e0; border-radius: 3px 12px 3px 3px; font-size: 10px; }
+.event-selector-topbar > div { display: flex; align-items: center; gap: 12px; color: #5f7284; font-size: 12px; }
+.event-selector-topbar button { padding: 7px 10px; color: #38516a; background: #fff; border: 1px solid #c9d5df; font: inherit; font-weight: 700; }
+.event-selector-topbar button:disabled { opacity: .45; }
+.event-selector-main { width: min(1420px, calc(100% - 44px)); margin: 0 auto; padding: 54px 0 70px; }
+.event-selector-heading { display: flex; align-items: end; justify-content: space-between; gap: 30px; margin-bottom: 30px; }
+.event-selector-heading > div > span { color: #1769e0; font: 800 10px "Courier New", monospace; letter-spacing: .17em; }
+.event-selector-heading h1 { margin: 8px 0 4px; font: 800 clamp(34px, 5vw, 54px) Bahnschrift, "Arial Narrow", sans-serif; letter-spacing: -.035em; }
+.event-selector-heading p { margin: 0; color: #62768a; font-size: 13px; }
+.event-selector-heading > button,
+.event-selector-empty button { padding: 11px 17px; color: #fff; background: #1769e0; border: 0; font-family: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+.event-selector-heading button:disabled,
+.event-selector-empty button:disabled { color: #7c8b99; background: #d5dfe7; cursor: not-allowed; }
+.event-selector-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 15px; }
+.event-selector-card { min-height: 300px; display: flex; flex-direction: column; padding: 24px; background: #fff; border: 1px solid #d7e1e9; border-top: 4px solid #1769e0; box-shadow: 0 13px 30px rgba(16,42,67,.05); }
+.event-selector-card > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.event-selector-card > header span { color: #1769e0; font-size: 11px; font-weight: 800; }
+.event-selector-card > header b { padding: 4px 7px; color: #765719; background: #fff4cf; font: 800 9px "Courier New", monospace; letter-spacing: .05em; }
+.event-selector-card h2 { margin: 23px 0 18px; font: 800 24px/1.25 Bahnschrift, "Arial Narrow", sans-serif; }
+.event-selector-card dl { display: grid; gap: 12px; margin: 0 0 24px; }
+.event-selector-card dl div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding-bottom: 9px; border-bottom: 1px solid #edf1f4; }
+.event-selector-card dt { color: #74879a; font-size: 10px; }
+.event-selector-card dd { margin: 0; color: #2a435a; font-size: 12px; font-weight: 700; }
+.event-selector-card > a { margin-top: auto; padding-top: 14px; color: #1769e0; border-top: 1px solid #dce4eb; font-size: 12px; font-weight: 800; text-decoration: none; }
+.event-selector-card > a span { float: right; font-size: 16px; }
+.event-selector-contract,
+.event-selector-empty { min-height: 330px; display: grid; place-content: center; justify-items: start; padding: 48px; background: #fff; border: 1px solid #d7e1e9; border-left: 5px solid #1769e0; }
+.event-selector-contract strong { font: 800 28px Bahnschrift, sans-serif; }
+.event-selector-contract p,
+.event-selector-empty p { max-width: 650px; color: #617589; line-height: 1.75; }
+.event-selector-empty span { color: #d84a4a; font: 800 10px "Courier New", monospace; letter-spacing: .15em; }
+.event-selector-empty h2 { margin: 10px 0 2px; font: 800 34px Bahnschrift, sans-serif; }
+.event-selector-empty button { margin-top: 12px; }
+@media (max-width: 680px) { .event-selector-heading { align-items: start; flex-direction: column; } .event-selector-topbar { align-items: flex-start; padding-top: 14px; padding-bottom: 14px; } .event-selector-topbar > div { align-items: end; flex-direction: column; } }
