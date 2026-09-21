@@ -18,7 +18,10 @@ import pytest
         ("winner_mismatch", "小比分胜者与大比分不一致时服务端拒绝"),
         ("incomplete_games", "局列表未达到胜局数时服务端拒绝"),
         ("aggregate_mismatch", "小比分汇总 3:1 而大比分为 3:2 时拒绝"),
-        ("duplicate_submission", "已结束比赛不得重复提交"),
+        (
+            "duplicate_submission",
+            "重复提交不得产生重复副作用；同一请求的幂等重放应保持结果一致",
+        ),
         ("abnormal_with_games", "异常结果不得携带正常逐局比分"),
         ("revision", "已存在结果按改分状态规则处理"),
     ],
@@ -41,7 +44,7 @@ def test_score_contract_scenarios(scenario, expected):
     ],
 )
 def test_revision_dependency_contract_scenarios(scenario, expected):
-    """下游状态是改分阻断策略的唯一判据。"""
+    """改分阻断由实际影响范围与下游状态共同决定。"""
     raise AssertionError(f"待实现：{scenario} — {expected}")
 
 

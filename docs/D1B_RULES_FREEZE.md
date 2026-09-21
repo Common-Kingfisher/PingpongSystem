@@ -14,9 +14,9 @@
 | --- | --- |
 | 仓库／远程 | `Common-Kingfisher/PingpongSystem`／`origin` |
 | 本地基线 | `master` 与本地 `origin/master` 都是 `5f198ea` |
-| 工作分支 | `test/规则引擎Day1骨架` |
+| 工作分支 | `test/v03-rule-engine-day1-skeleton` |
 | 工作树 | 建分支前干净；未覆盖任何现有修改 |
-| 上游抓取 | 未完成：本机 GitHub 凭据不可用（`SEC_E_NO_CREDENTIALS`）；不得据此假称已同步 |
+| 开工时上游抓取 | 本机 Git 凭据不可用，未完成 fetch；PR base 与当前远端 `master` 均为 `5f198ea` |
 
 | 规则 | 当前实现位置与行为 | V0.3 差距／后续修改面 |
 | --- | --- | --- |
@@ -92,12 +92,29 @@ Day 1 不实现三种赛制的完整流程、移动端录分、登录／报名�
 
 ## 8. 验证记录
 
-待本轮文档与测试骨架写入后，运行：
+### D1B 契约测试
 
 ```powershell
 cd backend
-python -m pytest tests/test_v03_rule_engine_contract.py -q
-python -m pytest -q
+python -m pytest tests/test_v03_rule_engine_contract.py -q -p no:cacheprovider
 ```
 
-完整回归的已知历史风险是 `tests/test_team_group_ties.py::test_generated_tie_continues_into_production_runtime`；若仍失败，只记录而不在 D1B 顺手修复。实际运行结果以本轮记录为准。
+结果：
+
+- 32 skipped
+- 0 failed
+
+32 个场景均为 Day 1 显式跳过的未来实现契约，不代表相应 V0.3 功能已经完成。
+
+### 后端完整回归
+
+```powershell
+cd backend
+python -m pytest -q -p no:cacheprovider
+```
+
+结果：
+
+- 仍存在已知基线失败：`tests/test_team_group_ties.py::test_generated_tie_continues_into_production_runtime`。
+- D1B 新增测试未引入新的失败。
+- 该团体赛失败不属于 D1B 范围，本 PR 不顺手修复。
