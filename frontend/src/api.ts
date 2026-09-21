@@ -304,11 +304,12 @@ export const api = {
   // 团体小组排名（A6.2）：只读事实，每次请求由后端从对抗/单盘事实重算。
   getTeamGroupStandings: (tournamentId: number) =>
     request<TeamGroupStandings[]>(`/api/tournaments/${tournamentId}/team-groups/standings`),
+  // 团体晋级与淘汰签（A6.3/A6.4）：候选、并列和首轮签表均由后端规则返回，前端不推导种子或胜者。
   getTeamQualification: (tournamentId: number) =>
     request<TeamQualification>(`/api/tournaments/${tournamentId}/qualification`),
   confirmTeamQualification: (tournamentId: number, qualifiedTeamIds: number[]) =>
     request<TeamQualification>(`/api/tournaments/${tournamentId}/qualification/confirm`, {
-      method: 'POST', body: JSON.stringify({ qualified_team_ids: qualifiedTeamIds }),
+      method: 'POST', body: JSON.stringify({ qualified_team_ids: qualifiedTeamIds } satisfies Schemas['TeamQualificationConfirmRequest']),
     }),
   getTeamKnockout: (tournamentId: number) =>
     request<TeamKnockout>(`/api/tournaments/${tournamentId}/team-knockout`),

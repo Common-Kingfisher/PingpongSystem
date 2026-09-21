@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, TeamKnockout, Tournament } from '../api'
+import { api, ApiError, TeamKnockout, TeamQualification, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 
 const messageOf = (error: unknown) => error instanceof ApiError ? error.message : '无法加载团体淘汰签，请稍后重试'
@@ -10,22 +10,42 @@ export default function TeamKnockoutPage() {
   const rawTid = params.get('tid')
   const tid = rawTid ? Number(rawTid) : getActiveTournamentId()
   const [tournament, setTournament] = useState<Tournament | null>(null)
-  const [tree, setTree] = useState<TeamKnockout | null>(null)
+  const [knockout, setKnockout] = useState<TeamKnockout | null>(null)
+  const [qualification, setQualification] = useState<TeamQualification | null>(null)
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     if (tid === null || !Number.isInteger(tid)) return
     setLoading(true); setError(null)
-    try { const [event, knockout] = await Promise.all([api.getTournament(tid), api.getTeamKnockout(tid)]); setTournament(event); setTree(knockout) }
-    catch (requestError) { setTournament(null); setTree(null); setError(messageOf(requestError)) }
+    try { const [nextTournament, nextKnockout, nextQualification] = await Promise.all([api.getTournament(tid), api.getTeamKnockout(tid), api.getTeamQualification(tid)]); setTournament(nextTournament); setKnockout(nextKnockout); setQualification(nextQualification) }
+    catch (requestError) { setTournament(null); setKnockout(null); setQualification(null); setError(messageOf(requestError)) }
     finally { setLoading(false) }
   }, [tid])
   useEffect(() => { void load() }, [load])
-  const generate = async () => { if (tid === null) return; setBusy(true); setError(null); try { setTree(await api.generateTeamKnockout(tid)) } catch (requestError) { setError(messageOf(requestError)) } finally { setBusy(false) } }
-  if (tid === null || !Number.isInteger(tid)) return <div className="card"><h2>团体淘汰赛</h2><p>请提供有效的 <code>tid</code> 参数。</p><Link className="btn" to="/">返回赛事首页</Link></div>
+
+  const generate = async () => {
+    if (tid === null) return
+    setGenerating(true); setError(null)
+    try { setKnockout(await api.generateTeamKnockout(tid)) }
+    catch (requestError) { setError(messageOf(requestError)) }
+    finally { setGenerating(false) }
+  }
+
+  if (tid === null || !Number.isInteger(tid)) return <div className="card"><h2>团体淘汰签</h2><p className="muted">请提供有效的 <code>tid</code> 参数。</p><Link className="btn" to="/">返回赛事首页</Link></div>
   if (loading) return <div className="card"><p aria-live="polite">正在加载团体淘汰签…</p></div>
-  if (!tournament || !tree) return <div className="card"><h2>团体淘汰赛</h2><p className="status-error" role="alert">{error ?? '无法加载团体淘汰签'}</p><button className="btn" onClick={() => void load()}>重试</button></div>
-  if (tournament.event_type !== 'TEAM') return <div className="card"><h2>团体淘汰赛</h2><p className="status-error">当前赛事不是团体赛。</p><Link className="btn" to={`/?tid=${tid}`}>返回赛事首页</Link></div>
-  return <div className="page"><header className="team-ties-header"><div><span className="eyebrow">TEAM KNOCKOUT</span><h1>{tournament.name} · 团体淘汰赛</h1><p className="muted">签表与首轮对阵均由后端生成。本工作线止于首轮；胜者向下一轮传播尚未实现。</p></div><Link className="btn" to={`/team-qualification?tid=${tid}`}>返回晋级确认</Link></header>{error && <p className="status-error" role="alert">{error}</p>}{!tree.generated ? <section className="card"><h2>尚未生成淘汰首轮</h2><p>请先确认晋级名单。后端会验证所有前置条件和配对合法性。</p><button className="btn primary" disabled={busy} onClick={() => void generate()}>生成团体淘汰首轮</button></section> : <>{tree.rounds.map((round) => <section className="card" key={round.round}><h2>{round.round_name}</h2><p className="muted">应有 {round.match_count} 场；未产生参赛者的后续轮次不会创建对抗。</p>{round.matches.map((match) => <div className="button-row" key={match.tie_id}><span>{match.team_a?.team_name ?? '待上轮胜者'} VS {match.team_b?.team_name ?? '待上轮胜者'}</span><Link className="btn small" to={`/team-tie?tid=${tid}&tie=${match.tie_id}`}>查看对抗</Link></div>)}</section>)}<p className="status-info">首轮已由后端生成。本工作线到此结束，不处理胜者传播。</p></>}<div className="button-row"><button className="btn" disabled={busy} onClick={() => void load()}>刷新</button></div></div>
+  if (!tournament || !knockout) return <div className="card"><h2>团体淘汰签</h2><p className="status-error" role="alert">{error ?? '无法加载团体淘汰签'}</p><button className="btn" onClick={() => void load()}>重试</button></div>
+  if (tournament.event_type !== 'TEAM') return <div className="card"><h2>团体淘汰签</h2><p className="status-error">当前赛事不是团体赛。</p><Link className="btn" to={`/knockout?tid=${tid}`}>前往淘汰赛</Link></div>
+
+  return <div className="page team-knockout-page">
+    <header className="team-ties-header"><div><span className="eyebrow">TEAM KNOCKOUT</span><h1>{tournament.name} · 团体淘汰签</h1><p className="muted">签表与首轮对抗由后端根据已确认晋级名单生成；后续轮次仅显示待定槽位，不伪造尚未产生的对抗。</p></div><div className="button-row"><button className="btn" onClick={() => void load()} disabled={loading || generating}>刷新</button><Link className="btn" to={`/team-qualification?tid=${tid}`}>晋级确认</Link></div></header>
+    {error && <p className="status-error" role="alert">{error}</p>}
+    {!knockout.generated ? <section className="card team-ties-empty"><h2>{qualification?.confirmed.length ? '晋级名单已确认，尚未生成团体淘汰签' : '尚未确认团体晋级名单'}</h2><p>{qualification?.confirmed.length ? '后端会在生成时核验种子顺序、队伍状态与签表规模；若暂不能生成，会显示服务端返回的实际原因。' : '请先完成全部小组的晋级确认。生成只创建双方已确定的首轮对抗，后续轮次待上游胜者产生后再由后端支持。'}</p><div className="button-row"><Link className="btn" to={`/team-qualification?tid=${tid}`}>{qualification?.confirmed.length ? '查看晋级确认' : '前往晋级确认'}</Link><button className="btn primary" onClick={() => void generate()} disabled={generating}>{generating ? '正在生成…' : '生成首轮淘汰签'}</button></div></section> : <>
+      <div className="team-knockout-rounds" aria-label="团体淘汰签轮次">
+        {knockout.rounds.map((round) => <section className="card team-knockout-round" key={round.round}><header><h2>{round.round_name}</h2><span>{round.match_count} 场</span></header><div className="team-knockout-matches">{round.matches.length === 0 ? Array.from({ length: round.match_count }, (_, index) => <article className="team-knockout-match pending" key={index}><strong>待上游胜者</strong><span>本版本尚未创建此轮对抗</span></article>) : round.matches.map((match) => <article className="team-knockout-match" key={match.tie_id}><div><strong>{match.team_a?.team_name ?? '待定'}</strong><b>{match.team_a_score}</b></div><div><strong>{match.team_b?.team_name ?? '待定'}</strong><b>{match.team_b_score}</b></div><footer><span className={`team-tie-status ${match.status.toLowerCase()}`}>{match.status === 'WAITING' ? '待开始' : match.status === 'PLAYING' ? '进行中' : '已结束'}</span>{match.teams_decided && <Link className="btn small" to={`/team-tie?tid=${tid}&tie=${match.tie_id}`}>进入对抗</Link>}</footer></article>)}</div></section>)}
+      </div>
+      <p className="team-standings-footnote muted">当前仅生成首轮；淘汰签胜者晋级、撤销/重建和阶段推进尚未实现，页面不会把待定槽位显示成可操作比赛。</p>
+    </>}
+  </div>
 }
