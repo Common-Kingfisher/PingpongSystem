@@ -7,6 +7,8 @@
 
 ## 1. Day 1 结论
 
+> Day 2 更新：登录后的赛事分流已由 `docs/V03_C_D2_AUTH_ROUTING.md` 取代固定选择流程。EVENT_ADMIN 管理 0 场赛事时进入 `/events`，1 场时直接进入赛事 Dashboard，多场时进入 `/events`。本文件其余赛事内部 IA 继续有效。
+
 V0.3 管理端采用“我的赛事 → 选择赛事 → 进入赛事 Admin”的两层结构。赛事内部采用固定左侧导航与右侧工作区；旧 URL 暂时保留，通过 Layout 包装实现迁移，不在 Day 1 重写成熟业务页面或复制后端算法。
 
 当前协作状态：B 轨 Day 1、A 轨 PR #35 与后续 PR #40 均已合入 `master`；D 轨已冻结 Public/mobile/deploy 设计。C Day 1 已同步最新主线，继续只新增独立文档、Layout、Dashboard 和共置 CSS，不改 `App.tsx`、`api.ts`、`index.css` 等共享入口文件。PR #35 已带入团体赛运行链路，但当前主线仍未提供 User、TournamentAdmin、Organization、Venue、Registration、登录态与权限查询等管理端契约，C 轨不会为赶进度伪造这些接口。

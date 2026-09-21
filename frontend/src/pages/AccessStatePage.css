@@ -1,0 +1,21 @@
+.access-state-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  color: #0b1f33;
+  background: #edf2f6;
+  font-family: "Microsoft YaHei UI", "PingFang SC", sans-serif;
+}
+.access-state-card { width: min(100%, 720px); padding: 42px; background: #fff; border: 1px solid #d2dde7; border-top: 5px solid #1769e0; box-shadow: 0 24px 60px rgba(16,42,67,.09); }
+.access-state-code { color: #d84a4a; font: 800 12px "Courier New", monospace; letter-spacing: .18em; }
+.access-state-card h1 { margin: 16px 0 8px; font: 800 clamp(30px, 6vw, 52px) Bahnschrift, "Arial Narrow", sans-serif; }
+.access-state-card > p { max-width: 600px; color: #5e7286; line-height: 1.75; }
+.access-state-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 30px 0; background: #dce4eb; border: 1px solid #dce4eb; }
+.access-state-meta div { padding: 14px; background: #f7f9fb; }
+.access-state-meta span { display: block; color: #718396; font-size: 10px; }
+.access-state-meta strong { display: block; margin-top: 4px; font-size: 13px; }
+.access-state-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.access-state-actions a { padding: 10px 14px; color: #fff; background: #1769e0; font-size: 12px; font-weight: 800; text-decoration: none; }
+.access-state-actions a.secondary { color: #24435f; background: #fff; border: 1px solid #c6d3df; }
+@media (max-width: 560px) { .access-state-card { padding: 28px; } .access-state-meta { grid-template-columns: 1fr; } }
