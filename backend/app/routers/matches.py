@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["matches"])
 def generate_group_matches(tournament_id: int, conn: Connection = Depends(get_db)):
     try:
         handler = format_service.resolve_format_handler(format_service.GROUP_KNOCKOUT)
-        total, per_group = handler.generate_matches(conn, tournament_id)
+        result = handler.generate_matches(conn, tournament_id)
     except format_service.FormatHandlerError as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc))
     except matches_service.TournamentNotFoundError as exc:
@@ -29,8 +29,8 @@ def generate_group_matches(tournament_id: int, conn: Connection = Depends(get_db
     ) as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return schemas.GenerateMatchesResult(
-        matches_generated=total,
-        per_group=per_group,
+        matches_generated=result.matches_generated,
+        per_group=result.per_group,
         tournament=schemas.TournamentOut(**repo.get_tournament(conn, tournament_id)),
     )
 

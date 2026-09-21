@@ -7,16 +7,32 @@ Handler 只负责选择和编排既有服务。小组、排名与淘汰的业务
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 import sqlite3
 
 from .. import repository as repo
-from ..models import EventType, MatchBracket, MatchStage, MatchStatus, TournamentStage
+from ..models import (
+    EventType,
+    MatchBracket,
+    MatchStage,
+    MatchStatus,
+    ResultType,
+    TournamentStage,
+)
 from . import knockout as knockout_service
 from . import matches as matches_service
 from . import rankings as rankings_service
 
 
 GROUP_KNOCKOUT = "GROUP_KNOCKOUT"
+
+
+@dataclass(frozen=True)
+class MatchGenerationResult:
+    """赛制生成比赛后的通用结果；小组明细仅由需要分组的赛制提供。"""
+
+    matches_generated: int
+    per_group: dict[str, int] = field(default_factory=dict)
 
 
 class FormatHandlerError(Exception):
@@ -44,7 +60,7 @@ class FormatHandler(ABC):
     @abstractmethod
     def generate_matches(
         self, conn: sqlite3.Connection, tournament_id: int
-    ) -> tuple[int, dict[str, int]]:
+    ) -> MatchGenerationResult:
         """生成当前赛制的首阶段比赛。"""
 
     @abstractmethod
@@ -83,10 +99,11 @@ class GroupKnockoutHandler(FormatHandler):
 
     def generate_matches(
         self, conn: sqlite3.Connection, tournament_id: int
-    ) -> tuple[int, dict[str, int]]:
+    ) -> MatchGenerationResult:
         self.validate_config(conn, tournament_id)
         # 分组由既有 groups 服务负责；这里不改变其事务和阶段守卫。
-        return matches_service.generate_group_matches(conn, tournament_id)
+        total, per_group = matches_service.generate_group_matches(conn, tournament_id)
+        return MatchGenerationResult(matches_generated=total, per_group=per_group)
 
     def calculate_ranking(self, conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
         self.validate_config(conn, tournament_id)
@@ -95,9 +112,9 @@ class GroupKnockoutHandler(FormatHandler):
     def advance_participants(self, conn: sqlite3.Connection, tournament_id: int) -> dict:
         self.validate_config(conn, tournament_id)
         # generate_knockout 已负责读取排名、校验出线及创建签表；不要复制该算法。
-        tree = knockout_service.generate_knockout(conn, tournament_id)
-        self.handle_bye(conn, tournament_id)
-        return tree
+        # 其中的既有 WALKOVER 推进也在该服务内完成；handle_bye 只提供统一的
+        # 观察入口，不能在此重复触发副作用。
+        return knockout_service.generate_knockout(conn, tournament_id)
 
     def handle_bye(self, conn: sqlite3.Connection, tournament_id: int) -> dict:
         self.validate_config(conn, tournament_id)
@@ -108,7 +125,7 @@ class GroupKnockoutHandler(FormatHandler):
             for match in repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value)
             if match["bracket"] == MatchBracket.MAIN.value
             and match["status"] == MatchStatus.FINISHED.value
-            and match.get("result_type") == "WALKOVER"
+            and match.get("result_type") == ResultType.WALKOVER.value
         ]
         return {"handled_by": "existing_knockout_service", "walkover_match_ids": walkovers}
 
