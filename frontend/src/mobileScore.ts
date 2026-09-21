@@ -156,7 +156,26 @@ export function readBigScore(scoreA: string, scoreB: string): BigScoreState {
 /**
  * 构造正常完赛的请求载荷。返回 `error` 时**不发请求**（这只是省掉一次必然失败的往返）。
  *
- * 注意两个刻意的行为：
+ * ## 检查范围（review 返工后收紧）
+ *
+ * 这里**只**做交互级检查，全部与「本赛事赛制」无关：
+ *
+ * - 字段是否填了（空值提示）
+ * - 是否非负整数（数字输入）
+ * - 两边是否写成同一个数（明显笔误）
+ * - 逐局小比分是否只填了一边（半局）
+ *
+ * **刻意不做**（由后端裁决，前端不得建立第二套合法比分算法）：
+ *
+ * - `Math.max(a, b) === games_to_win` 这类“胜方局数必须等于本赛事局制”的判定；
+ * - 逐局分制（每局到几分、平分延长）判定；
+ * - 逐局胜局汇总与大比分是否一致的判定。
+ *
+ * 例：三局两胜里填 `1:0` 在业务上非法，但前端**允许**它发出去：
+ * `POST /score` → 后端 `scores.py` → 422 → 页面展示服务端真实 detail。
+ * 这样 Day4 调整赛制/规则时，前端不需要同步复制规则。
+ *
+ * ## 两个刻意的行为
  *
  * 1. 不展开 / 未填写逐局小比分时，`games` 字段**整体省略**（不是 `[]`、更不是伪造的局分）。
  *    后端 `_validate_normal_score_payload` 只在 `games is not None` 时才校验小比分；
@@ -168,12 +187,11 @@ export function buildNormalScorePayload(params: {
   scoreA: string
   scoreB: string
   games: GameDraft[]
-  gamesToWin: number
   operatorName?: string
   note?: string
   requestId?: string
 }): { payload: ScorePayload | null; error: string | null } {
-  const { scoreA, scoreB, games, gamesToWin, operatorName, note, requestId } = params
+  const { scoreA, scoreB, games, operatorName, note, requestId } = params
 
   if (scoreA.trim() === '' || scoreB.trim() === '') {
     return { payload: null, error: '请先填写双方大比分。' }
@@ -185,12 +203,6 @@ export function buildNormalScorePayload(params: {
   }
   if (big.a === big.b) {
     return { payload: null, error: '大比分不能平局，请检查后重新填写。' }
-  }
-  if (Math.max(big.a, big.b) !== gamesToWin) {
-    return {
-      payload: null,
-      error: `本赛事为 ${gamesToWin} 局制：胜方大比分必须是 ${gamesToWin}，负方为 0 ~ ${gamesToWin - 1}。`,
-    }
   }
 
   const payload: ScorePayload = {
