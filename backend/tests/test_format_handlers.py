@@ -4,6 +4,7 @@ import pytest
 
 from app import repository as repo
 from app.services import formats
+from app.services import entries as entries_service
 from app.services import groups as groups_service
 from app.services import knockout as knockout_service
 from app.services import qualification_decisions as decision_service
@@ -65,6 +66,43 @@ def test_resolver_returns_group_knockout_handler():
 
     assert isinstance(handler, formats.GroupKnockoutHandler)
     assert handler.format_code == formats.GROUP_KNOCKOUT
+
+
+@pytest.mark.parametrize("players", [2, 3, 5, 8])
+def test_round_robin_handler_generates_exactly_one_match_per_pair(conn, players):
+    tournament = repo.create_tournament(conn, "循环赛", "2025-06-01", 4, 1, 1)
+    for number in range(players):
+        repo.add_player(conn, tournament["id"], f"RR{number + 1}", None)
+    entries_service.confirm_roster(conn, tournament["id"])
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+
+    result = handler.generate_matches(conn, tournament["id"])
+
+    matches = repo.list_matches(conn, tournament["id"])
+    pairs = {frozenset((match["entry_a_id"], match["entry_b_id"])) for match in matches}
+    assert result == formats.MatchGenerationResult(players * (players - 1) // 2)
+    assert len(matches) == len(pairs) == players * (players - 1) // 2
+    with pytest.raises(formats.FormatHandlerError, match="循环赛已生成"):
+        handler.generate_matches(conn, tournament["id"])
+
+
+def test_single_elimination_handler_builds_byes_and_winner_chain(conn):
+    tournament = repo.create_tournament(conn, "单淘汰", "2025-06-01", 4, 1, 1)
+    for number in range(12):
+        repo.add_player(conn, tournament["id"], f"SE{number + 1}", None)
+    entries_service.confirm_roster(conn, tournament["id"])
+    handler = formats.resolve_format_handler(formats.SINGLE_ELIMINATION)
+
+    result = handler.generate_matches(conn, tournament["id"])
+
+    main = repo.list_matches(conn, tournament["id"], stage="KNOCKOUT")
+    first_round = [match for match in main if match["round"] == 1]
+    assert result == formats.MatchGenerationResult(15)
+    assert [len([m for m in main if m["round"] == round_no]) for round_no in range(1, 5)] == [8, 4, 2, 1]
+    assert len([m for m in first_round if m["result_type"] == "WALKOVER"]) == 4
+    assert all(match["prev_match_a_id"] or match["prev_match_b_id"] for match in main if match["round"] > 1)
+    with pytest.raises(formats.FormatHandlerError, match="淘汰赛已生成"):
+        handler.generate_matches(conn, tournament["id"])
 
 
 def test_unknown_format_is_explicitly_rejected():

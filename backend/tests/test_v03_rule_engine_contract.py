@@ -48,17 +48,22 @@ def test_revision_dependency_contract_scenarios(scenario, expected):
     raise AssertionError(f"待实现：{scenario} — {expected}")
 
 
-@pytest.mark.skip(reason="D1B：ROUND_ROBIN / SINGLE_ELIMINATION 等待 Day4 实现")
 @pytest.mark.parametrize(
     "format_code",
     ["ROUND_ROBIN", "SINGLE_ELIMINATION"],
 )
 def test_format_handler_contract_scenarios(format_code):
-    """Day4 未实现 Handler 保持为可定位的冻结契约。"""
-    raise AssertionError(f"待实现的 Format Handler：{format_code}")
+    """每种 Day4 Handler 均落实统一六方法契约。"""
+    from app.services import formats
+
+    handler = formats.resolve_format_handler(format_code)
+    assert handler.format_code == format_code
+    assert all(callable(getattr(handler, method)) for method in (
+        "validate_config", "generate_matches", "calculate_ranking",
+        "advance_participants", "handle_bye", "get_completion_state",
+    ))
 
 
-@pytest.mark.skip(reason="D1B：统一抽签策略契约已冻结，等待 Handler 实现")
 @pytest.mark.parametrize(
     ("scenario", "expected"),
     [
@@ -73,8 +78,43 @@ def test_format_handler_contract_scenarios(format_code):
     ],
 )
 def test_draw_contract_scenarios(scenario, expected):
-    """抽签按冻结优先级求解，不把软约束升级为硬阻断。"""
-    raise AssertionError(f"待实现：{scenario} — {expected}")
+    """每个 Day4 抽签反例都直接检查签位/单位集合的不变量。"""
+    from app.domain import draw
+    entries = [
+        {"id": 1, "seed_no": 1, "members": [{"college": "A"}]},
+        {"id": 2, "seed_no": 2, "members": [{"college": "A"}]},
+        {"id": 3, "seed_no": None, "members": [{"college": "B"}]},
+        {"id": 4, "seed_no": None, "members": [{"college": "B"}]},
+    ]
+    pairs = draw.build_single_elimination(entries, draw_seed=11)[0]
+    if scenario == "power_of_two":
+        assert all(match["player_a_id"] is not None and match["player_b_id"] is not None for match in pairs)
+    elif scenario == "non_power_of_two":
+        byes = draw.build_single_elimination(entries[:3], draw_seed=11)[0]
+        assert sum((match["player_a_id"] is None) != (match["player_b_id"] is None) for match in byes) == 1
+    elif scenario == "seed_protection":
+        seed_matches = {
+            entry_id: match["match_index"]
+            for match in pairs for entry_id in (1, 2)
+            if entry_id in (match["player_a_id"], match["player_b_id"])
+        }
+        assert seed_matches[1] != seed_matches[2]
+    elif scenario == "affiliation_avoidance":
+        affiliations = {entry["id"]: draw.entry_affiliations(entry) for entry in entries}
+        assert all(not (affiliations[a] & affiliations[b]) for a, b in (
+            (match["player_a_id"], match["player_b_id"]) for match in pairs
+        ))
+    elif scenario == "unavoidable_collision":
+        same = [{"id": index, "seed_no": None, "members": [{"college": "A"}]} for index in range(1, 5)]
+        assert len(draw.build_single_elimination(same, draw_seed=11)[0]) == 2
+    elif scenario == "doubles_affiliations":
+        assert draw.entry_affiliations({"members": [{"college": "A"}, {"college": "B"}]}) == {"A", "B"}
+    elif scenario == "missing_affiliation":
+        assert draw.entry_affiliations({"members": [{"college": None}]}) == set()
+    elif scenario == "reproducible_seed":
+        assert draw.build_single_elimination(entries, 11) == draw.build_single_elimination(entries, 11)
+    else:  # pragma: no cover - 参数化场景必须显式实现
+        raise AssertionError(f"未覆盖的抽签场景：{scenario} — {expected}")
 
 
 @pytest.mark.skip(reason="D1B：排名数据不足契约已冻结，等待 V0.3 Handler 接线")
