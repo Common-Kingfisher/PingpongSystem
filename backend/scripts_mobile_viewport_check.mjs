@@ -32,7 +32,7 @@
  *     --remote-debugging-port=9333 --user-data-dir=<临时目录> about:blank
  *
  * # 4. 测量（第二个参数为录分页路径）
- * node .\scripts_mobile_viewport_check.mjs http://127.0.0.1:8099 /admin/t/5/score/7
+ * node .\scripts_mobile_viewport_check.mjs http://127.0.0.1:8099 /admin/t/5/matches/13/score
  * ```
  *
  * 测量项（每个断点都独立设置 viewport，模拟真机视口）：
@@ -46,7 +46,7 @@
 
 const CDP_PORT = process.env.CDP_PORT ?? '9333'
 const baseUrl = process.argv[2] ?? 'http://127.0.0.1:8099'
-const pagePath = process.argv[3] ?? '/admin/t/4/score/3'
+const pagePath = process.argv[3] ?? '/admin/t/1/matches/3/score'
 const viewports = [360, 375, 390, 430]
 
 const failures = []

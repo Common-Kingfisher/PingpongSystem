@@ -934,7 +934,7 @@ Day 3 起点基线：`origin/master@c900e71`（含 PR #41 B 轨比分契约、PR
 
 | 项 | 结果 |
 | --- | --- |
-| 手机录分页面 | ✅ `/admin/t/:tid/score/:matchId` |
+| 手机录分页面 | ✅ `/admin/t/:tid/matches/:matchId/score` |
 | 正常比分（大比分必填） | ✅ 复用既有 score API，无第二套写入通道 |
 | 逐局小比分（可选） | ✅ 默认收起；不录时请求**不含** `games` 字段 |
 | 异常结果 | ✅ 复用当前 `ResultType`，页内二次确认，不伪造逐局小比分 |
@@ -977,8 +977,23 @@ Day 3 起点基线：`origin/master@c900e71`（含 PR #41 B 轨比分契约、PR
 ## 24. 路由与赛事上下文
 
 ```text
-/admin/t/:tid/score/:matchId      ← 单场比赛的手机录分页
+/admin/t/:tid/matches/:matchId/score      ← 单场比赛的手机录分页（canonical）
 ```
+
+> **路径变更记录**：Day 3 初版实现的是 `/admin/t/:tid/score/:matchId`。
+> Reviewer 指出 route ownership / namespace 问题后，最终统一为
+> `/admin/t/:tid/matches/:matchId/score`（与 Day 1 冻结稿一致，`matches/:matchId/score`
+> 的资源层级也更清楚）。PR 未合并，因此**没有**为了兼容 PR 内旧实现保留两套路由。
+
+### 24.1 Route ownership：D 轨只拥有这一条精确 path
+
+`/admin` 命名空间的**总体所有权属于 A/C 轨**（AdminLayout / Login / AccessState /
+AuthGuard / RequireTournamentAccess 及其他管理端 route）。因此：
+
+* `App.tsx` **不再**使用 `pathname.startsWith('/admin/')`，改用与 D 轨 route 表共用的
+  `isMobileScoreRoutePath()`（内部为 react-router 的 `matchPath(…, { end: true })` 完整匹配）；
+* `MobileScoreRoutes` **只**声明 canonical 一条 route，**没有** `/admin/*` catch-all，
+  未知 `/admin/...` 一律交还 A/C 的管理端 route tree。
 
 `tid` 与 `matchId` **只来自路由 path**，由 `MobileScoreRoutes.tsx` 中已匹配的 route adapter
 解析后作为 props 传给页面。因此：
@@ -988,7 +1003,7 @@ Day 3 起点基线：`origin/master@c900e71`（含 PR #41 B 轨比分契约、PR
 * 比赛通过 `GET /api/tournaments/:tid/matches` 后在结果里按 `matchId` 定位，
   因此“打开的比赛必然属于 URL 里的赛事”，不存在跨赛事错读。
 
-`App.tsx` 中的接线只有一条提前返回分支，与 Public 分支同级；具体路由收敛在 `MobileScoreRoutes.tsx`，
+`App.tsx` 中的接线只有一条入口分支，与 Public 分支同级；具体路由收敛在 `MobileScoreRoutes.tsx`，
 以降低与 A/C 轨的合并冲突面。
 
 ## 25. 后端契约（实际使用面）
@@ -1153,7 +1168,7 @@ warning 数（2）与改动前完全一致，均为既有基线技术债（见 1
 
 | 项 | 结果 |
 | --- | --- |
-| `http://127.0.0.1:8000`（等价 8099）深链接 `/admin/t/:tid/score/:matchId` | ✅ 200 返回 SPA |
+| `http://127.0.0.1:8000`（等价 8099）深链接 `/admin/t/:tid/matches/:matchId/score` | ✅ 200 返回 SPA |
 | `http://192.168.3.32:8099/api/health` | ✅ `{"status":"ok"}` |
 | 局域网地址打开录分页并渲染 | ✅ 四个断点全部 PASS（页面请求发向当前服务器，非 localhost） |
 | 相对 API 路径 | ✅ 页面与 `api.ts` 全部使用 `/api/...`，未写死 host / 端口 |
@@ -1221,7 +1236,7 @@ cd ..\backend
 .\.venv\Scripts\python.exe .\day3_e2e_fixture.py          # 打印 TID / MATCH_A / MATCH_C / MATCH_D / MATCH_B
 node .\day3_mobile_e2e.mjs http://127.0.0.1:8099 <TID> <MATCH_A> <MATCH_C> <MATCH_D> <MATCH_B>
 .\.venv\Scripts\python.exe .\day3_longname_fixture.py     # 打印超长名字赛事路径
-node .\scripts_mobile_viewport_check.mjs http://127.0.0.1:8099 /admin/t/<tid>/score/<mid>
+node .\scripts_mobile_viewport_check.mjs http://127.0.0.1:8099 /admin/t/<tid>/matches/<mid>/score
 ```
 
 ---
@@ -1356,8 +1371,8 @@ React Router 在同一路由 pattern 下切换 `:tid` / `:matchId` 时，`Mobile
 `setData(...)`，于是：
 
 ```text
-打开 /admin/t/A/score/X（关键 GET 悬挂）
-  → 同 SPA 导航到 /admin/t/B/score/Y，B/Y 先完成并正确显示
+打开 /admin/t/A/matches/X/score（关键 GET 悬挂）
+  → 同 SPA 导航到 /admin/t/B/matches/Y/score，B/Y 先完成并正确显示
   → 释放 A/X 旧请求，旧响应晚返回 → setData(A/X) 覆盖页面
 ```
 
@@ -1465,4 +1480,137 @@ Tests  3 failed | 41 passed (44)
 | 契约层验收 | `day3_mobile_score_acceptance.ps1` | **22 PASS / 0 FAIL** |
 | 端到端 | `day3_mobile_e2e.mjs`（真实 Chrome 390×844） | **21 PASS / 0 FAIL** |
 | 小屏 | `scripts_mobile_viewport_check.mjs`（360/375/390/430，含超长名字） | **60 PASS / 0 FAIL** |
+
+---
+---
+
+# D 轨 Day 3 Reviewer 第三轮返工：Route ownership 与 canonical URL
+
+分支与 PR 未变：`feat/d-day3-mobile-score` / **PR #45**。本轮只处理 Reviewer 的 1 个 P1，
+未改 backend / OpenAPI / Auth，未扩大 Day3D 范围。
+
+## 41. 缺陷：D 轨抢占整个 `/admin/*`
+
+```tsx
+// App.tsx（错误实现）
+if (pathname.startsWith('/admin/')) return <MobileScoreRoutes />
+// MobileScoreRoutes 内还声明了
+<Route path="/admin/*" element={<AdminScoreInvalidLink />} />
+```
+
+任何 `/admin/...` 都先被 D 轨接管；A/C 后续接入 `AdminLayout` / `Login` / `AccessState` /
+`AuthGuard` / `RequireTournamentAccess` 及其他管理端 route 时会被这里截断。
+
+## 42. 修复
+
+### 42.1 canonical URL 统一
+
+```text
+/admin/t/:tid/matches/:matchId/score        （最终，canonical）
+```
+
+与 Day 1 冻结稿一致，`matches/:matchId/score` 的资源层级更清楚。PR 未合并且**没有**保留第二套路由。
+
+### 42.2 `App.tsx`：精确匹配入口
+
+```tsx
+// 与 D 轨 route 表共用同一个判断，避免两处字符串漂移
+if (isMobileScoreRoutePath(pathname)) return <MobileScoreRoutes />
+```
+
+`isMobileScoreRoutePath()`（在 `MobileScoreRoutes.tsx` 内导出）内部是 react-router 的
+`matchPath({ path: MOBILE_SCORE_ROUTE_PATH, end: true }, pathname) !== null` ——
+**完整匹配**，不自写字符串解析，也**不再**出现 `startsWith('/admin/')`。
+
+### 42.3 `MobileScoreRoutes.tsx`：只声明自己拥有的 route
+
+```tsx
+export const MOBILE_SCORE_ROUTE_PATH = '/admin/t/:tid/matches/:matchId/score'
+// 路由表只声明这一条；没有 /admin/* catch-all
+<Route element={<AdminScoreAdapter />} path={MOBILE_SCORE_ROUTE_PATH} />
+```
+
+未知 `/admin/...` 一律交还 A/C 的管理端 route tree；D 轨不再替管理端决定“未知 admin 路径显示什么”。
+
+### 42.4 非法 param 仍走 adapter 错误页
+
+`/admin/t/abc/matches/345/score`、`/admin/t/12/matches/xyz/score` 的 route pattern 本身正确，
+仍进入 `AdminScoreAdapter`，由 `parseRouteTournamentId()` / `parseRouteMatchId()` 判为非法 →
+显示「链接不可用」，不回退 query / localStorage，也不发任何 API 请求。
+错误页示例地址已更新为 `/admin/t/12/matches/345/score`。
+
+### 42.5 `ConsolePage` 入口
+
+```tsx
+to={`/admin/t/${tid}/matches/${m.id}/score`}
+```
+
+只改 URL，未动比赛筛选、排台、桌面端录分、改分与 Match 状态。
+
+## 43. Route ownership 回归测试（`MobileScoreRouteOwnership.test.tsx`，36 例）
+
+### 43.1 为什么不用“外层 `/admin/*` 哨兵”
+
+两种写法都实测为**假测试**，记录在此避免重犯：
+
+1. 在外层 `<Routes>` 放 `/admin/*` 哨兵“证明交给外层”：react-router 按 route 打分而不是声明顺序，
+   `/admin/*` 比 `*` 更具体，会**先于 `App`** 命中 → `App` 根本不被挂载，测试测不到它的分支；
+2. 只断言“页面里没有 D 的内容”：D 若被误挂载但自身 route 表已收窄，它会渲染一棵**空**树，
+   同样“什么都没出现”，断言恒真。
+
+### 43.2 实际使用的两个可观测判据
+
+* **入口判定**：对 `App.tsx` **实际调用**的 `isMobileScoreRoutePath()` 做决策表断言
+  （命中 2 条 / 不命中 15 条，含 `/admin/events`、`/admin/login`、`/admin/t/12/settings`、
+  `/admin/t/12/matches`、`/admin/t/12/matches/345/score/extra`、`/admin/t/12/score/345`、
+  `/admin`、`/admin/` 等），并额外做**源码级护栏**：`App.tsx` 必须包含
+  `isMobileScoreRoutePath(pathname)`、且（剥掉注释后）不含 `startsWith('/admin/')` 与 `/admin/*`。
+* **D 轨 route 表**：单独渲染 `MobileScoreRoutes`，断言
+  canonical 路径渲染录分页、而 7 条非 canonical `/admin/...` 路径下**渲染结果为空**
+  （既不显示录分页、也不显示 D 的「链接不可用」）且**零 API 请求**。
+
+### 43.3 校准（两种回归都实测会失败）
+
+```text
+回归 1：入口改回 pathname.startsWith('/admin/')
+  → 1 failed（App.tsx 源码级护栏拦下）          79 passed
+
+回归 2：D 轨 route 表加回 /admin/* catch-all
+  → 7 failed（7 条非 canonical 路径都渲染出了 D 的页面/错误页） 73 passed
+
+恢复修复后：80 passed
+```
+
+## 44. RouteRace 测试保持有效
+
+`MobileScoreRouteRace.test.tsx` 未删除、未弱化，只把 URL 迁移到 canonical 形式
+（`/admin/t/A/matches/X/score` → `/admin/t/B/matches/Y/score`），竞态手法不变：
+deferred promise 悬挂 A/X → 同 SPA 导航 B/Y → B/Y 显示 → 释放 A/X → 页面仍是 B/Y →
+提交只命中 `Y`。前一轮的“非空测试验证”结论同样保持有效。
+
+## 45. P-01 核验（LAN 只是 Deployment）
+
+* production 业务代码仍然只使用相对 `/api/...`：`frontend/src` 下**没有** `http://localhost`、
+  `http://127.0.0.1`、`http://192.168`、固定 backend hostname 或 `:5173`（本轮复核，见 46 报告）；
+* 测试/验收脚本中的 `http://127.0.0.1:8099` 属允许范围；
+* 未开发公网 / Tunnel / Caddy / 域名 / QR / LAN IP 自动发现。
+
+## 46. 依赖
+
+`pnpm install --frozen-lockfile` 通过，`package.json` 与 `pnpm-lock.yaml` **未改动**
+（本 PR 未新增任何依赖）。
+
+## 47. 本轮验证结果
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 前端全量 | `frontend> pnpm test` | **80 passed**（4 files） |
+| 前端类型 | `frontend> pnpm exec tsc --noEmit` | 通过（exit 0） |
+| 生产构建 | `frontend> pnpm build` | 通过 |
+| 契约检查 | `frontend> pnpm contract:check` | 通过（未改 OpenAPI，无 diff） |
+| 依赖锁定 | `frontend> pnpm install --frozen-lockfile` | 通过，无 lockfile 变更 |
+| 后端全量 | `backend> python -m pytest` | 本轮未改后端，沿用 **758 passed, 30 skipped, 2 warnings** |
+| 契约层验收 | `day3_mobile_score_acceptance.ps1` | **22 PASS / 0 FAIL** |
+| 端到端 | `day3_mobile_e2e.mjs`（真实 Chrome 390×844，canonical URL） | **21 PASS / 0 FAIL** |
+| 小屏 | `scripts_mobile_viewport_check.mjs`（canonical URL） | **60 PASS / 0 FAIL** |
 

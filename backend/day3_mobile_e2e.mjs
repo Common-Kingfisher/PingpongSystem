@@ -70,7 +70,7 @@ async function evaluate(expression) {
 }
 
 async function openMatch(matchId) {
-  await send('Page.navigate', { url: `${base}/admin/t/${tid}/score/${matchId}` })
+  await send('Page.navigate', { url: `${base}/admin/t/${tid}/matches/${matchId}/score` })
   for (let i = 0; i < 80; i += 1) {
     await sleep(150)
     const ok = await evaluate(`!!document.querySelector('.ms-submit')`).catch(() => false)

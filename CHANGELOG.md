@@ -96,7 +96,7 @@
 
 ### 新增（V0.3 D 轨 Day 3：手机录分）
 
-- 手机录分页 `/admin/t/:tid/score/:matchId`：一场比赛一页，专为现场裁判手机操作设计
+- 手机录分页 `/admin/t/:tid/matches/:matchId/score`：一场比赛一页，专为现场裁判手机操作设计
   （大比分输入 64px、步进按钮 64px、底部固定提交按钮 58px，360–430px 无横向滚动）。
   赛事上下文只来自 URL path，不读 `localStorage.activeTournamentId`，因此链接可复制、可发给手机。
 - 大比分必填、逐局小比分**可选**：默认只显示大比分，`+ 录入逐局小比分（可选）` 展开逐局录入；

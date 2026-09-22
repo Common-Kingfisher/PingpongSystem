@@ -54,7 +54,7 @@ free_table = next(t for t in dashboard["tables"] if t["status"] == "FREE")
 post(f"/api/matches/{matches[0]['id']}/assign-table", {"table_id": free_table["id"]})
 
 final = get(f"/api/tournaments/{tid}/matches")[0]
-print(f"PATH=/admin/t/{tid}/score/{final['id']}")
+print(f"PATH=/admin/t/{tid}/matches/{final['id']}/score")
 print(f"A={final['entry_a_name']}")
 print(f"B={final['entry_b_name']}")
 print(f"tournament={tournament['name']}")
