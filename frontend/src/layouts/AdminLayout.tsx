@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useState } from 'react'
+import { ReactNode, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from 'react-router-dom'
 import { getActiveTournamentId, parseTournamentId } from '../activeTournament'
 import './AdminLayout.css'
@@ -84,10 +84,7 @@ export default function AdminLayout({
     return `${location.pathname}?${next.toString()}`
   }
 
-  const publicHref = useMemo(
-    () => (tournamentId === null ? null : `/bigscreen${tournamentQuery}`),
-    [tournamentId, tournamentQuery],
-  )
+  const publicHref = tournamentId === null ? null : `/public/t/${tournamentId}/live`
 
   const renderItem = (item: AdminNavItem) => {
     const access = navAccess[item.key]
@@ -163,7 +160,7 @@ export default function AdminLayout({
           </div>
           <div className="admin-topbar-actions">
             {publicHref ? (
-              <Link className="admin-public-link" to={publicHref}>打开 Public 页面</Link>
+              <a className="admin-public-link" href={publicHref} target="_blank" rel="noreferrer">打开 Public 页面</a>
             ) : (
               <span className="admin-public-link is-disabled" aria-disabled="true">打开 Public 页面</span>
             )}
