@@ -197,18 +197,34 @@ def test_organization_and_venue_delete_with_tournament_cascade(client):
         f"/api/tournaments/{tournament_id}/venue",
         json={"name": "待级联场馆"},
     )
-    client.post(
+    enabled = client.put(
+        f"/api/tournaments/{tournament_id}/registration",
+        json={"enabled": True},
+    )
+    assert enabled.status_code == 200, enabled.text
+    registration = client.post(
         f"/api/tournaments/{tournament_id}/registrations",
         json={"name": "待级联报名"},
     )
+    assert registration.status_code == 201, registration.text
+
+    from app import db as db_module
+
+    conn = db_module.connect()
+    try:
+        for table in ("organizations", "venues", "registrations"):
+            assert conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE tournament_id = ?",
+                (tournament_id,),
+            ).fetchone()[0] == 1
+    finally:
+        conn.close()
 
     deleted = client.delete(
         f"/api/tournaments/{tournament_id}",
         params={"confirm_name": tournament["name"]},
     )
     assert deleted.status_code == 204, deleted.text
-
-    from app import db as db_module
 
     conn = db_module.connect()
     try:
