@@ -72,7 +72,7 @@ def _assert_not_found(response) -> None:
 
 def test_all_tournament_writes_require_login(client):
     operations = _management_write_operations()
-    assert len(operations) == 40
+    assert len(operations) == 42
 
     client.headers.pop("Authorization")
     failures = []

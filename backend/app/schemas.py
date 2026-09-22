@@ -23,6 +23,7 @@ from .models import (
     TeamSide,
     TeamTieStatus,
     TournamentMode,
+    TournamentRole,
     TournamentStage,
 )
 
@@ -126,6 +127,24 @@ class EventAdminCreateRequest(BaseModel):
 class EventAdminOut(AuthUserOut):
     phone: str | None = None
     note: str | None = None
+
+
+class TournamentAdminGrantRequest(BaseModel):
+    user_id: int = Field(gt=0)
+    role: str = Field(
+        json_schema_extra={"enum": ["ADMIN", "OPERATOR", "VIEWER"]},
+    )
+
+
+class TournamentAdminOut(BaseModel):
+    user_id: int
+    username: str
+    display_name: str
+    role: TournamentRole
+    active: bool
+    is_owner: bool
+    created_at: str
+    created_by_user_id: int | None = None
 
 
 class PlayerCreate(BaseModel):

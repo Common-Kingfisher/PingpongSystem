@@ -31,6 +31,7 @@ from .routers import (
     team_ties,
     team_roster,
     teams,
+    tournament_admins,
     tournaments,
 )
 
@@ -81,6 +82,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(system.router)
 app.include_router(tournaments.router)
+app.include_router(tournament_admins.router)
 app.include_router(players.router)
 app.include_router(entries.router)
 app.include_router(groups.router)

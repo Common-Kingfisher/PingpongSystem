@@ -21,10 +21,17 @@ AUTH_OPERATIONS = {
     "/api/v1/system/users": "post",
 }
 
+TOURNAMENT_ADMIN_OPERATIONS = {
+    ("/api/tournaments/{tournament_id}/admins", "get"),
+    ("/api/tournaments/{tournament_id}/admins", "post"),
+    ("/api/tournaments/{tournament_id}/admins/{user_id}", "delete"),
+}
+
 SECURED_OPERATIONS = {
-    "/api/v1/auth/me",
-    "/api/v1/auth/change-password",
-    "/api/v1/system/users",
+    ("/api/v1/auth/me", "get"),
+    ("/api/v1/auth/change-password", "post"),
+    ("/api/v1/system/users", "post"),
+    *TOURNAMENT_ADMIN_OPERATIONS,
 }
 
 
@@ -53,6 +60,10 @@ def test_auth_contract_exposes_all_frozen_operations():
     paths = _schema()["paths"]
 
     for path, method in AUTH_OPERATIONS.items():
+        assert path in paths, path
+        assert method in paths[path], (path, method)
+
+    for path, method in TOURNAMENT_ADMIN_OPERATIONS:
         assert path in paths, path
         assert method in paths[path], (path, method)
 
@@ -117,6 +128,25 @@ def test_auth_request_and_response_dtos_are_frozen():
         "note",
     }
 
+    assert _properties("TournamentAdminGrantRequest") == {"user_id", "role"}
+    assert set(_component("TournamentAdminGrantRequest")["required"]) == {
+        "user_id",
+        "role",
+    }
+    assert _component("TournamentAdminGrantRequest")["properties"]["role"][
+        "enum"
+    ] == ["ADMIN", "OPERATOR", "VIEWER"]
+    assert _properties("TournamentAdminOut") == {
+        "user_id",
+        "username",
+        "display_name",
+        "role",
+        "active",
+        "is_owner",
+        "created_at",
+        "created_by_user_id",
+    }
+
 
 def test_response_dtos_do_not_expose_password_or_token_hashes():
     forbidden = {"password", "password_hash", "token_hash"}
@@ -142,6 +172,16 @@ def test_response_dtos_do_not_expose_password_or_token_hashes():
             "system_role",
             "phone",
             "note",
+        },
+        "TournamentAdminOut": {
+            "user_id",
+            "username",
+            "display_name",
+            "role",
+            "active",
+            "is_owner",
+            "created_at",
+            "created_by_user_id",
         },
     }
 
@@ -197,8 +237,7 @@ def test_auth_security_schemes_and_endpoint_requirements_are_frozen():
     }
 
     expected_security = [{"sessionCookie": []}, {"bearerAuth": []}]
-    for path in SECURED_OPERATIONS:
-        method = AUTH_OPERATIONS[path]
+    for path, method in SECURED_OPERATIONS:
         assert _operation(path, method)["security"] == expected_security
 
     logout = _operation("/api/v1/auth/logout", "post")
@@ -252,6 +291,68 @@ def test_auth_error_codes_are_frozen_by_operation_and_status():
         "INVALID_EVENT_ADMIN_INPUT",
         "INVALID_EVENT_ADMIN_PASSWORD",
     ]
+
+
+def test_tournament_admin_contract_freezes_permissions_and_errors():
+    list_operation = _operation(
+        "/api/tournaments/{tournament_id}/admins", "get"
+    )
+    assert list_operation["x-permission"] == "tournament OWNER or ADMIN only"
+    assert list_operation["x-owner-source"] == "tournaments.owner_user_id"
+    assert _error_codes(
+        "/api/tournaments/{tournament_id}/admins", "get", "401"
+    ) == {"AUTH_REQUIRED"}
+    assert _error_codes(
+        "/api/tournaments/{tournament_id}/admins", "get", "404"
+    ) == {"RESOURCE_NOT_FOUND"}
+
+    grant_operation = _operation(
+        "/api/tournaments/{tournament_id}/admins", "post"
+    )
+    assert grant_operation["x-permission"] == "tournament OWNER or ADMIN only"
+    assert grant_operation["x-grantable-roles"] == [
+        "ADMIN",
+        "OPERATOR",
+        "VIEWER",
+    ]
+    assert grant_operation["x-target-requirements"] == (
+        "active EVENT_ADMIN user"
+    )
+    assert grant_operation["x-business-error-codes"] == {
+        "422": ["INVALID_TOURNAMENT_ROLE"]
+    }
+    assert _error_codes(
+        "/api/tournaments/{tournament_id}/admins", "post", "404"
+    ) == {"RESOURCE_NOT_FOUND"}
+    assert _error_codes(
+        "/api/tournaments/{tournament_id}/admins", "post", "409"
+    ) == {"OWNER_PROTECTED"}
+
+    revoke_operation = _operation(
+        "/api/tournaments/{tournament_id}/admins/{user_id}", "delete"
+    )
+    assert revoke_operation["x-permission"] == "tournament OWNER or ADMIN only"
+    assert revoke_operation["x-idempotent"] is True
+    assert revoke_operation["x-owner-source"] == "tournaments.owner_user_id"
+    assert _error_codes(
+        "/api/tournaments/{tournament_id}/admins/{user_id}", "delete", "404"
+    ) == {"RESOURCE_NOT_FOUND"}
+    assert _error_codes(
+        "/api/tournaments/{tournament_id}/admins/{user_id}", "delete", "409"
+    ) == {"OWNER_PROTECTED"}
+
+    metadata = _schema()["x-contract"]["tournament_admins"]
+    assert metadata == {
+        "manage_roles": ["OWNER", "ADMIN"],
+        "grantable_roles": ["ADMIN", "OPERATOR", "VIEWER"],
+        "owner_source": "tournaments.owner_user_id",
+        "owner_protected": {"status": 409, "code": "OWNER_PROTECTED"},
+        "no_access_status": 404,
+        "target_requirements": {
+            "active": True,
+            "system_role": "EVENT_ADMIN",
+        },
+    }
 
 
 def test_cookie_behavior_and_active_false_semantics_are_documented():
