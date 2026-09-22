@@ -84,23 +84,35 @@ function AdminScoreInvalidLink() {
 }
 
 /**
- * ## 认证接线边界（Day 3 明确状态）
+ * ## 认证与赛事授权边界（master@81827b3 之后的真实状态）
  *
- * 截至本 PR 的基线 `master`（含 PR #41/#43/#44）：
+ * ### 后端：已经落地并生效
  *
- * - 后端**没有**任何 auth router / session / `/auth/me` / 权限依赖：
- *   `backend/app/main.py` 只注册了业务 routers，没有 auth 相关依赖项；
- * - C 轨的 `AdminLayout`、`LoginPage`、`AccessStatePage` 等**展示层**已合入，
- *   但 PR #42（A2.1/A2.2 数据模型与 Session 服务）与 C 轨开放 PR
- *   `feat/v03-admin-auth-routing`（A2.3 Auth API + AuthContext/Guard）**都还没有进入 master**。
+ * A 轨认证与赛事授权契约**已合入 master**（`docs/A2.7_AUTH_CONTRACT_DELIVERY.md`、
+ * `docs/openapi-v0.2.json` 的 `x-contract`）：
  *
- * 因此这里**不实现**：token、localStorage 登录态、临时用户系统、第二套权限判断。
- * 那会造出一个与 A 轨正式契约冲突的“假认证”，比暂时不接线危险得多。
+ * - 认证入口：`POST /api/v1/auth/login`、`POST /api/v1/auth/logout`、
+ *   `GET /api/v1/auth/me`、`POST /api/v1/auth/change-password`；
+ * - 浏览器凭据：`pp_session` Cookie（`HttpOnly` / `SameSite=Lax` / `Path=/`，HTTPS 追加 `Secure`）；
+ *   非浏览器脚本：`Authorization: Bearer <opaque token>`；
+ * - **录分写入已被后端保护**：`POST /api/matches/{match_id}/score` 依赖
+ *   `require_tournament_write`（`backend/app/routers/scores.py`）。因此未登录 / 无该赛事授权时，
+ *   服务端分别返回 `401 AUTH_REQUIRED` 与 `404 RESOURCE_NOT_FOUND`，
+ *   前端是否渲染本页**不影响**数据安全。
  *
- * 本组件就是未来 AuthGuard 的**唯一**接线点，语义已经按最终形态固定：
+ * ### 前端：仍等 C 轨 router shell
+ *
+ * 截至同一 master，`RequireAuth` / `RequireTournamentAccess` / `AuthContext`
+ * **尚未进入 master**（连 C 轨自己的 `feat/v03-c-d3-settings` 分支上也还没有），
+ * `frontend/src/pages/LoginPage.tsx` 目前仍是展示层。
+ *
+ * 因此这里**仍然不实现**：临时 token 存储、localStorage 登录态、第二套 Guard、
+ * 假管理员、401 自动跳登录。这些属于 C 轨 Auth shell，D 轨复制一份只会与正式实现冲突。
+ *
+ * 本组件就是 AuthGuard 的**唯一**接线点，语义已按最终形态固定：
  *
  * ```tsx
- * // A 轨 contract 合入 master 后，本 PR 内就地替换为（不改动 MobileScorePage 的 props）：
+ * // C 轨 RequireAuth / RequireTournamentAccess 合入 master 后，就地替换（不改页面 props）：
  * <RequireAuth>
  *   <RequireTournamentAccess tid={tid}>
  *     <MobileScorePage tid={tid} matchId={matchId} />
@@ -108,12 +120,16 @@ function AdminScoreInvalidLink() {
  * </RequireAuth>
  * ```
  *
- * 需要满足的三个前置条件（缺一不可，否则接线是错的）：
+ * 接线时只剩**一个**前置条件：`RequireAuth` / `RequireTournamentAccess` 已在 master。
+ * 另外两条已经满足：`/api/v1/auth/me` 与 401/403/404 错误 DTO 已冻结在契约里；
+ * 服务端本身已经拒绝未授权调用。
  *
- * 1. `GET /auth/me` 与其 401/403/404 错误 DTO 已在 master；
- * 2. `RequireAuth` / `RequireTournamentAccess` 组件已在 master（C 轨）；
- * 3. 录分 API 本身在服务端拒绝了未授权调用（**前端 Guard 只改善 UX，
- *    服务端才是唯一安全边界** —— 这一点在接线时必须一起确认）。
+ * ### 页面当前的错误展示（在 Guard 合入前）
+ *
+ * `MobileScorePage` 会在提交 / 加载失败时**原样展示服务端 message**：
+ * 未登录显示「请先登录」，跨赛事 / 未授权显示「资源不存在」
+ * （`RESOURCE_NOT_FOUND` 的防枚举语义，不翻译成“你没有某赛事权限”）。
+ * 结构化 `{code,message}` 由共享 `api.ts` 统一解析，页面不自己解析 response。
  */
 function AdminScoreGuardBoundary({ tid, matchId }: { tid: number; matchId: number }) {
   return <MobileScorePage matchId={matchId} tid={tid} />

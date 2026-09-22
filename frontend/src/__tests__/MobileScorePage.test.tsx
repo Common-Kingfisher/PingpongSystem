@@ -567,6 +567,55 @@ describe('错误处理与防重复提交', () => {
     await screen.findByText('当前比赛状态不允许这样操作：只有进行中或待安排的比赛可以录入比分')
   })
 
+  it('结构化 401（AUTH_REQUIRED）展示服务端真实 message，而不是“请求失败 (401)”', async () => {
+    // A 轨认证契约合入后的真实 401 形状：detail 是对象，由共享 api.ts 统一解析
+    server.onScorePost = () =>
+      jsonResponse({ detail: { code: 'AUTH_REQUIRED', message: '请先登录' } }, 401)
+
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
+    await waitForReady()
+
+    fillBigScore('2', '1')
+    await submitNormalScore()
+
+    await screen.findByText('请先登录后再提交：请先登录')
+    expect(document.body.textContent).not.toContain('请求失败 (401)')
+    // 输入保留，登录后可以立即重试
+    expect(scoreInput('张三').value).toBe('2')
+    expect(scoreInput('李四').value).toBe('1')
+  })
+
+  it('结构化 404（RESOURCE_NOT_FOUND）原样展示“资源不存在”，不得改写成权限推断', async () => {
+    // 跨赛事 / 未授权资源统一 404 RESOURCE_NOT_FOUND，用于防资源枚举。
+    // 页面不得把它翻译成“你没有某赛事权限”之类的推断文案。
+    server.onScorePost = () =>
+      jsonResponse({ detail: { code: 'RESOURCE_NOT_FOUND', message: '资源不存在' } }, 404)
+
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
+    await waitForReady()
+
+    fillBigScore('2', '1')
+    await submitNormalScore()
+
+    await screen.findByText('服务端拒绝了本次录分：资源不存在')
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain('权限')
+    expect(text).not.toContain('请求失败 (404)')
+  })
+
+  it('结构化 403（FORBIDDEN）展示服务端 message', async () => {
+    server.onScorePost = () =>
+      jsonResponse({ detail: { code: 'FORBIDDEN', message: '需要赛事管理员权限' } }, 403)
+
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
+    await waitForReady()
+
+    fillBigScore('2', '1')
+    await submitNormalScore()
+
+    await screen.findByText('当前账号没有该操作的权限：需要赛事管理员权限')
+  })
+
   it('网络失败提示检查局域网，且不清空已输入数据', async () => {
     server.onScorePost = () => {
       throw new TypeError('Failed to fetch')

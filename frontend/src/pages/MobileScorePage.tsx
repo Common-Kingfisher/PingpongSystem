@@ -82,16 +82,26 @@ type LoadResult =
 function describeLoadError(error: unknown, tid: number): LoadFailure {
   if (error instanceof ApiError) {
     if (error.status === 404) {
+      // 跨赛事 / 未授权资源按当前 A 轨契约统一返回 404 RESOURCE_NOT_FOUND，
+      // 语义就是“资源不可见”，因此这里保持“赛事不可用”，不推断权限原因。
       return {
         kind: 'tournament-missing',
         title: '赛事不可用',
         detail: `该赛事不存在，或已被删除：#${tid}。请确认链接后重新扫码/重新打开。`,
       }
     }
-    if (error.status === 401 || error.status === 403) {
+    if (error.status === 401) {
       return {
         kind: 'server',
-        title: '没有访问权限',
+        title: '请先登录',
+        detail: `${error.message}（登录后重新打开本录分链接即可）`,
+        status: error.status,
+      }
+    }
+    if (error.status === 403) {
+      return {
+        kind: 'server',
+        title: '当前账号没有权限',
         detail: error.message,
         status: error.status,
       }
@@ -939,13 +949,27 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
   )
 }
 
-/** 后端 4xx 的可读文案：尽量让裁判知道哪里有问题，而不是统一“提交失败”。 */
+/**
+ * 后端错误的可读文案：尽量让裁判知道哪里有问题，而不是统一“提交失败”。
+ *
+ * ## 边界（A 轨认证契约合入后）
+ *
+ * 这里**只**做前缀化，不做业务推断：
+ *
+ * - 401：结构化错误 `AUTH_REQUIRED`（message 通常是「请先登录」）；
+ * - 403：系统角色不足 `FORBIDDEN`；
+ * - 404：**统一的资源不可见语义**。跨赛事 / 未授权资源一律返回
+ *   `RESOURCE_NOT_FOUND`「资源不存在」，以防资源枚举。
+ *   因此页面**不得**改写成“你没有某赛事权限”之类的推断文案，只展示服务端真实 message。
+ *
+ * 登录跳转 / 认证恢复由 C 轨 Auth shell 负责；本页不自行处理 401 跳转，也不保存 redirect。
+ */
 function describeSubmitError(error: ApiError): string {
   if (error.status === 422) return `服务端未接受本次比分：${error.message}`
   if (error.status === 409) return `当前比赛状态不允许这样操作：${error.message}`
-  if (error.status === 404) return `比赛不存在或已不属于本赛事：${error.message}`
-  if (error.status === 401) return `登录状态已失效，请重新登录后再提交。（${error.message}）`
-  if (error.status === 403) return `当前账号没有本赛事的录分权限：${error.message}`
+  if (error.status === 404) return `服务端拒绝了本次录分：${error.message}`
+  if (error.status === 401) return `请先登录后再提交：${error.message}`
+  if (error.status === 403) return `当前账号没有该操作的权限：${error.message}`
   if (error.status >= 500) return `服务端出错，本次比分未保存：${error.message}`
   return error.message
 }
