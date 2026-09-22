@@ -1341,3 +1341,128 @@ POST /api/matches/{id}/score  →  backend scores.py  →  422「大比分胜局
 `MobileScoreRoutes.tsx::AdminScoreGuardBoundary` 仍是唯一接线点，PR #45 描述中的
 `Auth final wiring blocked by A track contract` 状态不变。
 
+---
+---
+
+# D 轨 Day 3 Reviewer 第二轮返工：路由切换的陈旧响应竞态
+
+分支与 PR 未变：`feat/d-day3-mobile-score` / **PR #45**。本轮只处理 Reviewer 指出的 **1 个 P1**，
+未扩大 Day3D 范围，未触碰 backend / OpenAPI / Auth。
+
+## 37. 缺陷
+
+React Router 在同一路由 pattern 下切换 `:tid` / `:matchId` 时，`MobileScorePage`
+**不会 remount**（`MobileScoreRoutes` 里没有 `key`），只有 props 变化。此时 `load()` 内部自己
+`setData(...)`，于是：
+
+```text
+打开 /admin/t/A/score/X（关键 GET 悬挂）
+  → 同 SPA 导航到 /admin/t/B/score/Y，B/Y 先完成并正确显示
+  → 释放 A/X 旧请求，旧响应晚返回 → setData(A/X) 覆盖页面
+```
+
+最危险的后果是「页面显示 A/X，但 `match.id` 已经是 Y」→ **录的分可能写到别的比赛上**。
+原实现的 `let active = true` 只保护 `load().catch(...)`，管不到成功路径的 `setData`。
+
+## 38. 修复
+
+### 38.1 `load()` 变成纯取数函数
+
+```ts
+type LoadResult =
+  | { ok: true; data: LoadedData }
+  | { ok: false; failure: LoadFailure }
+
+const load = useCallback(async (): Promise<LoadResult> => { /* 只调 API + 组装结果 */ }, [tid, matchId])
+```
+
+`load()` 内**不再出现任何** `setData` / `setFailure` / `setSavedMatch` / `setRefreshWarning`。
+`match` 不存在时也改为 `return { ok: false, failure: { kind: 'match-missing', ... } }`，
+由调用方在确认 generation 有效后才写 `setFailure`。
+
+### 38.2 generation 是新鲜度的唯一依据
+
+新增 `loadGenerationRef`，并把它作为**唯一**的陈旧响应判据：
+
+* 每次进入新的加载上下文 `++loadGenerationRef.current`；
+* effect cleanup 里作废当前 generation（只作废一次）；
+* 所有异步写入统一经过 `applyLoadResult(generation, result)`，或显式比较
+  `generation !== loadGenerationRef.current`。
+
+⚠️ 同时**移除了 effect 里的 `let cancelled` 闭包标志**。原因是它会让 generation 判断永远
+短路、测试也跟着变成空测试：作者实测把 generation 机制整体禁用后全部用例仍然通过
+（见 39.2）。现在只保留一套判断，任何一套被改坏都会被测试抓到。
+
+### 38.3 提交后的 refresh 复用同一套防护
+
+`runSubmit()` 在开头捕获 `const generation = loadGenerationRef.current`，并在每个写 state 的
+分支前检查 `isStale()`：
+
+| 位置 | 陈旧时行为 |
+| --- | --- |
+| POST 成功树 | 不写 `savedMatch`（只释放 `inFlight`） |
+| POST 失败 catch | 不写 `formError` |
+| refresh 结果 | 经 `applyLoadResult(generation, …)`，不写 `data` / `failure` |
+| refresh 失败 catch | 不写 `refreshWarning` |
+| finally | 不写 `submitting` / `inFlight` |
+
+因此「旧比赛 POST 成功但刷新失败」**不会**在新比赛页面上显示“已保存 / 刷新失败”提示。
+
+### 38.4 路由切换时重置表单与提交状态
+
+因为是同组件 props 变化（不 remount），切换比赛时会清空上一场的输入与提示
+（`scoreA/B`、`games`、`note`、`mode`、`confirmAbnormal`、`formError`、`savedMatch`、
+`refreshWarning`、`submitting`），并重置 `inFlight` 锁 —— 否则上一场未归零的锁会卡死
+新页面的首次提交。`operatorName` 刻意保留（它是裁判身份，已持久化在 localStorage）。
+
+### 38.5 上一轮语义保持
+
+* POST 失败才算“本次比分没有保存”（422/409/401/403/404/网络，输入不清空）；
+* POST 成功 + refresh 失败 = **已保存**，显示“比分已保存，但最新状态刷新失败，请重新加载页面确认”；
+* 该提示条仍不是红色错误样式，不诱导重复提交。
+
+## 39. 回归测试
+
+新增 `frontend/src/__tests__/MobileScoreRouteRace.test.tsx`（3 例），使用 deferred promise
+真实制造竞态，并且**在同一次 render / 同一个 `MemoryRouter` 内**导航（不重新 mount 测试 App）：
+
+1. **A/X 请求晚返回时页面仍显示 B/Y，且提交只命中 Y**
+   悬挂 A 的 `GET /api/tournaments/A/matches` → 同 SPA 导航到 B/Y → B/Y 正常显示 →
+   释放 A 的旧请求 → 断言页面仍是 B/Y、`TOURNAMENT_A.name` / `AAA选手一` / `AAA选手二`
+   都不出现、且没有变成“比赛不存在” → 填分提交 →
+   `expect(scorePostPaths).toEqual([`/api/matches/${MATCH_Y}/score`])`
+   并断言绝不含 `/api/matches/${MATCH_X}/score`。
+2. **A/X 旧请求晚返回时不得把已显示 B/Y 的页面改成“比赛不存在”**
+   A 的悬挂请求释放后返回**不含 X** 的列表，覆盖 `match-missing` 也必须在 generation 保护内。
+3. **B/Y 显示期间不出现上一场的错误态或“已保存/刷新失败”提示**
+   覆盖 `failure` / `savedMatch` / `refreshWarning` 的跨路由污染，并断言全程零提交。
+
+路由使用**生产环境的真实 adapter**（`MobileScoreRoutes.tsx::AdminScoreAdapter`，本轮为测试
+导出），测试只在外层注入一个导航探针（录分页本身刻意不含任何跳转链接）。
+
+### 39.2 非空测试验证（避免“测试永远通过”）
+
+把 generation 机制临时整体禁用（effect 不递增 + cleanup 不作废）后重跑：
+
+```text
+× A/X 请求晚返回时页面仍显示 B/Y，且提交只命中 Y   → Unable to find "TID-B-THIRTY-TWO 赛事"
+× A/X 旧请求晚返回时不得把已显示 B/Y 的页面改成“比赛不存在” → expected <h1></h1> to be null
+× B/Y 显示期间不出现上一场的错误态或“已保存/刷新失败”提示 → Unable to find "TID-B-THIRTY-TWO 赛事"
+Tests  3 failed | 41 passed (44)
+```
+
+恢复修复后 44 例全绿 —— 说明这 3 例确实在守护该竞态，而不是恒真断言。
+
+## 40. 本轮验证结果
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 前端全量 | `frontend> pnpm test` | **44 passed**（3 files：41 + 本轮新增 3） |
+| 前端类型 | `frontend> pnpm exec tsc --noEmit` | 通过（exit 0） |
+| 生产构建 | `frontend> pnpm build` | 通过 |
+| 契约检查 | `frontend> pnpm contract:check` | 通过（未改 OpenAPI，无 diff） |
+| 后端全量 | `backend> python -m pytest` | 本轮未改后端，沿用 **758 passed, 30 skipped, 2 warnings** |
+| 契约层验收 | `day3_mobile_score_acceptance.ps1` | **22 PASS / 0 FAIL** |
+| 端到端 | `day3_mobile_e2e.mjs`（真实 Chrome 390×844） | **21 PASS / 0 FAIL** |
+| 小屏 | `scripts_mobile_viewport_check.mjs`（360/375/390/430，含超长名字） | **60 PASS / 0 FAIL** |
+
