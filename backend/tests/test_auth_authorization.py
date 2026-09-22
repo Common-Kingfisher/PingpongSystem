@@ -17,6 +17,7 @@ PASSWORD = "StrongPassword123"
 FORBIDDEN_EVENT_ADMIN = {"code": "FORBIDDEN", "message": "需要赛事管理员权限"}
 MANAGEMENT_WRITE_METHODS = frozenset({"post", "put", "patch", "delete"})
 MANAGEMENT_WRITE_PREFIXES = ("/api/tournaments", "/api/matches")
+PUBLIC_REGISTRATION_WRITES = frozenset({("POST", "/api/tournaments/{tournament_id}/registrations")})
 TOURNAMENT_PAYLOAD = {
     "name": "A2.5 鉴权赛事",
     "date": "2026-09-21",
@@ -60,6 +61,8 @@ def _management_write_operations() -> list[tuple[str, str]]:
         for method in path_spec:
             if method.lower() not in MANAGEMENT_WRITE_METHODS:
                 continue
+            if (method.upper(), path) in PUBLIC_REGISTRATION_WRITES:
+                continue
             resolved_path = re.sub(r"\{[^}]+\}", "1", path)
             operations.append((method.upper(), resolved_path))
     return operations
@@ -72,7 +75,7 @@ def _assert_not_found(response) -> None:
 
 def test_all_tournament_writes_require_login(client):
     operations = _management_write_operations()
-    assert len(operations) == 43
+    assert len(operations) == 47
 
     client.headers.pop("Authorization")
     failures = []

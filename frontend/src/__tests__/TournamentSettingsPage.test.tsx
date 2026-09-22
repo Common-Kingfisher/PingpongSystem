@@ -21,6 +21,7 @@ const tournament: Tournament = {
   points_to_win: 11,
   roster_confirmed: false,
   operation_mode: 'LIVE',
+  registration_enabled: false,
 }
 
 beforeEach(() => localStorage.clear())
