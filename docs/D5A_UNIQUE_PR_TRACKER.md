@@ -141,36 +141,48 @@ A5 提供 Public 报名创建、开关读取、关闭报名稳定拒绝和联系
 -> 生成比赛并进入比赛流程
 ```
 
+### 当前执行状态（2026-09-22）
+
+- A5 后端交付基本完成：migration v5、Registration/Organization/Venue 持久化与 API、确认事务、权限/隐私、Schema/OpenAPI/contract 及本地定向/全量验证均已完成。这里的“验证通过”仅代表当前 head 的本地证据，不替代远端 CI 或发布侧独立复验。
+- C5 未完成：管理页面接入、临时字段清零仍由 C5 承接。
+- D5 未完成：Public 停止使用 legacy `api.addPlayer()` 仍由 D5 承接。
+- E5 未执行：`报名 -> 确认 -> Player -> Entry -> Match/比赛` 全链 E2E 尚未运行，D5A 最终完成门槛不能视为已通过。
+- 当前 head `b1ad2d6` 没有 GitHub Actions workflow/status check 结果；最终 Gate 仍需 E5/发布侧独立复验。
+
 ## 六、实施清单
 
-- [ ] Migration v5：Tournament 报名开关及 Registration、Organization、Venue 持久化。
-- [ ] Repository：Registration、Organization、Venue 的读写与状态迁移。
-- [ ] Service：报名关闭检查、确认原子事务、名单锁定保护和重复确认保护。
-- [ ] Public API：创建 PENDING Registration，响应不泄露 contact。
-- [ ] Admin API：待确认列表与 confirm，返回 registration 和正式 player。
-- [ ] Organization / Venue API：赛事级读取和更新。
-- [ ] Schema / OpenAPI：更新请求、响应、TournamentOut，并生成契约快照。
-- [ ] 测试：migration、旧库升级、registration 状态机、并发确认、权限与隐私、Organization/Venue。
-- [ ] 后端定向测试、全量回归、OpenAPI `--check`、contract check。
-- [ ] E5 报名 -> 确认 -> 比赛 E2E。
+- [x] Migration v5：Tournament 报名开关及 Registration、Organization、Venue 持久化。
+- [x] Repository：Registration、Organization、Venue 的读写与状态迁移。
+- [x] Service：报名关闭检查、确认原子事务、名单锁定保护和重复确认保护。
+- [x] Public API：创建 PENDING Registration，响应不泄露 contact。
+- [x] Admin API：待确认列表与 confirm，返回 registration 和正式 player。
+- [x] Organization / Venue API：赛事级读取和更新。
+- [x] Schema / OpenAPI：更新请求、响应、TournamentOut，并生成契约快照。
+- [x] 测试：migration、旧库升级、registration 状态机、并发确认、权限与隐私、Organization/Venue。
+- [x] 后端定向测试、全量回归、OpenAPI `--check`、contract check（本地验证）。
+- [ ] E5 报名 -> 确认 -> 比赛 E2E（尚未执行；由 E5 承接）。
 
 ## 七、完成门槛
 
-- [ ] Public 不再直接创建 Player。
-- [ ] 新报名默认 PENDING，报名关闭时后端拒绝。
-- [ ] 有权限管理员可查看待确认并执行 confirm。
-- [ ] confirm 原子创建正式 Player，失败不留半状态。
-- [ ] 并发 confirm 不创建重复 Player。
-- [ ] roster 锁定后不能确认新报名。
-- [ ] Registration 与 Player 可追溯。
-- [ ] affiliation 进入 Player.college 兼容链。
-- [ ] Public 不泄露任何联系方式。
-- [ ] Organization 与 Affiliation 分离，且可关联 Tournament。
-- [ ] Venue 可关联 Tournament，且不复制 tables。
-- [ ] 越权读取、修改和确认被后端阻断。
-- [ ] Migration v5、transaction、permission、backend full 测试均通过。
-- [ ] OpenAPI 与 generated contract 无漂移。
-- [ ] C/D 无临时字段，E5 闭环通过。
+前 14 项表示 A5 后端在当前 head 已具备并通过本地验证；其余四项尚未完成。
+
+- [x] Public 不再直接创建 Player。
+- [x] 新报名默认 PENDING，报名关闭时后端拒绝。
+- [x] 有权限管理员可查看待确认并执行 confirm。
+- [x] confirm 原子创建正式 Player，失败不留半状态。
+- [x] 并发 confirm 不创建重复 Player。
+- [x] roster 锁定后不能确认新报名。
+- [x] Registration 与 Player 可追溯。
+- [x] affiliation 进入 Player.college 兼容链。
+- [x] Public 不泄露任何联系方式。
+- [x] Organization 与 Affiliation 分离，且可关联 Tournament。
+- [x] Venue 可关联 Tournament，且不复制 tables。
+- [x] 越权读取、修改和确认被后端阻断。
+- [x] Migration v5、transaction、permission、backend full 测试均通过（本地验证）。
+- [x] OpenAPI 与 generated contract 无漂移。
+- [ ] C5 页面接入完成，临时字段清零。
+- [ ] D5 已停止使用 legacy `api.addPlayer()`。
+- [ ] E5 全链 E2E 独立复验通过。
 - [ ] 无越权、数据丢失、重复正式名单等 P0。
 
 ## 八、唯一 PR 声明
