@@ -199,7 +199,12 @@ A 轨只负责数据模型、迁移、API、事务、权限和验证接线，不
 - OpenAPI：`OpenAPI snapshot is up to date`。
 - `git diff --check`：通过。
 
-### 10.4 后续边界
+### 10.4 最终合并基线与 Gate 闭环
 
-- 本轮验证针对 A `aa5cfb5` + B `3443951` 的目标组合，不含之后更新的 `master`。
-- 正式推送或最终合并前仍需按 merge 方式同步最新 `master` 并重新执行最终 Gate。
+- A 最终 Head：`967ec150b4dfa49c6ce39de756a6e72c6348b610`，该提交为 `1d92ae3` 合并 `master` `2e57895985be8627f7531fee098afaeda8399d4d` 的 merge commit。
+- B Head：`34439515baf77220b07a5e93dfacdc206904c423`。
+- integration Head：`a8b7b5d9b4f9bcb15244093528080450f35cc144`；A 最终 Head、B Head、最终 `master` 均为其祖先。
+- GitHub compare（2026-09-22）：`master...feat/D4A赛制配置落库` 为 `behind_by=0`、`ahead_by=5`，merge base 为 `2e57895985be8627f7531fee098afaeda8399d4d`。
+- §10.3 的最终 Gate 数字与上述 A 最终 Head、B Head、最终 `master` 组合一致；不存在“尚未同步最新 master”的剩余动作。
+
+> 本节已替代第二轮初检时“尚未包含更新 master”的临时边界表述。
