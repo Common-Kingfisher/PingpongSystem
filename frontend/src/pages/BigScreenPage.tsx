@@ -4,10 +4,11 @@ import { api, ApiError, Dashboard, Entry, KnockoutTree, Player, RankingsResult, 
 import { getActiveTournamentId } from '../activeTournament'
 import KnockoutBracket from '../components/KnockoutBracket'
 
-export default function BigScreenPage() {
+export default function BigScreenPage({ tid: tidProp }: { tid?: number } = {}) {
   const [params] = useSearchParams()
   const urlTid = params.get('tid')
-  const tid = urlTid ? Number(urlTid) : getActiveTournamentId()
+  // tid 优先级：显式 prop（Public 路由的 path param）> ?tid= > localStorage（V0.2 兼容）
+  const tid = tidProp ?? (urlTid ? Number(urlTid) : getActiveTournamentId())
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [dash, setDash] = useState<Dashboard | null>(null)

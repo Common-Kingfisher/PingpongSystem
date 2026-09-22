@@ -22,8 +22,16 @@ export interface AdminLayoutProps {
   children?: ReactNode
   tournamentName?: string | null
   currentUserLabel?: string | null
+  currentUserRoleLabel?: string | null
+  manageableEvents?: AdminEventOption[]
   navAccess?: Partial<Record<AdminNavKey, AdminNavAccess>>
+  onChangePassword?: () => void
   onLogout?: () => void
+}
+
+export interface AdminEventOption {
+  id: number
+  name: string
 }
 
 interface AdminNavItem {
@@ -54,7 +62,10 @@ export default function AdminLayout({
   children,
   tournamentName,
   currentUserLabel,
+  currentUserRoleLabel,
+  manageableEvents = [],
   navAccess = {},
+  onChangePassword,
   onLogout,
 }: AdminLayoutProps) {
   const location = useLocation()
@@ -63,6 +74,15 @@ export default function AdminLayout({
   const tournamentId = parseTournamentId(params.get('tid')) ?? getActiveTournamentId()
   const tournamentQuery = tournamentId === null ? '' : `?tid=${tournamentId}`
   const dense = location.pathname === '/console'
+  const alternateEvents = manageableEvents.filter(
+    (event) => Number.isSafeInteger(event.id) && event.id > 0 && event.id !== tournamentId,
+  )
+
+  const eventHref = (eventId: number) => {
+    const next = new URLSearchParams(location.search)
+    next.set('tid', String(eventId))
+    return `${location.pathname}?${next.toString()}`
+  }
 
   const publicHref = useMemo(
     () => (tournamentId === null ? null : `/bigscreen${tournamentQuery}`),
@@ -106,11 +126,27 @@ export default function AdminLayout({
           <span className="admin-brand-mark" aria-hidden="true">TT</span>
           <span>赛事管理<small>TOURNAMENT ADMIN</small></span>
         </Link>
-        <Link className="admin-event-switcher" to="/">
-          <small>当前赛事</small>
-          <strong>{tournamentName || '选择一场赛事'}</strong>
-          <span>返回“我的赛事”切换</span>
-        </Link>
+        {alternateEvents.length > 0 ? (
+          <details className="admin-event-switcher">
+            <summary>
+              <small>当前赛事</small>
+              <strong>{tournamentName || '选择一场赛事'}</strong>
+              <span aria-hidden="true">⌄</span>
+            </summary>
+            <div className="admin-event-menu">
+              {alternateEvents.map((event) => (
+                <Link key={event.id} to={eventHref(event.id)}>{event.name}</Link>
+              ))}
+              <Link className="admin-event-menu-all" to="/events">查看全部赛事</Link>
+            </div>
+          </details>
+        ) : (
+          <div className="admin-event-switcher admin-event-switcher--single">
+            <small>当前赛事</small>
+            <strong>{tournamentName || '选择一场赛事'}</strong>
+            <span>{tournamentName ? '当前唯一赛事' : '等待赛事权限数据'}</span>
+          </div>
+        )}
         <nav className="admin-nav" aria-label="赛事管理">
           {primaryItems.map(renderItem)}
         </nav>
@@ -131,8 +167,16 @@ export default function AdminLayout({
             ) : (
               <span className="admin-public-link is-disabled" aria-disabled="true">打开 Public 页面</span>
             )}
-            <span className="admin-user">{currentUserLabel || '用户信息待接入'}</span>
-            <button disabled={!onLogout} onClick={onLogout} type="button">退出</button>
+            <details className="admin-user-menu">
+              <summary>
+                <span>{currentUserLabel || '用户信息待接入'}</span>
+                <small>{currentUserRoleLabel || '角色待接入'}</small>
+              </summary>
+              <div>
+                <button disabled={!onChangePassword} onClick={onChangePassword} type="button">修改密码</button>
+                <button disabled={!onLogout} onClick={onLogout} type="button">退出登录</button>
+              </div>
+            </details>
           </div>
         </header>
         {accessMessage && (

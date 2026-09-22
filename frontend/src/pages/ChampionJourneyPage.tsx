@@ -27,10 +27,11 @@ function MatchTile({ match, active, capture }: { match: KnockoutMatch; active: b
   </article>
 }
 
-export default function ChampionJourneyPage() {
+export default function ChampionJourneyPage({ tid: tidProp }: { tid?: number } = {}) {
   const [params] = useSearchParams()
   const raw = params.get('tid')
-  const tid = raw ? Number(raw) : getActiveTournamentId()
+  // tid 优先级：显式 prop（Public 路由的 path param）> ?tid= > localStorage（V0.2 兼容）
+  const tid = tidProp ?? (raw ? Number(raw) : getActiveTournamentId())
   const [tree, setTree] = useState<KnockoutTree | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [connectors, setConnectors] = useState<Connector[]>([])

@@ -4,10 +4,21 @@ import { api, ApiError, GroupRanking, Match, RankingsResult, ScorePayload, Tourn
 import { getActiveTournamentId } from '../activeTournament'
 import ScoreSheet from '../components/ScoreSheet'
 
-export default function RankingsPage() {
+/**
+ * 小组排名页。
+ *
+ * D 轨 Day 2：新增可选 `readOnly`。Public 路由（`/public/t/:tid/rankings`）以只读方式复用本页，
+ * 只屏蔽**写操作控件**（Demo 模拟完成、补录小分、人工裁定 / 撤销裁定），
+ * 排名展示完全沿用后端结果，不复制任何排名算法。
+ */
+export default function RankingsPage({
+  tid: tidProp,
+  readOnly = false,
+}: { tid?: number; readOnly?: boolean } = {}) {
   const [params] = useSearchParams()
   const tidParam = params.get('tid')
-  const tid = tidParam ? Number(tidParam) : getActiveTournamentId()
+  // tid 优先级：显式 prop（Public 路由的 path param）> ?tid= > localStorage（V0.2 兼容）
+  const tid = tidProp ?? (tidParam ? Number(tidParam) : getActiveTournamentId())
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [rankings, setRankings] = useState<RankingsResult>({ rankings: [] })
@@ -186,7 +197,7 @@ export default function RankingsPage() {
           </p>
         )}
         {error && <p className="status-error">{error}</p>}
-        {tournament?.operation_mode === 'DEMO' && tournament.stage === 'GROUP_STAGE' &&
+        {!readOnly && tournament?.operation_mode === 'DEMO' && tournament.stage === 'GROUP_STAGE' &&
           rankings.rankings.some((g) => g.finished_matches < g.total_matches) && (
             <div className="button-row">
               <button className="btn" onClick={confirmDemoFinish} disabled={busy}>
@@ -210,7 +221,7 @@ export default function RankingsPage() {
               </span>
             )}
           </h3>
-          {g.needs_point_scores && <div className="ranking-tiebreak">
+          {g.needs_point_scores && !readOnly && <div className="ranking-tiebreak">
             <div><strong>出线席位仍同分，需要补录小分</strong><p>只补录下列相关场次的逐局比分。录齐后系统按相互比赛的得失分比率重新排名。</p></div>
             <div className="tiebreak-match-list">
               {g.point_score_match_ids.map((id) => {
@@ -222,16 +233,33 @@ export default function RankingsPage() {
               })}
             </div>
           </div>}
-          {g.ambiguous_qualification && !g.needs_point_scores && (
+          {/* Public 只读视图：不提供补小分入口，但必须让观众知道“排名尚未最终确定”的原因 */}
+          {g.needs_point_scores && readOnly && (
+            <div className="ranking-tiebreak">
+              <div>
+                <strong>出线席位仍同分</strong>
+                <p>该组需要在相关场次补齐逐局小分后才能最终确定排名与晋级名单，请等待裁判组处理。</p>
+              </div>
+            </div>
+          )}
+          {g.ambiguous_qualification && !g.needs_point_scores && !readOnly && (
             <div className="ranking-decision-callout">
               <div><strong>晋级线仍无法区分</strong><p>系统不会擅自选择。请主裁判从并列参赛位中指定 {g.manual_slots_remaining} 个晋级名额，并记录依据。</p></div>
               <button className="btn primary" onClick={() => openDecision(g)} disabled={busy}>主裁判人工裁定</button>
             </div>
           )}
+          {g.ambiguous_qualification && !g.needs_point_scores && readOnly && (
+            <div className="ranking-decision-callout">
+              <div>
+                <strong>晋级线尚待裁定</strong>
+                <p>该组存在无法自动区分的并列，需由主裁判裁定 {g.manual_slots_remaining} 个晋级名额，结果确定后本页会自动更新。</p>
+              </div>
+            </div>
+          )}
           {g.manually_resolved && g.qualification_decision && (
             <div className="ranking-decision-record">
               <div><strong>已由主裁判完成人工裁定</strong><p>{g.qualification_decision.operator_name} · {g.qualification_decision.created_at} · {g.qualification_decision.reason}</p></div>
-              <button className="btn small" onClick={() => revokeDecision(g)} disabled={busy}>撤销裁定</button>
+              {!readOnly && <button className="btn small" onClick={() => revokeDecision(g)} disabled={busy}>撤销裁定</button>}
             </div>
           )}
           <table className="data-table">
@@ -277,7 +305,7 @@ export default function RankingsPage() {
           </table>
         </div>
       ))}
-      {detailMatch && tournament && <ScoreSheet
+      {detailMatch && tournament && !readOnly && <ScoreSheet
         match={detailMatch}
         sideA={sideName(detailMatch, 'a')}
         sideB={sideName(detailMatch, 'b')}
@@ -289,7 +317,7 @@ export default function RankingsPage() {
         onClose={() => setDetailMatch(null)}
         onSave={savePointScores}
       />}
-      {decisionGroup && (
+      {decisionGroup && !readOnly && (
         <div className="modal-overlay" onClick={() => setDecisionGroup(null)}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <h3>{decisionGroup.group_name} · 人工指定晋级</h3>
