@@ -71,7 +71,8 @@ def test_get_tournament(client):
 def test_get_tournament_not_found(client):
     resp = client.get("/api/tournaments/999")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "赛事不存在"
+    # A2.5：赛事读/写入口统一用 RESOURCE_NOT_FOUND，避免泄漏资源存在性。
+    assert resp.json()["detail"] == {"code": "RESOURCE_NOT_FOUND", "message": "资源不存在"}
 
 
 def test_live_tournament_delete_requires_exact_name(client):

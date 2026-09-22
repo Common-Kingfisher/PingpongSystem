@@ -15,6 +15,7 @@ from sqlite3 import Connection
 
 from .. import schemas
 from ..db import get_db
+from ..dependencies import require_tournament_read, require_tournament_write
 from ..services import team_runtime as runtime_service
 from ..services import team_ties as tie_service
 
@@ -29,7 +30,11 @@ def _http(exc) -> HTTPException:
 
 
 @router.get("", response_model=list[schemas.TeamTieOut])
-def list_team_ties(tournament_id: int, conn: Connection = Depends(get_db)):
+def list_team_ties(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     try:
         return tie_service.list_team_ties(conn, tournament_id)
     except ServiceErrors as exc:
@@ -41,6 +46,7 @@ def create_team_tie(
     tournament_id: int,
     payload: schemas.TeamTieCreate,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         return tie_service.create_team_tie(
@@ -58,7 +64,11 @@ def create_team_tie(
 
 
 @router.post("/generate-group-ties", response_model=schemas.GenerateTeamGroupTiesResult)
-def generate_group_ties(tournament_id: int, conn: Connection = Depends(get_db)):
+def generate_group_ties(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     """按小组单循环生成该 TEAM 赛事的全部小组对抗（A6.1）。
 
     - 使用**子路径**而不是新的 `/team-group-ties` 命名空间：与同一 router 里的
@@ -75,7 +85,12 @@ def generate_group_ties(tournament_id: int, conn: Connection = Depends(get_db)):
 
 
 @router.get("/{tie_id}", response_model=schemas.TeamTieRuntimeOut)
-def get_team_tie(tournament_id: int, tie_id: int, conn: Connection = Depends(get_db)):
+def get_team_tie(
+    tournament_id: int,
+    tie_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     try:
         return runtime_service.runtime_view(conn, tournament_id, tie_id)
     except ServiceErrors as exc:
@@ -88,6 +103,7 @@ def build_rubber_skeleton(
     tie_id: int,
     payload: schemas.RubberSkeletonRequest,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         tie_service.build_rubber_skeleton(
@@ -103,7 +119,11 @@ def build_rubber_skeleton(
     response_model=schemas.TeamLineupOptionsOut,
 )
 def get_lineup_options(
-    tournament_id: int, tie_id: int, rubber_id: int, conn: Connection = Depends(get_db)
+    tournament_id: int,
+    tie_id: int,
+    rubber_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
 ):
     try:
         return runtime_service.lineup_options(conn, tournament_id, tie_id, rubber_id)
@@ -118,6 +138,7 @@ def set_lineup(
     rubber_id: int,
     payload: schemas.TeamLineupRequest,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         return runtime_service.set_lineup(
@@ -134,7 +155,11 @@ def set_lineup(
 
 @router.post("/{tie_id}/rubbers/{rubber_id}/start", response_model=schemas.TeamTieRuntimeOut)
 def start_rubber(
-    tournament_id: int, tie_id: int, rubber_id: int, conn: Connection = Depends(get_db)
+    tournament_id: int,
+    tie_id: int,
+    rubber_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         return runtime_service.start_rubber(conn, tournament_id, tie_id, rubber_id)
@@ -149,6 +174,7 @@ def record_rubber_score(
     rubber_id: int,
     payload: schemas.TeamRubberScoreRequest,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         return runtime_service.record_rubber_score(

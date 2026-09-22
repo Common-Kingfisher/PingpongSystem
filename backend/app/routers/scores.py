@@ -7,6 +7,11 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_read,
+    require_tournament_write,
+)
 from ..services import rankings as rankings_service
 from ..services import scores as scores_service
 
@@ -19,7 +24,10 @@ def _http(exc) -> HTTPException:
 
 @router.post("/api/matches/{match_id}/score", response_model=schemas.MatchOut)
 def record_score(
-    match_id: int, payload: schemas.ScoreRequest, conn: Connection = Depends(get_db)
+    match_id: int,
+    payload: schemas.ScoreRequest,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         match = scores_service.record_score(
@@ -42,7 +50,10 @@ def record_score(
 
 @router.post("/api/matches/{match_id}/revise-score", response_model=schemas.MatchOut)
 def revise_score(
-    match_id: int, payload: schemas.ScoreRevisionRequest, conn: Connection = Depends(get_db)
+    match_id: int,
+    payload: schemas.ScoreRevisionRequest,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         match = scores_service.revise_score(
@@ -65,7 +76,11 @@ def revise_score(
 
 
 @router.get("/api/matches/{match_id}/score-audits", response_model=list[schemas.ScoreAuditOut])
-def list_score_audits(match_id: int, conn: Connection = Depends(get_db)):
+def list_score_audits(
+    match_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     if repo.get_match(conn, match_id) is None:
         raise HTTPException(status_code=404, detail="比赛不存在")
     result = []
@@ -77,7 +92,11 @@ def list_score_audits(match_id: int, conn: Connection = Depends(get_db)):
 
 
 @router.get("/api/tournaments/{tournament_id}/rankings", response_model=schemas.RankingsResult)
-def get_rankings(tournament_id: int, conn: Connection = Depends(get_db)):
+def get_rankings(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_public_tournament_read),
+):
     try:
         data = rankings_service.get_rankings(conn, tournament_id)
     except rankings_service.RankingError as exc:
