@@ -195,9 +195,6 @@ class RoundRobinHandler(FormatHandler):
             raise FormatHandlerError("赛事不存在", 404)
         if tournament["event_type"] == EventType.TEAM.value:
             raise FormatHandlerError("团体赛不使用个人赛赛制处理器")
-        active = [entry for entry in repo.list_entries(conn, tournament_id) if entry["status"] == "ACTIVE"]
-        if len(active) < 2:
-            raise FormatHandlerError("循环赛至少需要 2 名有效参赛位")
         validate_rule_config(self.format_code, tournament.get("rule_config"))
         return tournament
 
@@ -213,13 +210,19 @@ class RoundRobinHandler(FormatHandler):
 
     def calculate_ranking(self, conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
         self.validate_config(conn, tournament_id)
-        entries = [entry for entry in repo.list_entries(conn, tournament_id) if entry["status"] == "ACTIVE"]
+        # 已生成的成绩仍属于排名事实；退赛只影响后续参赛资格，不能让历史对阵
+        # 在排名聚合中失去 stats 槽位。
+        entries = repo.list_entries(conn, tournament_id)
         matches = repo.list_matches(conn, tournament_id, MatchStage.GROUP.value)
         rankings = ranking_domain.compute_group_rankings(
             [repo.decorate_match(conn, match) for match in matches], [entry["id"] for entry in entries]
         )
         names = {entry["id"]: entry["display_name"] for entry in entries}
-        return [{**row, "name": names[row["player_id"]]} for row in rankings]
+        statuses = {entry["id"]: entry["status"] for entry in entries}
+        return [
+            {**row, "name": names[row["player_id"]], "entry_status": statuses[row["player_id"]]}
+            for row in rankings
+        ]
 
     def advance_participants(self, conn: sqlite3.Connection, tournament_id: int) -> dict:
         self.validate_config(conn, tournament_id)
@@ -236,8 +239,15 @@ class RoundRobinHandler(FormatHandler):
             return {"state": "MATCHES_NOT_GENERATED", "can_advance": False, "completed": False}
         if any(match["status"] != MatchStatus.FINISHED.value for match in matches):
             return {"state": "ROUND_ROBIN_IN_PROGRESS", "can_advance": False, "completed": False}
-        if any(row["tied"] for row in self.calculate_ranking(conn, tournament_id)):
-            return {"state": "RANKING_DATA_INSUFFICIENT", "can_advance": False, "completed": False}
+        rankings = self.calculate_ranking(conn, tournament_id)
+        if any(row["tied"] for row in rankings):
+            decorated = [repo.decorate_match(conn, match) for match in matches]
+            missing = ranking_domain.missing_point_score_match_ids(
+                decorated, rankings, len(rankings)
+            )
+            if missing:
+                return {"state": "RANKING_DATA_INSUFFICIENT", "can_advance": False, "completed": False}
+            return {"state": "RANKING_UNRESOLVED", "can_advance": False, "completed": False}
         return {"state": "COMPLETED", "can_advance": False, "completed": True}
 
 
@@ -252,8 +262,6 @@ class SingleEliminationHandler(FormatHandler):
             raise FormatHandlerError("赛事不存在", 404)
         if tournament["event_type"] == EventType.TEAM.value:
             raise FormatHandlerError("团体赛不使用个人赛赛制处理器")
-        if len([entry for entry in repo.list_entries(conn, tournament_id) if entry["status"] == "ACTIVE"]) < 2:
-            raise FormatHandlerError("单淘汰至少需要 2 名有效参赛位")
         validate_rule_config(self.format_code, tournament.get("rule_config"))
         return tournament
 
