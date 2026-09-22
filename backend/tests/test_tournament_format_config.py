@@ -24,7 +24,24 @@ TOURNAMENT_PAYLOAD = {
     "group_count": 1,
     "qualify_per_group": 1,
 }
-GROUP_CONFIG = {"bracket_size": 8, "note": "武汉大学"}
+SINGLE_ELIMINATION_CONFIG = {"draw_seed": 7}
+SEMANTIC_INVALID_CONFIGS = [
+    ("ROUND_ROBIN", {"draw_seed": 7}, "未知配置"),
+    ("GROUP_KNOCKOUT", {"bracket_size": 8}, "未知配置"),
+    ("GROUP_KNOCKOUT", {"note": "武汉大学"}, "未知配置"),
+    ("SINGLE_ELIMINATION", {"draw_seed": True}, "draw_seed 必须是整数"),
+    ("SINGLE_ELIMINATION", {"draw_seed": "7"}, "draw_seed 必须是整数"),
+    ("SINGLE_ELIMINATION", {"unknown": 1}, "未知配置"),
+]
+
+
+def _encoded_config(rule_config: dict) -> str:
+    return json.dumps(
+        rule_config,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -91,16 +108,16 @@ def test_create_with_group_knockout_persists_and_round_trips(client, conn):
     tournament = _create_tournament(
         client,
         format_code="GROUP_KNOCKOUT",
-        rule_config=GROUP_CONFIG,
+        rule_config={},
     )
 
     assert tournament["format_code"] == "GROUP_KNOCKOUT"
     assert tournament["rule_version"] == 1
-    assert tournament["rule_config"] == GROUP_CONFIG
+    assert tournament["rule_config"] == {}
     raw = _raw_format(conn, tournament["id"])
     assert raw == (
         "GROUP_KNOCKOUT",
-        '{"bracket_size":8,"note":"武汉大学"}',
+        "{}",
         1,
     )
 
@@ -112,17 +129,17 @@ def test_create_with_group_knockout_persists_and_round_trips(client, conn):
     assert persisted is not None
     assert persisted["format_code"] == "GROUP_KNOCKOUT"
     assert persisted["rule_version"] == 1
-    assert persisted["rule_config"] == GROUP_CONFIG
+    assert persisted["rule_config"] == {}
     handler = formats_service.resolve_format_handler(persisted["format_code"])
     assert handler.format_code == formats_service.GROUP_KNOCKOUT
 
     detail = client.get(f"/api/tournaments/{tournament['id']}")
     assert detail.status_code == 200
-    assert detail.json()["rule_config"] == GROUP_CONFIG
+    assert detail.json()["rule_config"] == {}
     listed = client.get("/api/tournaments").json()
     assert listed[0]["format_code"] == "GROUP_KNOCKOUT"
     assert listed[0]["rule_version"] == 1
-    assert listed[0]["rule_config"] == GROUP_CONFIG
+    assert listed[0]["rule_config"] == {}
 
 
 def test_create_without_format_keeps_legacy_null_contract(client, conn):
@@ -152,18 +169,19 @@ def test_create_rule_config_without_format_is_rejected(client, conn):
 
 
 @pytest.mark.parametrize(
-    ("format_code", "expected_status"),
+    ("format_code", "rule_config"),
     [
-        ("ROUND_ROBIN", 422),
-        ("SINGLE_ELIMINATION", 422),
-        ("GROUP_KNOCKOUT", 201),
+        ("ROUND_ROBIN", {}),
+        ("SINGLE_ELIMINATION", {}),
+        ("SINGLE_ELIMINATION", SINGLE_ELIMINATION_CONFIG),
+        ("GROUP_KNOCKOUT", {}),
     ],
 )
-def test_create_requires_registered_handler(
+def test_create_registered_handler_persists_supported_config(
     client,
     conn,
     format_code: str,
-    expected_status: int,
+    rule_config: dict,
 ):
     response = client.post(
         "/api/tournaments",
@@ -171,15 +189,22 @@ def test_create_requires_registered_handler(
             **TOURNAMENT_PAYLOAD,
             "name": f"创建赛制-{format_code}",
             "format_code": format_code,
-            "rule_config": {},
+            "rule_config": rule_config,
         },
     )
 
-    assert response.status_code == expected_status, response.text
-    count = conn.execute("SELECT COUNT(*) FROM tournaments").fetchone()[0]
-    assert count == (1 if expected_status == 201 else 0)
-    if expected_status == 422:
-        assert "不支持的个人赛赛制" in response.text
+    assert response.status_code == 201, response.text
+    tournament = response.json()
+    assert tournament["format_code"] == format_code
+    assert tournament["rule_config"] == rule_config
+    assert tournament["rule_version"] == 1
+    assert _raw_format(conn, tournament["id"]) == (
+        format_code,
+        _encoded_config(rule_config),
+        1,
+    )
+    assert conn.execute("SELECT COUNT(*) FROM tournaments").fetchone()[0] == 1
+
 
 def test_create_unknown_format_and_non_object_config_are_rejected(client, conn):
     unknown = client.post(
@@ -200,6 +225,32 @@ def test_create_unknown_format_and_non_object_config_are_rejected(client, conn):
     assert conn.execute("SELECT COUNT(*) FROM tournaments").fetchone()[0] == 0
 
 
+@pytest.mark.parametrize(
+    ("format_code", "rule_config", "error_message"),
+    SEMANTIC_INVALID_CONFIGS,
+)
+def test_create_semantic_invalid_config_rolls_back_tournament(
+    client,
+    conn,
+    format_code: str,
+    rule_config: dict,
+    error_message: str,
+):
+    response = client.post(
+        "/api/tournaments",
+        json={
+            **TOURNAMENT_PAYLOAD,
+            "format_code": format_code,
+            "rule_config": rule_config,
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert error_message in response.text
+    assert conn.execute("SELECT COUNT(*) FROM tournaments").fetchone()[0] == 0
+
+
+
 def test_update_format_config_api_rejects_client_rule_version(client, conn):
     tournament = _create_tournament(client)
 
@@ -207,7 +258,7 @@ def test_update_format_config_api_rejects_client_rule_version(client, conn):
         f"/api/tournaments/{tournament['id']}/format",
         json={
             "format_code": "GROUP_KNOCKOUT",
-            "rule_config": GROUP_CONFIG,
+            "rule_config": {},
             "rule_version": 99,
         },
     )
@@ -215,10 +266,10 @@ def test_update_format_config_api_rejects_client_rule_version(client, conn):
     assert response.status_code == 200, response.text
     assert response.json()["format_code"] == "GROUP_KNOCKOUT"
     assert response.json()["rule_version"] == 1
-    assert response.json()["rule_config"] == GROUP_CONFIG
+    assert response.json()["rule_config"] == {}
     assert _raw_format(conn, tournament["id"]) == (
         "GROUP_KNOCKOUT",
-        '{"bracket_size":8,"note":"武汉大学"}',
+        "{}",
         1,
     )
 
@@ -245,23 +296,65 @@ def test_update_non_object_and_non_finite_config_is_atomic(client, conn):
     assert _raw_format(conn, tournament["id"]) == before
 
 
-@pytest.mark.parametrize("format_code", ["ROUND_ROBIN", "SINGLE_ELIMINATION"])
-def test_update_valid_but_unregistered_format_is_rejected(
+@pytest.mark.parametrize(
+    ("format_code", "rule_config"),
+    [
+        ("ROUND_ROBIN", {}),
+        ("SINGLE_ELIMINATION", {}),
+        ("SINGLE_ELIMINATION", SINGLE_ELIMINATION_CONFIG),
+        ("GROUP_KNOCKOUT", {}),
+    ],
+)
+def test_update_supported_format_persists(
     client,
     conn,
     format_code: str,
+    rule_config: dict,
 ):
     tournament = _create_tournament(client)
     before = _raw_format(conn, tournament["id"])
+    assert before == (None, None, None)
 
     response = client.put(
         f"/api/tournaments/{tournament['id']}/format",
-        json={"format_code": format_code, "rule_config": {}},
+        json={"format_code": format_code, "rule_config": rule_config},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["format_code"] == format_code
+    assert response.json()["rule_config"] == rule_config
+    assert response.json()["rule_version"] == 1
+    assert _raw_format(conn, tournament["id"]) == (
+        format_code,
+        _encoded_config(rule_config),
+        1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("format_code", "rule_config", "error_message"),
+    SEMANTIC_INVALID_CONFIGS,
+)
+def test_update_semantic_invalid_config_rolls_back_all_three_fields(
+    client,
+    conn,
+    format_code: str,
+    rule_config: dict,
+    error_message: str,
+):
+    tournament = _create_tournament(client)
+    before = _raw_format(conn, tournament["id"])
+    assert before == (None, None, None)
+
+    response = client.put(
+        f"/api/tournaments/{tournament['id']}/format",
+        json={"format_code": format_code, "rule_config": rule_config},
     )
 
     assert response.status_code == 422, response.text
-    assert "不支持的个人赛赛制" in response.text
+    assert error_message in response.text
     assert _raw_format(conn, tournament["id"]) == before
+
 
 
 def test_update_unknown_format_is_rejected(client, conn):
@@ -415,7 +508,7 @@ def test_group_knockout_end_to_end_from_persisted_configuration(client):
         group_count=2,
         qualify_per_group=1,
         format_code="GROUP_KNOCKOUT",
-        rule_config={"bracket_size": 4},
+        rule_config={},
     )
     for index in range(4):
         response = client.post(

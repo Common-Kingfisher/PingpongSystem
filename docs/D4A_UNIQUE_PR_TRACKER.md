@@ -59,18 +59,25 @@ A 轨只负责数据模型、迁移、API、事务、权限和验证接线，不
 
 ## 四、B4 联调边界
 
-当前基线只注册了 `GROUP_KNOCKOUT` Handler。实现阶段将：
+首轮实现时只注册了 `GROUP_KNOCKOUT` Handler；本轮已接入 B #48
+`2494185277c19fe34b314d48b549f1c39e1d8c9b` 联调，当前三个个人赛 Handler 均可解析：
 
-- 对真实存在的 `GROUP_KNOCKOUT` 完成持久化与解析接线。
-- 对其余尚未进入基线的 Handler 保持显式拒绝，不伪造 B4 算法。
+- `ROUND_ROBIN`、`SINGLE_ELIMINATION`、`GROUP_KNOCKOUT` 均可通过 A API 保存。
+- `ROUND_ROBIN -> {}`、`GROUP_KNOCKOUT -> {}`。
+- `SINGLE_ELIMINATION -> {}` 或 `{"draw_seed": <JSON integer>}`。
 - 不绕过 B 的 validator 自建第二套规则校验。
 - 对任何无法经受 B 侧校验的非空 `rule_config`，不得静默入库。
 
-以下联调项在 B4 到位前保持阻塞：
+以下联调项已经在本轮验证：
 
-- `ROUND_ROBIN` Handler 端到端接线。
-- `SINGLE_ELIMINATION` Handler 端到端接线。
-- 任意候选 `rule_config` 的 B 侧 schema 校验。
+- `ROUND_ROBIN` / `SINGLE_ELIMINATION` Handler 的 A API 持久化接线。
+- 三格式成功保存与 B 侧 semantic validator 拒绝。
+- 语义失败时 `format_code + rule_config + rule_version` 三元组完整回滚。
+
+以下联调项仍由 B 侧处理，A 不代改：
+
+- `ROUND_ROBIN` 全部比赛完成后，赛事 `stage` 仍停留在 `GROUP_STAGE`，
+  而 Handler 完成态已返回 `COMPLETED`；最终状态应同步为 `FINISHED`。
 
 ## 五、实施清单
 
@@ -89,13 +96,15 @@ A 轨只负责数据模型、迁移、API、事务、权限和验证接线，不
 - [x] 旧数据库迁移不丢数据，旧赛事可兼容读取。
 - [x] 三种 format code 与 B 轨冻结定义一致。
 - [x] 未知 format 显式失败，不回退到默认赛制。
-- [ ] 非法配置在入库前被 B validator 拒绝。（B 侧 schema validator 未到位，见 §4）
+- [x] 非法配置在入库前被 B validator 拒绝，且三元组完整回滚。
+- [x] RR / SE / GK 成功保存并可从持久化配置解析 Handler。
 - [x] 更新操作原子，发生 Match 或 TeamTie 后受保护。
 - [x] 权限边界正确。
 - [x] TournamentOut 与导出包含赛制配置。
 - [x] OpenAPI 已同步。
 - [x] 定向测试 0 failed。
 - [x] 全量 pytest 0 failed。
+- [x] 第一轮 A/B integration 组合测试 0 failed。
 - [x] `git diff --check` 通过。
 - [ ] 非作者完成赛制与 Schema 复核。
 - [ ] 无越权、数据丢失、错误赛制解析等 P0。
@@ -108,7 +117,7 @@ A 轨只负责数据模型、迁移、API、事务、权限和验证接线，不
 - 分支：`feat/D4A赛制配置落库`
 
 后续修改继续提交到本分支和本 PR。若需要同步 `master`，一律使用 merge，不使用 rebase。
-## 八、当前验证记录（2026-09-22）
+## 八、提交前验证记录（2026-09-22，首轮实现历史）
 
 - `py_compile`：8 个 D4A 源码与测试文件通过。
 - OpenAPI：`backend/export_openapi.py` 生成成功，`--check` 返回 `OpenAPI snapshot is up to date`。
@@ -118,3 +127,43 @@ A 轨只负责数据模型、迁移、API、事务、权限和验证接线，不
 - 测试警告：仅有既有 FastAPI/Starlette 依赖弃用 warning，无功能失败。
 
 当前尚未提交：11 个已修改文件和 1 个未跟踪测试文件，全部保留在工作区供人工审核。
+
+## 九、第一轮 A/B 联调记录（2026-09-22）
+
+### 9.1 联调基线
+
+- A Head：`9af92e09b30a567c98f015372dd47ead0ad21a95`
+- B Head：`2494185277c19fe34b314d48b549f1c39e1d8c9b`
+- integration merge：`84edbee793bd413661717c44fe23f45b77bdf9af`
+- integration worktree：`辅助生成文件/A轨/D4AB-integration`
+
+### 9.2 A 本轮修改
+
+- 移除旧的 `GROUP_CONFIG={"bracket_size":8,"note":"武汉大学"}` 成功路径预期。
+- GK 创建、更新和端到端测试改用 B 冻结的 `{}`。
+- RR / SE 由“未注册返回 422”改为“成功持久化”。
+- 增加 SE 空配置和 `{"draw_seed":7}` 成功路径。
+- 增加 RR / GK 未知 key、SE 非整数或未知 key 的 422 与完整回滚测试。
+- 未知格式 `SINGLE_ELIM` 仍显式拒绝。
+
+### 9.3 验证结果
+
+- A/B 定向：100 项收集，`80 passed / 20 skipped / 0 failed`。
+- integration backend full：953 项收集，`933 passed / 20 skipped / 0 failed`。
+- OpenAPI：`backend/export_openapi.py` 生成成功，`--check` 返回
+  `OpenAPI snapshot is up to date`。
+- `git diff --check`：通过。
+- warning：仅为既有 FastAPI / Starlette / httpx 弃用 warning。
+
+### 9.4 B 侧待处理
+
+- 临时数据库复现 RR 3 人循环赛全部录分后：
+  - 赛事 `stage`：`GROUP_STAGE`。
+  - Handler 完成态：`{"state":"COMPLETED","can_advance":false,"completed":true}`。
+  - 与联调 Gate 要求的 `FINISHED` 不一致，归属 B 侧 `scores/rules` 生命周期同步。
+
+### 9.5 当前工作区边界
+
+- 正式 A worktree 只修改 A 测试与本文档，未改 B 实现、B 测试或算法。
+- integration worktree 只临时复制 A 测试文件用于验证，不推送、不创建 PR、不合并。
+- 本轮修改尚未执行 `git add / commit / push / GitHub comment`，等待人工审核授权。
