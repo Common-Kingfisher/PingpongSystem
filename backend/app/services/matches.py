@@ -88,6 +88,38 @@ def generate_group_matches(
     return total, per_group
 
 
+def generate_round_robin_matches(conn: sqlite3.Connection, tournament_id: int) -> int:
+    """为未分组的个人循环赛生成全部对阵，并复用既有 round_robin 算法。"""
+    tournament = repo.get_tournament(conn, tournament_id)
+    if tournament is None:
+        raise TournamentNotFoundError("赛事不存在")
+    if tournament["event_type"] == EventType.TEAM.value:
+        raise TournamentStageError("团体赛不生成个人循环赛")
+    if repo.count_matches(conn, tournament_id, stage=MatchStage.GROUP.value):
+        raise MatchesExistError("循环赛已生成，不能重复生成")
+    if tournament["stage"] != TournamentStage.REGISTRATION.value:
+        raise TournamentStageError("当前阶段不允许生成循环赛")
+    entries = [
+        entry for entry in repo.list_entries(conn, tournament_id)
+        if entry["status"] == "ACTIVE"
+    ]
+    if len(entries) < 2:
+        raise TournamentStageError("循环赛至少需要 2 名有效参赛位")
+    by_id = {entry["id"]: entry for entry in entries}
+    schedule = round_robin.round_robin(list(by_id))
+    for round_num, entry_a_id, entry_b_id in schedule:
+        entry_a, entry_b = by_id[entry_a_id], by_id[entry_b_id]
+        repo.create_match(
+            conn, tournament_id, MatchStage.GROUP.value, None, round_num, None,
+            entry_a["members"][0]["player_id"] if entry_a["entry_type"] == "SINGLES" else None,
+            entry_b["members"][0]["player_id"] if entry_b["entry_type"] == "SINGLES" else None,
+            entry_a_id=entry_a_id, entry_b_id=entry_b_id, bracket="GROUP",
+        )
+    repo.update_tournament_stage(conn, tournament_id, TournamentStage.GROUP_STAGE.value)
+    conn.commit()
+    return len(schedule)
+
+
 def demo_score_options(games_to_win: int) -> list[tuple[int, int]]:
     """按赛事局制生成合法的模拟大比分：N:0 … N:(N-1) 以及反向。
 

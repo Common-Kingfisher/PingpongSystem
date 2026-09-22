@@ -4,6 +4,7 @@ import sqlite3
 
 from .. import repository as repo
 from ..domain import knockout
+from ..domain import draw
 from ..models import (
     BronzeMode,
     EventType,
@@ -153,34 +154,44 @@ def prepare_knockout_generation(conn: sqlite3.Connection, tournament_id: int) ->
     }
 
 
-def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
-    prepared = prepare_knockout_generation(conn, tournament_id)
-    tournament = prepared["tournament"]
-    rounds_spec = prepared["rounds_spec"]
+def prepare_single_elimination_generation(
+    conn: sqlite3.Connection, tournament_id: int, draw_seed: int | None = None
+) -> dict:
+    """只读准备纯单淘汰签表；不借用小组排名或伪造分组。"""
+    tournament = _ensure_tournament(conn, tournament_id)
+    if tournament["event_type"] == EventType.TEAM.value:
+        raise KnockoutError("团体赛不生成单打式淘汰赛")
+    if repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value):
+        raise KnockoutError("淘汰赛已生成，不能重复生成")
+    if tournament["stage"] != TournamentStage.REGISTRATION.value:
+        raise KnockoutError("当前阶段不允许生成淘汰赛")
+    entries = [entry for entry in repo.list_entries(conn, tournament_id) if entry["status"] == "ACTIVE"]
+    if len(entries) < 2:
+        raise KnockoutError("单淘汰至少需要 2 名有效参赛位")
+    try:
+        rounds_spec = draw.build_single_elimination(entries, draw_seed)
+    except ValueError as exc:
+        raise KnockoutError(str(exc)) from exc
+    return {"tournament": tournament, "rounds_spec": rounds_spec}
 
+
+def _persist_main_bracket(
+    conn: sqlite3.Connection, tournament_id: int, rounds_spec: list[list[dict]]
+) -> None:
+    """把已验证的签表写入 Match，并沿用唯一的 BYE/胜者传播逻辑。"""
     id_by_position: dict[tuple[int, int], int] = {}
     for round_spec in rounds_spec:
         for spec in round_spec:
             r, idx = spec["round"], spec["match_index"]
             a, b = spec["player_a_id"], spec["player_b_id"]
             match = repo.create_match(
-                conn,
-                tournament_id,
-                MatchStage.KNOCKOUT.value,
-                None,
-                r,
-                idx,
-                _entry_player_id(conn, a),
-                _entry_player_id(conn, b),
+                conn, tournament_id, MatchStage.KNOCKOUT.value, None, r, idx,
+                _entry_player_id(conn, a), _entry_player_id(conn, b),
                 prev_match_a_id=id_by_position.get((r - 1, idx * 2)),
                 prev_match_b_id=id_by_position.get((r - 1, idx * 2 + 1)),
-                entry_a_id=a,
-                entry_b_id=b,
-                bracket=MatchBracket.MAIN.value,
+                entry_a_id=a, entry_b_id=b, bracket=MatchBracket.MAIN.value,
             )
             id_by_position[(r, idx)] = match["id"]
-
-    # 轮空立即晋级，但不计真实胜场。
     for match in repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value):
         if match["bracket"] != MatchBracket.MAIN.value or match["round"] != 1:
             continue
@@ -188,17 +199,30 @@ def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
         if (a is None) != (b is None):
             winner = a or b
             repo.update_match(
-                conn,
-                match["id"],
-                status=MatchStatus.FINISHED.value,
-                player_a_score=0,
-                player_b_score=0,
-                winner_id=_entry_player_id(conn, winner),
-                winner_entry_id=winner,
-                result_type=ResultType.WALKOVER.value,
+                conn, match["id"], status=MatchStatus.FINISHED.value,
+                player_a_score=0, player_b_score=0, winner_id=_entry_player_id(conn, winner),
+                winner_entry_id=winner, result_type=ResultType.WALKOVER.value,
             )
             advance_winner(conn, repo.get_match(conn, match["id"]))
 
+
+def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
+    prepared = prepare_knockout_generation(conn, tournament_id)
+    tournament = prepared["tournament"]
+    rounds_spec = prepared["rounds_spec"]
+
+    _persist_main_bracket(conn, tournament_id, rounds_spec)
+
+    repo.update_tournament_stage(conn, tournament_id, TournamentStage.KNOCKOUT.value)
+    conn.commit()
+    return get_knockout(conn, tournament_id)
+
+
+def generate_single_elimination(
+    conn: sqlite3.Connection, tournament_id: int, draw_seed: int | None = None
+) -> dict:
+    prepared = prepare_single_elimination_generation(conn, tournament_id, draw_seed)
+    _persist_main_bracket(conn, tournament_id, prepared["rounds_spec"])
     repo.update_tournament_stage(conn, tournament_id, TournamentStage.KNOCKOUT.value)
     conn.commit()
     return get_knockout(conn, tournament_id)
