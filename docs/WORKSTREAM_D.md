@@ -1109,3 +1109,144 @@ Public 端**不做任何赛制判定**，一律“有数据就展示、没数据
 
 上表的「目标」列**本轮未实现**，已按第 30 节写成可直接落地的接入点。
 
+---
+
+# D 轨 Day4D · PR #50 Review Rework
+
+> Review 结论：`REQUEST CHANGES`，唯一合并阻断 = **P1 相对数据库路径的解析基准不一致**
+> 修复前 Head：`02891ef895977ee47bb2059f41ac90306ae40e05`
+> 目标：只关闭该 P1 + 处理一项非阻断测试边界问题，**不扩大 Day4D 范围**。
+
+## 32. P1 根因：探测器解析 DB 的基准 ≠ 真实后端解析 DB 的基准
+
+`start_pingpong.ps1::Get-PublicTournamentId` 用只读 SQLite 取一个真实赛事 id，用于打印
+`http://<LAN-IP>:<port>/public/t/<真实赛事ID>/live`。修复前它把路径**原样交给 Python probe**，
+而 probe 又自己读了一遍环境变量：
+
+```python
+db = os.environ.get("PINGPONG_DB_PATH") or os.environ.get("DEMO_DB_PATH") or sys.argv[1]
+```
+
+于是相对路径按 **probe 进程的 CWD**（= 调用脚本时的目录）解析；但真实后端是
+`Set-Location $backend; python -m uvicorn app.main:app ...`，而
+`backend/app/db.py::_db_path()` 对覆盖值直接 `Path(override)`，
+所以 `PINGPONG_DB_PATH=data\demo.db` 的真实含义是 **`<repo>\backend\data\demo.db`**。
+
+两类后果（reviewer 指出的 B 类是阻断原因）：
+
+| 类别 | 现象 | 严重度 |
+| --- | --- | --- |
+| A | 解析出的文件不存在 → probe 静默失败 → 只打印 base URL | 启动信息退化 |
+| B | 解析出的路径恰好存在另一份 SQLite → 打印**指向错误赛事**的链接（例如打印 `/public/t/77/live`，而真实 FastAPI 服务的是赛事 41） | **P1 阻断** |
+
+## 33. 修复内容
+
+`start_pingpong.ps1`（唯一生产代码改动，其余都是测试与文档）：
+
+1. **PowerShell 侧解析出唯一绝对路径**（与 `db.py::_db_path()` 同序）：
+   `PINGPONG_DB_PATH` → `DEMO_DB_PATH` → `$backend\data\demo.db`；
+2. 相对 override 用 **`Join-Path $backend`** 拼接（不是 `$root`、不是调用方 CWD），
+   再 `[System.IO.Path]::GetFullPath()` 规范化；
+3. 只把**绝对路径**作为 argv 传给 probe；
+4. **probe 不再读任何环境变量**，只用 `db = sys.argv[1]`
+   （否则进程里的原始相对 env 会覆盖已规范化的 argv，修复失效）；
+5. probe 仍是 `mode=ro`：不建库、不迁移、不写库、不需要管理员权限；
+6. 临时 probe 文件仍在 `finally` 中删除，探测失败一律静默降级为 base URL。
+
+**路径解析规则（最终语义）**
+
+| 场景 | effective DB |
+| --- | --- |
+| 未设置覆盖变量 | `<repo>\backend\data\demo.db` |
+| `PINGPONG_DB_PATH=data\x.db`（相对） | `<repo>\backend\data\x.db` |
+| `DEMO_DB_PATH=data\x.db`（相对，legacy） | `<repo>\backend\data\x.db` |
+| `PINGPONG_DB_PATH=C:\y\z.db`（绝对） | `C:\y\z.db`（不再二次拼接） |
+
+未改后端 `db.py`：后端当前行为是事实基准，启动脚本向其对齐，而不是反过来。
+
+## 34. 验收证据
+
+### 34.1 「修复前 vs 修复后」对照（含诱饵库，证明 B 类风险真实存在）
+
+在 `<repo>\data\review_relative.db` 放入一个**诱饵库**（唯一赛事 id = **77**），
+`backend\data\review_relative.db` 放真实库（唯一赛事 id = **41**），
+`PINGPONG_DB_PATH=data\review_relative.db`，从**仓库根目录**执行：
+
+| 语义 | probe 实际读取 | 解析出的 tid | 结论 |
+| --- | --- | --- | --- |
+| 修复前（env 优先，按 CWD 解析） | `data\review_relative.db` → `<repo>\data\review_relative.db` | **77** | 与 FastAPI 实际服务的 41 **不一致** → 会打印错误赛事链接 |
+| 修复后（绝对 argv） | `<repo>\backend\data\review_relative.db` | **41** | 与 FastAPI 一致 |
+
+并且**在诱饵库仍然存在**的情况下，真实运行修复后的脚本（从仓库根目录）打印
+`/public/t/41/live`，同时 `GET /api/tournaments/41` 返回 `review-relative-41`：
+证明「脚本打印的 id」与「FastAPI 实际使用的库」是同一个。
+
+### 34.2 跨目录 × 4 个 DB 路径场景 smoke（真实运行脚本）
+
+每个场景都真实执行 `start_pingpong.ps1 -SkipBuild -NoBrowser`，并额外用
+`GET /api/tournaments/<打印出的 id>` 回查运行中的后端，确认该赛事**确实存在于被服务的库里**：
+
+| 场景 | 工作目录 | 环境变量 | 打印 tid | 期望 | 后端回查 name | 结果 |
+| --- | --- | --- | --- | --- | --- | --- |
+| A 默认库 | 仓库根 | 无 | 1 | 1 | `1` | PASS |
+| A 默认库 | `frontend\` | 无 | 1 | 1 | `1` | PASS |
+| B 相对 `PINGPONG_DB_PATH` | 仓库根 | `data\review_relative.db` | 41 | 41 | `review-relative-41` | PASS |
+| B 相对 `PINGPONG_DB_PATH` | `frontend\` | `data\review_relative.db` | 41 | 41 | `review-relative-41` | PASS |
+| C 相对 `DEMO_DB_PATH` | 仓库根 | `data\review_demo_relative.db` | 42 | 42 | `review-demo-relative-42` | PASS |
+| C 相对 `DEMO_DB_PATH` | `frontend\` | `data\review_demo_relative.db` | 42 | 42 | `review-demo-relative-42` | PASS |
+| D 绝对 `PINGPONG_DB_PATH` | 仓库根 | `%TEMP%\review_abs_d4d.db` | 43 | 43 | `review-abs-43` | PASS |
+| D 绝对 `PINGPONG_DB_PATH` | `frontend\` | `%TEMP%\review_abs_d4d.db` | 43 | 43 | `review-abs-43` | PASS |
+
+**TOTAL=8 PASS=8**，调用目录不影响结果；smoke 夹具（`backend/data/review_*.db`、
+`%TEMP%\review_abs_d4d.db`、临时 `<repo>\data\`）已全部删除，未进入版本库。
+
+## 35. 测试补充与收窄
+
+### 35.1 新增 `backend/tests/test_start_pingpong_script.py`（8 条静态契约回归）
+
+无 Pester、不引入新依赖，用读文件 + 结构断言锁住那些“写错了也不报错、但会静默出错”的语义：
+
+* 相对 override 必须以 `Join-Path $backend` 为基准，且 `IsPathRooted` 先于 `GetFullPath`；
+* 优先级 `PINGPONG_DB_PATH > DEMO_DB_PATH > backend\data\demo.db` 与后端一致；
+* probe 必须 `db = sys.argv[1]`，且**不含** `os.environ` / 两个环境变量名；
+* probe 只读（`mode=ro`）且不含 INSERT/UPDATE/DELETE/CREATE/DROP/ALTER/ATTACH/PRAGMA；
+* 临时 probe 文件在 `finally` 中清理；
+* 脚本保留 UTF-8 BOM（§17.4 的坑）；
+* 脚本**永不**调用 `New/Set/Remove-NetFirewallRule`、`Set-NetFirewallProfile`、
+  `netsh advfirewall set`、`New/Set-NetIPAddress`、`route add` 等改系统命令；
+* Day4D 既有能力标记不缺失（虚拟网卡降权、多地址提示、防火墙只读、`-TournamentId`、
+  无赛事降级、深链接、`Sort-Object Rank` 只排序不删除、逐个展示全部候选地址）。
+
+### 35.2 收窄 `backend/tests/test_deployment_address_policy.py`（review 非阻断建议）
+
+| 项 | 修复前 | 现在 |
+| --- | --- | --- |
+| `https?://` | 全局禁止（会误伤帮助文档 / 隐私政策 / 官网 / 未来 OAuth 跳转等合法外部链接） | **不再全局禁止** |
+| `:8000` | 全局禁止（本身不等于部署耦合） | **不再全局禁止** |
+| 回环 / RFC1918（`127.x`、`localhost`、`192.168.x.x`、`10.x.x.x`、`172.16-31.x.x`） | 禁止 | **保持禁止**（runtime source 扫描） |
+| API 同源相对路径 | 精确断言 | **保持**，并新增 `api.ts` 不得出现任何绝对 URL 的兜底断言（只限 transport 层） |
+| dist hash 文件名 | 禁止 | **保持** |
+
+职责现在是清晰的「部署环境地址禁止」+「API transport 必须同源」两条精确规则，
+不会再误伤业务页面里合法的外部 HTTPS 链接。
+
+## 36. 本轮回归结果
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd backend && pytest` | **872 passed, 30 skipped**（rework 前 863 → 净增 9 条：部署策略测试 +1、启动脚本静态契约测试 +8） |
+| `cd frontend && pnpm install --frozen-lockfile` | 退出码 0 |
+| `pnpm exec tsc --noEmit` | 退出码 0 |
+| `pnpm test` | 3 files / 29 passed（本轮未改前端） |
+| `pnpm build` | 退出码 0 |
+| `pnpm contract:check` | 仍失败：**master baseline OpenAPI 漂移**，与 PR #50 无关（输入未变，未改 snapshot） |
+| PowerShell `Parser::ParseFile` | parse errors = **0** |
+| UTF-8 BOM | 首字节 `EF BB BF` |
+
+## 37. 本轮明确未改（避免范围扩张）
+
+`RankingsPage.tsx` / `KnockoutPage.tsx` / `BigScreenPage.tsx` / `PublicRoutes.tsx` /
+`PublicLayout.tsx` / `publicTournament.ts` / `backend/app/static_hosting.py` / `db.py`
+均未改动；未接入 `format_code`、未 merge / cherry-pick #47 与 #48、未重做 LAN 地址枚举、
+未引入新依赖、未做 Day5。
+

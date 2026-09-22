@@ -1,18 +1,27 @@
-"""D 轨 Day 4D：production frontend runtime 不得依赖任何固定网络地址。
+"""D 轨 Day4D：production frontend runtime 不得把部署环境写进业务代码。
 
-## 为什么需要这条测试
+## 这条测试到底保护什么（PR #50 review 后收窄）
 
 比赛现场拓扑是「普通无线路由器（AP + switch + router）→ 赛事服务器电脑 → 5–6 台手机」，
 示例网段 ``192.168.50.0/24``；未来同一套代码还要直接搬到云服务器与正式域名
-（``https://pingpong.example.com``）。要做到“换环境不改业务代码”，
-唯一可靠的做法是前端运行时**只用同源相对路径**（``/api/...``）：
+（``https://pingpong.example.com``）。要做到“换环境不改业务代码”，需要两条彼此独立的保证：
 
-* 局域网：``http://192.168.50.10:8000``    → ``fetch('/api/health')`` → 同源
-* 云服务器：``http://<云 IP>:8000``         → 同一份 bundle 仍成立
-* 正式域名：``https://pingpong.example.com`` → 同一份 bundle 仍成立
+1. **API transport 必须同源相对**：前端只用 ``/api/...``，绝不用
+   ``http://localhost:8000/api/...`` / ``http://192.168.x.x:8000/api/...`` / 固定公网域名。
+   由 :func:`test_frontend_api_client_uses_same_origin_relative_paths` 精确保证。
+2. **不得把本机 / LAN 环境硬编码进 runtime source**：``127.x``、``localhost``、
+   ``192.168.x.x``、``10.x.x.x``、``172.16-31.x.x`` 通常确实意味着有人把现场环境写进了 bundle。
+   由 :func:`test_frontend_runtime_has_no_hardcoded_deployment_host` 保证。
 
-因此 ``frontend/src`` 里一旦出现 ``127.0.0.1`` / ``localhost`` / 私网段 / 写死端口 /
-``http(s)://`` 绝对地址，就说明有人把部署环境写进了业务代码，本测试直接失败。
+## 为什么**不再**全局禁止 ``https?://`` 与 ``:8000``
+
+上一版把 ``https?://`` 与 ``:8000`` 一律列为禁止项，范围过宽：合法外部链接
+（帮助文档、隐私政策、外部官网，以及将来 OAuth 的跳转地址）都会被误伤，
+而它们与“部署耦合”无关。reviewer 指出这一点后，本条策略收窄为
+「**部署环境地址**（回环 / RFC1918）」+「**API 必须同源**」两条精确规则。
+
+``:8000`` 也不再全局禁止：它只在“固定部署主机 + 端口”的组合下才有害，
+而那个组合已由第 1 条（``/api/...`` 相对路径）直接排除。
 
 ## 扫描范围
 
@@ -39,15 +48,16 @@ FRONTEND_SRC = REPO_ROOT / "frontend" / "src"
 #: 会被打进 production bundle 的源码扩展名
 _SCANNED_SUFFIXES = (".ts", ".tsx", ".css")
 
-#: 不允许出现在前端运行时源码里的固定地址 / 端口
+#: 禁止出现在前端运行时源码里的**部署环境地址**（回环 + RFC1918 私网段）。
+#:
+#: 刻意不含 ``https?://`` 与 ``:8000``：它们本身不等于部署耦合，
+#: 全局禁止会误伤合法的外部链接（见模块 docstring）。
 _FORBIDDEN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("回环地址 127.x", re.compile(r"\b127\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")),
     ("localhost", re.compile(r"\blocalhost\b", re.IGNORECASE)),
     ("192.168 私网段", re.compile(r"\b192\.168\.\d{1,3}\.\d{1,3}\b")),
     ("10.x 私网段", re.compile(r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")),
     ("172.16-31 私网段", re.compile(r"\b172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b")),
-    ("写死端口 :8000", re.compile(r":8000\b")),
-    ("绝对 http(s) 地址", re.compile(r"https?://", re.IGNORECASE)),
 )
 
 
@@ -65,8 +75,8 @@ def _runtime_source_files() -> list[Path]:
     return files
 
 
-def test_frontend_runtime_has_no_hardcoded_network_address() -> None:
-    """前端运行时源码里不得出现任何固定地址 / 写死端口。"""
+def test_frontend_runtime_has_no_hardcoded_deployment_host() -> None:
+    """前端运行时源码里不得出现回环 / RFC1918 部署地址。"""
     files = _runtime_source_files()
     # 防御性断言：真扫到文件才算这条测试有效（目录被改名 / 移走时应立刻失败）
     assert files, f"未在 {FRONTEND_SRC} 找到任何前端运行时源码，扫描范围可能已失效"
@@ -82,7 +92,7 @@ def test_frontend_runtime_has_no_hardcoded_network_address() -> None:
                 )
 
     assert not violations, (
-        "production frontend runtime 不得依赖固定网络地址（否则无法从 LAN 平滑切到云服务器 / 公网域名）：\n"
+        "production frontend runtime 不得依赖固定部署地址（否则无法从 LAN 平滑切到云服务器 / 公网域名）：\n"
         + "\n".join(violations)
     )
 
@@ -90,8 +100,13 @@ def test_frontend_runtime_has_no_hardcoded_network_address() -> None:
 def test_frontend_api_client_uses_same_origin_relative_paths() -> None:
     """``api.ts`` 的每个请求路径都必须是同源相对路径（``/api/...``）。
 
-    这条断言比上面的文本扫描更精确：它直接检查 API 客户端**实际传入 fetch 的路径字面量**，
-    避免“把 base URL 拼在别处”这种绕过方式（例如 ``const BASE = 'http://x'`` 后再拼接）。
+    这是「部署可迁移」的**核心保护**：只要 API transport 是同源相对路径，
+    LAN、云服务器 IP、正式域名三种部署就天然共用同一份 production build。
+
+    它同时覆盖了“把 base URL 拼在别处”的绕过方式：
+    路径字面量直接从 ``request(...)`` / ``submitScore(...)`` 的实参里取，
+    因此 ``http://localhost:8000/api/...``、``http://192.168.x.x:8000/api/...``、
+    ``https://example.com/api/...`` 都会在这里被抓住。
     """
     api_file = FRONTEND_SRC / "api.ts"
     assert api_file.is_file(), f"未找到 API 客户端：{api_file}"
@@ -103,6 +118,29 @@ def test_frontend_api_client_uses_same_origin_relative_paths() -> None:
 
     bad = [p for p in path_literals if not p.startswith("/api/")]
     assert not bad, f"以下 API 路径不是同源相对路径 /api/...：{bad}"
+
+
+def test_frontend_api_transport_is_never_absolute() -> None:
+    """``api.ts``（transport 层）不得出现任何绝对 URL。
+
+    比上一条更粗，但覆盖“路径字面量之外”的写法：
+    例如 ``const BASE = 'https://example.com'`` 后再拼接。
+
+    注意作用域只限 ``api.ts``：业务页面里合法外部链接（帮助 / 隐私政策 / 官网，
+    以及将来 OAuth 跳转地址）**允许**存在，不再被全局禁止。
+    """
+    api_file = FRONTEND_SRC / "api.ts"
+    text = api_file.read_text(encoding="utf-8")
+
+    violations: list[str] = []
+    for match in re.finditer(r"https?://", text, re.IGNORECASE):
+        line_no = text.count("\n", 0, match.start()) + 1
+        violations.append(f"api.ts:{line_no}")
+
+    assert not violations, (
+        "API transport 不得绑定任何绝对 URL（部署必须只依赖同源相对路径）："
+        f"{violations}"
+    )
 
 
 def test_frontend_dist_is_not_required_by_source_tree() -> None:
