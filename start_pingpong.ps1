@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    PingpongSystem production / 局域网单服务启动脚本（D 轨 Day 2 PoC）。
+    PingpongSystem production / 局域网单服务启动脚本（D 轨 Day 2，Day 4D 加固）。
 
 .DESCRIPTION
     与 start_demo.ps1 的区别：
@@ -9,16 +9,29 @@
     * start_pingpong.ps1  = production 单服务模式（只启动 FastAPI 8000，同时托管前端构建产物）
 
     流程：定位根目录 -> 检查 Python/venv/依赖 -> 确认或构建 frontend/dist
-          -> 检查 8000 端口 -> uvicorn --host 0.0.0.0 --port 8000
-          -> 等待 /api/health -> 枚举并打印本机与局域网 IPv4 地址。
+          -> 检查端口 -> uvicorn --host 0.0.0.0 --port 8000
+          -> 等待 /api/health -> 探测 SPA 根路径与 Public 深链接
+          -> 枚举并打印本机与局域网 IPv4（多网卡时给出选择提示）
+          -> 若已存在赛事，打印基于**真实赛事 id** 的 Public 示例地址。
+
+    Day 4D 加固点（现场 LAN 收口）：
+
+    * 多网卡：区分真实 Wi-Fi / Ethernet 与 WSL / VPN / Hyper-V / VMware / Docker 等虚拟网卡，
+      物理网卡优先展示，虚拟网卡**只降权、绝不删除**（脚本无法证明某张网卡一定无效）；
+    * 多地址：明确提示“检测到多个局域网地址。请选择与比赛手机所在路由器同网段的地址。”；
+    * Public 示例地址使用**真实读到的赛事 id**；读不到就只展示 base URL，
+      绝不假定“赛事 id 永远是 12”；
+    * 深链接探测：/public/t/<tid>/live 必须由同一个服务返回 SPA（刷新不 404）。
 
     本脚本明确**不会**：
 
     * 申请管理员权限
-    * 修改 Windows 防火墙规则
+    * 修改 / 新增 / 删除 Windows 防火墙规则
+    * 关闭 Windows 防火墙
     * 结束或重启其他进程
+    * 修改本机网卡 IP / 网关 / DNS，也不修改路由器
     * 把服务暴露到公网
-    * 修改任何系统网络配置
+    * 把任何固定 IP / 主机名 / 域名写入代码或配置
 
     若手机无法访问，脚本只输出人工排查提示。
 
@@ -28,13 +41,17 @@
 .EXAMPLE
     .\start_pingpong.ps1 -SkipBuild      # 要求 dist 必须已存在，跳过自动构建
     .\start_pingpong.ps1 -NoBrowser      # 不自动打开浏览器
+    .\start_pingpong.ps1 -TournamentId 12  # 直接指定打印 Public 示例所用的赛事 id
 #>
 
 [CmdletBinding()]
 param(
     [int]$Port = 8000,
     [switch]$SkipBuild,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    # 可选：显式指定用于打印 Public 示例地址的赛事 id。
+    # 不传时脚本只读地查一次本机 SQLite，取当前最小的真实赛事 id；两者都拿不到就只展示 base URL。
+    [int]$TournamentId = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -174,9 +191,61 @@ if (Test-PortInUse $Port) {
 }
 Write-Ok "端口 $Port 可用"
 
-# ---------------------------------------------------------------- 7. 获取局域网 IPv4
+# ------------------------------------------------------- 7. 网卡识别与局域网 IPv4
 
+<#
+    判断一个网卡名 / 描述是否属于“虚拟 / 隧道 / 非常规”类别。
+
+    ⚠️ 这里只做**降权标记**，不做删除：
+    WSL / VPN / 虚拟网卡也可能真的连着比赛网络，脚本没有能力证明某张网卡一定无效，
+    静默丢弃候选地址比多显示一行更危险。
+#>
+function Test-VirtualAdapterName([string]$text) {
+    if ([string]::IsNullOrWhiteSpace($text)) { return $false }
+    $lower = $text.ToLowerInvariant()
+    $keywords = @(
+        'wsl', 'vethernet', 'hyper-v', 'vmware', 'virtualbox', 'vbox',
+        'docker', 'vpn', 'tap-', 'tun', 'tailscale', 'zerotier', 'radmin',
+        'openvpn', 'wireguard', 'hamachi', 'npcap', 'loopback',
+        'bluetooth', 'virtual', 'pseudo', 'teredo', 'isatap'
+    )
+    foreach ($kw in $keywords) {
+        if ($lower.Contains($kw)) { return $true }
+    }
+    return $false
+}
+
+<# 读取网卡元数据（名称 / 描述 / 连接状态 / 是否虚拟）。Get-NetAdapter 不可用时返回空表。 #>
+function Get-NetAdapterMap {
+    $map = @{}
+    try {
+        foreach ($a in @(Get-NetAdapter -ErrorAction Stop)) {
+            $map[[string]$a.ifIndex] = [pscustomobject]@{
+                Name        = [string]$a.Name
+                Description = [string]$a.InterfaceDescription
+                Status      = [string]$a.Status
+                Virtual     = [bool]$a.Virtual
+            }
+        }
+    } catch {
+        # 老系统 / 精简环境：后续退化为“按网卡名关键字降权”
+    }
+    return $map
+}
+
+<#
+    枚举候选局域网 IPv4。
+
+    只保留 RFC1918 私网地址（192.168.x.x / 10.x.x.x / 172.16-31.x.x），
+    排除回环与 APIPA(169.254.x.x)。
+
+    排序权重（只影响展示顺序，不影响是否展示）：
+      1 = 物理网卡且状态 Up（最可能是现场路由器同网段）
+      2 = 状态未知（拿不到 Get-NetAdapter 元数据）
+      3 = 虚拟 / 隧道网卡，或明确未连接
+#>
 function Get-LanIPv4 {
+    $adapterMap = Get-NetAdapterMap
     $seen = @{}
     $result = New-Object System.Collections.ArrayList
 
@@ -189,9 +258,18 @@ function Get-LanIPv4 {
         try {
             $addrs = @([System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
                 Where-Object { $_.OperationalStatus -eq 'Up' } |
-                ForEach-Object { $_.GetIPProperties().UnicastAddresses } |
-                Where-Object { $_.Address.AddressFamily -eq 'InterNetwork' } |
-                ForEach-Object { [pscustomobject]@{ IPAddress = $_.Address.IPAddressToString; InterfaceAlias = '' } })
+                ForEach-Object {
+                    $ifName = $_.Name
+                    $_.GetIPProperties().UnicastAddresses |
+                        Where-Object { $_.Address.AddressFamily -eq 'InterNetwork' } |
+                        ForEach-Object {
+                            [pscustomobject]@{
+                                IPAddress      = $_.Address.IPAddressToString
+                                InterfaceAlias = $ifName
+                                InterfaceIndex = -1
+                            }
+                        }
+                })
         } catch {
             $addrs = @()
         }
@@ -219,17 +297,132 @@ function Get-LanIPv4 {
 
         if ($seen.ContainsKey($ip)) { continue }
         $seen[$ip] = $true
-        [void]$result.Add([pscustomobject]@{ IP = $ip; Alias = [string]$a.InterfaceAlias })
+
+        $alias = ''
+        $desc = ''
+        $status = ''
+        $isVirtual = $false
+        $index = -1
+        if ($a.PSObject.Properties.Name -contains 'InterfaceAlias') { $alias = [string]$a.InterfaceAlias }
+        if ($a.PSObject.Properties.Name -contains 'InterfaceIndex') { $index = [int]$a.InterfaceIndex }
+
+        if ($index -ge 0 -and $adapterMap.ContainsKey([string]$index)) {
+            $info = $adapterMap[[string]$index]
+            if ($info.Description) { $desc = $info.Description }
+            if ($info.Status) { $status = $info.Status }
+            $isVirtual = $info.Virtual
+            if ([string]::IsNullOrWhiteSpace($alias)) { $alias = $info.Name }
+        }
+
+        # Get-NetAdapter 不可用 / 未标记 Virtual 时，退化为关键字判断
+        if (-not $isVirtual) {
+            if ((Test-VirtualAdapterName $alias) -or (Test-VirtualAdapterName $desc)) {
+                $isVirtual = $true
+            }
+        }
+
+        $rank = 2
+        if ($isVirtual) {
+            $rank = 3
+        } elseif ($status -eq 'Up') {
+            $rank = 1
+        } elseif (-not [string]::IsNullOrWhiteSpace($status)) {
+            # 明确不是 Up（Disconnected / Disabled …）：降权但仍展示
+            $rank = 3
+        }
+
+        [void]$result.Add([pscustomobject]@{
+            IP      = $ip
+            Alias   = $alias
+            Desc    = $desc
+            Status  = $status
+            Virtual = $isVirtual
+            Rank    = $rank
+        })
     }
 
-    # 排序只为输出稳定：192.168 > 10 > 172.16-31
-    return @($result | Sort-Object @{ Expression = {
+    # 排序只为输出稳定：物理优先（192.168 > 10 > 172.16-31），虚拟网卡一律靠后
+    return @($result | Sort-Object Rank, @{ Expression = {
                 $p = $_.IP.Split('.')
                 if ($p[0] -eq '192') { 1 } elseif ($p[0] -eq '10') { 2 } else { 3 }
             } }, IP)
 }
 
 $lanIps = @(Get-LanIPv4)
+
+<#
+    只读探测本机 SQLite，取当前最小（最早创建）的赛事 id，用于打印 Public 示例地址。
+
+    - 不经过 HTTP：`GET /api/tournaments` 需要登录态，启动脚本不该依赖任何凭据；
+    - 不写死任何 id：拿不到就返回 $null，由调用方退化为“只展示 base URL”；
+    - 只读打开（mode=ro），不改库、不迁移、不加锁；
+    - 失败一律静默降级：探测不到赛事不应阻断启动。
+#>
+function Get-PublicTournamentId {
+    if ($TournamentId -gt 0) { return $TournamentId }
+
+    $probeFile = Join-Path ([System.IO.Path]::GetTempPath()) ("pingpong_tid_probe_{0}.py" -f $PID)
+    $dbPath = $env:PINGPONG_DB_PATH
+    if ([string]::IsNullOrWhiteSpace($dbPath)) { $dbPath = $env:DEMO_DB_PATH }
+    if ([string]::IsNullOrWhiteSpace($dbPath)) {
+        $dbPath = Join-Path $backend 'data\demo.db'
+    }
+
+    $probeCode = @'
+import os
+import sqlite3
+import sys
+
+db = os.environ.get("PINGPONG_DB_PATH") or os.environ.get("DEMO_DB_PATH") or sys.argv[1]
+if not os.path.isfile(db):
+    sys.exit(0)
+try:
+    con = sqlite3.connect("file:%s?mode=ro" % db.replace("?", "%3f"), uri=True)
+except sqlite3.Error:
+    sys.exit(0)
+try:
+    row = con.execute("SELECT id FROM tournaments ORDER BY id LIMIT 1").fetchone()
+finally:
+    con.close()
+if row and row[0] is not None:
+    sys.stdout.write(str(int(row[0])))
+'@
+
+    try {
+        Set-Content -LiteralPath $probeFile -Value $probeCode -Encoding UTF8
+        $out = & $venvPy $probeFile $dbPath 2>$null
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $text = ([string]$out).Trim()
+        if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+        if ($text -notmatch '^\d+$') { return $null }
+        return [int]$text
+    } catch {
+        return $null
+    } finally {
+        if (Test-Path -LiteralPath $probeFile) {
+            Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+<#
+    只读查看 Windows 防火墙“配置文件”的入站默认动作，仅用于给出提示。
+
+    ⚠️ 不申请管理员权限、不新增 / 修改 / 删除任何规则、不关闭防火墙。
+    读取失败（常见于标准用户）时返回 $null，脚本退化为打印通用人工排查步骤。
+#>
+function Get-FirewallBlockingProfiles {
+    try {
+        $profiles = @(Get-NetFirewallProfile -ErrorAction Stop)
+        $blocking = @($profiles | Where-Object {
+            $_.Enabled -eq $true -and [string]$_.DefaultInboundAction -eq 'Block'
+        })
+        if ($blocking.Count -eq 0) { return $null }
+        return (@($blocking | ForEach-Object { [string]$_.Name }) -join ' / ')
+    } catch {
+        return $null
+    }
+}
 
 # ---------------------------------------------------------------- 8. 启动 FastAPI 单服务
 
@@ -270,41 +463,96 @@ try {
     Write-Note "根路径探测失败：$($_.Exception.Message)"
 }
 
+# Public 深链接探测：刷新 / 直接粘贴链接都不得 404。
+$publicTid = Get-PublicTournamentId
+$deepLinkPath = if ($publicTid -ne $null) { "/public/t/$publicTid/live" } else { "/public/t/1/live" }
+try {
+    $deep = Invoke-WebRequest -Uri "http://127.0.0.1:$Port$deepLinkPath" -UseBasicParsing -TimeoutSec 5
+    if ($deep.StatusCode -eq 200 -and $deep.Content -match 'id="root"') {
+        if ($publicTid -ne $null) {
+            Write-Ok "Public 深链接已由同一服务返回 SPA（$deepLinkPath 刷新不 404）"
+        } else {
+            # 还没有赛事：只能证明“HTTP 层不会 404”，赛事是否存在由页面自己提示
+            Write-Ok "SPA 深链接回退正常（$deepLinkPath 返回 SPA，刷新不 404）"
+        }
+    } else {
+        Write-Note "深链接返回了非 SPA 内容，请确认 frontend\dist 是否为最新构建。"
+    }
+} catch {
+    Write-Note "深链接探测失败（$deepLinkPath）：$($_.Exception.Message)"
+}
+
 # ---------------------------------------------------------------- 10. 打印访问地址
 
 $localUrl = "http://127.0.0.1:$Port"
+$lanBase = if ($lanIps.Count -gt 0) { "http://$($lanIps[0].IP):$Port" } else { $null }
 
 Write-Host ""
 Write-Host "===================================="
-Write-Host " PingpongSystem production 已启动"
+Write-Host " PingpongSystem 已启动"
 Write-Host "===================================="
 Write-Host ""
-Write-Host " 本机访问："
+Write-Host " 本机："
 Write-Host "   $localUrl" -ForegroundColor Green
-Write-Host "   $localUrl/public/t/<赛事ID>/live     (Public 实况，深链接刷新不 404)" -ForegroundColor DarkGray
 Write-Host ""
 
+Write-Host " 局域网："
 if ($lanIps.Count -gt 0) {
-    Write-Host " 局域网访问（手机与电脑需在同一 Wi-Fi/局域网）："
     foreach ($item in $lanIps) {
         $suffix = ''
-        if ($item.Alias) { $suffix = "  [$($item.Alias)]" }
+        if ($item.Alias) {
+            $suffix = "  [$($item.Alias)"
+            if ($item.Status) { $suffix += " · $($item.Status)" }
+            $suffix += "]"
+        }
+        if ($item.Virtual) { $suffix += "  （虚拟 / 隧道网卡）" }
         Write-Host "   http://$($item.IP):$Port$suffix" -ForegroundColor Green
     }
     if ($lanIps.Count -gt 1) {
-        Write-Host "   （检测到多个私网地址：请逐个尝试，脚本无法可靠判断哪张网卡连通手机所在网络）" -ForegroundColor DarkGray
+        Write-Note "检测到多个局域网地址。请选择与比赛手机所在路由器同网段的地址。"
     }
 } else {
     Write-Note "未检测到可用的私网 IPv4 地址，手机可能无法通过局域网访问。"
     Write-Host "        请确认已连接 Wi-Fi/交换机，且网卡未被禁用。" -ForegroundColor DarkGray
 }
-
 Write-Host ""
+
+Write-Host " 手机使用："
+Write-Host "   1. 连接赛事现场路由器 Wi-Fi"
+Write-Host "   2. 打开浏览器"
+Write-Host "   3. 输入以上局域网地址"
+Write-Host ""
+
+if ($publicTid -ne $null -and $lanBase -ne $null) {
+    Write-Host " Public 示例："
+    Write-Host "   $lanBase/public/t/$publicTid/live" -ForegroundColor Green
+    if ($lanIps.Count -gt 1) {
+        Write-Host "   （把主机部分换成上面与手机同网段的地址即可）" -ForegroundColor DarkGray
+    }
+    Write-Host "   这是赛事 #$publicTid 的公开实况页；把 /live 换成 /schedule、/rankings、/bracket、/champion 可直达其它公开页面。" -ForegroundColor DarkGray
+} else {
+    Write-Host " Public 示例："
+    if ($lanBase -ne $null) {
+        Write-Host "   $lanBase" -ForegroundColor Green
+    } else {
+        Write-Host "   $localUrl" -ForegroundColor Green
+    }
+    Write-Host "   尚未读到赛事 id，因此只给出 base URL；创建赛事后请在地址后加 /public/t/<赛事ID>/live 。" -ForegroundColor DarkGray
+    Write-Host "   也可用 -TournamentId <赛事ID> 重新运行本脚本以直接打印完整示例地址。" -ForegroundColor DarkGray
+}
+Write-Host ""
+
+$firewallProfiles = Get-FirewallBlockingProfiles
+
 Write-Host " 提示：" -ForegroundColor Yellow
-Write-Host "   * 无需管理员权限；本脚本不会修改防火墙或任何系统网络配置。" -ForegroundColor DarkGray
+Write-Host "   * 无需管理员权限；本脚本不会修改防火墙或任何系统网络配置（网卡 IP / 路由器 / DNS 一律不动）。" -ForegroundColor DarkGray
 Write-Host "   * 若手机打不开页面，多半是 Windows 防火墙拦截 Python 入站连接：" -ForegroundColor DarkGray
 Write-Host "     控制面板 → Windows Defender 防火墙 → 允许应用通过防火墙 → 勾选 Python 的“专用网络”。" -ForegroundColor DarkGray
 Write-Host "     或（需管理员权限，请自行决定）放行 TCP $Port 端口。" -ForegroundColor DarkGray
+if ($firewallProfiles) {
+    Write-Host "     只读检测：当前入站默认动作仍为“阻止”的防火墙配置文件：$firewallProfiles" -ForegroundColor DarkGray
+}
+Write-Host "   * 同一台电脑上访问本机 LAN 地址不代表手机一定能访问（不经过防火墙入站路径），必须用真实手机验证。" -ForegroundColor DarkGray
 Write-Host "   * 停止服务：直接关闭新打开的后端 PowerShell 窗口，或结束 PID $($proc.Id)。" -ForegroundColor DarkGray
 Write-Host "   * 开发 / Demo 双服务模式请改用 .\start_demo.ps1 。" -ForegroundColor DarkGray
 Write-Host ""

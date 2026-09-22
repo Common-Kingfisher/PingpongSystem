@@ -919,3 +919,175 @@ DEBUG PublicRoutes tid= undefined params= {}
 4. Day 3 只做手机录分 UI（`MobileScorePage`）+ 固定底部提交 + 防重复提交 + 可读错误展示；
 5. Day 3 仍**不得**复制比分合法性、小分一致性、W.O. 计排名等任何业务规则，全部消费后端契约；
 6. Day 3 需真机/窄屏验收 360–430px，并补 LAN 二机实测。
+
+---
+
+# D 轨 Day 4D 实施结果
+
+> 本轮命令基线：`origin/master` = `2e57895985be8627f7531fee098afaeda8399d4d`
+> （`feat(C轨-D3): 建立赛事规则设置骨架并收口Public入口 (#49)`）
+> 分支：`feat/d-day4-public-format-lan`（Day4D 唯一 PR）
+> 文档修订时间：2026-09-22
+
+## 22. 本轮硬 Gate 与真实基线（先读这一节）
+
+Day4D 的原始目标是「Public 排名 / 签表 / 实况适配多赛制」。开工前按冻结要求核查真实仓库，
+结果为**前置 PR 未进入 master**，因此本轮按冻结规则执行「独立工作 + 不发明临时契约」。
+
+| 检查项 | 真实结果 | 对 Day4D 的影响 |
+| --- | --- | --- |
+| PR #45（D 轨 Day3 手机录分，`feat/d-day3-mobile-score`） | **未进入 master**（branch tip `65c1034`，diff 29 files / +7616） | 按冻结要求**不**从 #45 分支续做 Day4D；Day4D 从 `origin/master` 新开分支，避免 Day3 / Day4 混成一个 PR。未自行 cherry-pick #45。 |
+| PR #47（A 轨 D4 赛制配置落库，`feat/D4A赛制配置落库`） | **未进入 master**（branch tip `967ec15`，diff 13 files / +1270） | `TournamentOut.format_code` / `rule_config` / `rule_version` 在 master 上**不存在**，因此本轮不接线赛制判定。 |
+| PR #48（B 轨 D4 Format Handler，`feat/d4b-format-handlers-and-draw-rules`） | **未进入 master**（branch tip `3443951`，diff 15 files / +983） | 同上：ROUND_ROBIN / SINGLE_ELIMINATION / GROUP_KNOCKOUT Handler 尚未落地。 |
+| `frontend/src/PublicRoutes.tsx`、`PublicLayout.tsx`、`publicTournament.ts`、`pages/RankingsPage.tsx`、`pages/KnockoutPage.tsx`、`pages/BigScreenPage.tsx`、`api.ts`、`generated/openapi.d.ts` | 全部存在且结构与 Day 2 一致 | 复用而非重写。 |
+| `start_pingpong.ps1`、`backend/app/static_hosting.py` | 均存在 | 只做缺口加固，未重写。 |
+| master 上 `format_code` 的唯一出现位置 | `team_ties` / `TeamTieOut` / `RubberSkeletonRequest`（团体赛对抗赛制） | **不是**赛事级赛制字段，不能拿来当 `TournamentOut.format_code` 用（否则等于伪造契约）。 |
+
+因此本轮**不做**、也不允许做的（明确留到 #47 / #48 进入 master 之后）：
+
+* 不手写临时 `format_code` 字面量，不新建第二套 TS enum；
+* 不用 `as any` 读取尚不存在的字段，不按 `stage` 名称或“有没有 group / knockout tree”反推赛制；
+* 不复制 B 轨赛制判断，不写临时 API；
+* 不把 `#47` / `#48` 分支 merge 进 Day4D 分支。
+
+## 23. 本轮实际交付范围
+
+在 Gate 允许的四项内完成：
+
+1. **LAN / production 启动加固**（`start_pingpong.ps1`，见第 25 节）；
+2. **Public 页面展示结构整理**：Public 只读视图不再把“返回首页”指向管理端 `/`；
+   排名页在 Public 下改用中性标题「赛事排名」；
+3. **「不适用 / 空态 / readOnly」组件逻辑**：新增 `PublicEmptyState` 组件，
+   Public 排名页 / 签表页在“什么都还没有”时给出可读空态 + 回到本赛事可用视图的 CTA，
+   且空态文案对三种赛制都成立（不推断赛制）；
+4. **与现有契约无关的测试**：Public 空态 / 深链接 / 无管理入口回归测试（前端），
+   以及“production frontend runtime 不得依赖固定地址”的部署策略测试（后端）。
+
+## 24. 修改文件
+
+### 24.1 新增
+
+| 文件 | 作用 |
+| --- | --- |
+| `frontend/src/components/PublicEmptyState.tsx` | Public 只读空态卡：标题 + 说明 + 0..n 个 CTA。**不读取任何赛事字段**，不推断赛制。 |
+| `frontend/src/components/PublicEmptyState.css` | 空态卡样式，手机优先（CTA ≥ 44px，≤430px 占满整行）。 |
+| `frontend/src/__tests__/PublicViewStates.test.tsx` | 12 条回归：深链接空态、既有主链不退化、Public 无管理入口、未知子路径回实况、大屏 ENDED 展示。 |
+| `backend/tests/test_deployment_address_policy.py` | 3 条部署策略测试：前端运行时无固定地址 / API 客户端只用 `/api/...` 同源相对路径 / 源码不引用带 hash 的构建产物名。 |
+
+### 24.2 修改
+
+| 文件 | 改动与理由 |
+| --- | --- |
+| `frontend/src/pages/RankingsPage.tsx` | ① 新增 `pageTitle`：`readOnly` 时用「赛事排名」，管理端仍是「小组排名」（不改 C 轨界面）；② 后端返回空排名时渲染 `PublicEmptyState` + 「查看签表」CTA，不再是一片空白；③ Public 只读时「返回首页」改为「返回实况」并指向 `/public/t/:tid/live`，不再把观众带进管理端 `/`。 |
+| `frontend/src/pages/KnockoutPage.tsx` | ① 同上②③；② 把“本页什么都没有”时的旧文案「小组赛对阵尚未发布」（只对小组+淘汰赛成立）替换为中性空态 + 「查看排名」CTA；③ 小组赛未完成（`remaining > 0`）等既有分支保持原样，保证 V0.2 主链不退化。 |
+| `frontend/src/pages/BigScreenPage.tsx` | 已结束、且本赛事**没有**淘汰赛签表时（例如循环赛：没有决赛，名次即最终成绩），展示后端发布的「赛事排名」；有签表的赛事仍走原有冠军 / 签表分支，行为不变。不计算名次、不补造冠军。 |
+| `start_pingpong.ps1` | 见第 25 节。 |
+| `docs/WORKSTREAM_D.md` | 本节。 |
+
+**未改动**：`backend/app/static_hosting.py`（Day 2 实现已满足三条硬约束，深链接 / `/api` 语义 / dist 缺失降级均有既有测试覆盖）；
+`ConsolePage` / `MobileScorePage` / `ScoreSheet` / `AdminLayout` 等管理端与录分文件（Day3 / C 轨边界）。
+
+## 25. `start_pingpong.ps1` Day 4D 加固明细
+
+| 现场问题 | 加固内容 |
+| --- | --- |
+| 多网卡（Wi-Fi + Ethernet + WSL + VPN + Hyper-V + VMware + Docker） | 新增 `Get-NetAdapterMap`：读取 `Get-NetAdapter` 的 `Virtual` / `Status` 元数据，但**只用于排序与标注，绝不删除候选地址**；`Get-NetAdapter` 不可用时退化为 `Test-VirtualAdapterName` 关键字降权。权重：1 = 物理且 `Up`，2 = 状态未知，3 = 虚拟/隧道或明确未连接。 |
+| 多个私网地址 | 超过 1 个时明确提示「检测到多个局域网地址。请选择与比赛手机所在路由器同网段的地址。」；每个地址附带网卡名与连接状态，虚拟网卡附「（虚拟 / 隧道网卡）」。 |
+| 网段 | 仍只保留 RFC1918：`192.168.x.x` / `10.x.x.x` / `172.16-31.x.x`，排除回环与 APIPA `169.254.x.x`。脚本只**发现并展示**真实地址，不假定 `192.168.50.10`。 |
+| Public 示例里的赛事 id | 新增只读探测：优先 `-TournamentId` 参数；否则用 venv Python 以 `mode=ro` 只读打开本机 SQLite（尊重 `PINGPONG_DB_PATH` / `DEMO_DB_PATH`，默认 `backend/data/demo.db`）取最小真实赛事 id；**读不到就只展示 base URL**。绝不假定「赛事 id 永远是 12」，也不匿名调用需要登录态的 `GET /api/tournaments`。 |
+| 启动输出 | 收口为「本机 / 局域网 / 手机使用（1-2-3 步）/ Public 示例」四段；Public 示例同时提示 `/live` 可换成 `/schedule`、`/rankings`、`/bracket`、`/champion`。 |
+| 深链接 | 除 `/` 之外，新增 `/public/t/<tid>/live` 探测：必须 200 且返回 SPA（`id="root"`），证明刷新 / 直接粘贴链接不 404。 |
+| 防火墙 | 只读提示：`Get-NetFirewallProfile` 在 `try/catch` 中读取，命中「启用且入站默认阻止」时打印配置文件名单；**不申请管理员权限、不新增/修改/删除规则、不关闭防火墙、不改网卡 IP / 路由器 / DNS**。 |
+| 误判风险 | 明确写出「同一台电脑访问本机 LAN 地址不代表手机能访问（不经过防火墙入站路径），必须用真实手机验证」。 |
+
+⚠️ **文件编码约束（Day 2 §17.4 的延续）**：本机 `pwsh` 实为 Windows PowerShell 5.1，会把**无 BOM** 的 `.ps1` 按 ANSI 读取。
+修改 `start_pingpong.ps1` 后**必须**回写 UTF-8 BOM，否则中文提示会乱码甚至触发伪语法错误。
+本轮已用 `[System.Management.Automation.Language.Parser]::ParseFile` 复验解析错误数 = 0，并确认首字节为 `EF BB BF`。
+
+## 26. 部署灵活性（为切云服务器 / 公网域名预留）
+
+* `frontend/src` 全量扫描结果：**0 处** `127.0.0.1` / `localhost` / `192.168.*` / `10.*` / `172.16-31.*` / `:8000` / `http(s)://`；
+* `api.ts` 的每个请求路径都是同源相对路径 `/api/...`，因此同一份 production build：
+  * 现场：`http://192.168.50.10:8000` → `/api/health` 同源；
+  * 云服务器：`http://<云 IP>:8000` → 无需改代码；
+  * 正式域名：`https://pingpong.example.com` → 天然变成 `https://pingpong.example.com/api/...`；
+* 新增 `backend/tests/test_deployment_address_policy.py` 把这条约束变成**持续回归**：
+  一旦有人把部署环境写进前端运行时源码，测试立即失败；
+* 未实现（且本轮明确不做）：云服务器部署、公网穿透、DDNS、TLS 自动签发、mDNS / 自建 DNS、路由器配置程序。
+
+## 27. LAN 验收（真实执行）
+
+真实运行 `.\start_pingpong.ps1 -SkipBuild -NoBrowser`（先 `pnpm build`），实测结果：
+
+| 项 | 结果 |
+| --- | --- |
+| production 单服务 | FastAPI 单进程同时提供 `/api/*` 与 `frontend/dist` SPA（`/api/health` OK，`/` 返回 SPA） |
+| 本机 | `http://127.0.0.1:8000` → `/` 200 SPA、`/api/health` 200、`/public/t/1/live` 200 SPA |
+| LAN IP | `http://192.168.68.150:8000`（WLAN · Up）→ `/api/health` 200、`/public/t/1/live` 200 SPA |
+| 多网卡 | 同时检测到 `192.168.68.150 [WLAN · Up]` 与 `192.168.56.1 [以太网 2 · Up]（虚拟 / 隧道网卡）`，已提示选择同网段地址 |
+| 真实 tid | 脚本从本机库读到赛事 id = 1（**不是** 12），并打印 `http://192.168.68.150:8000/public/t/1/live` |
+| SPA 深链接 | `/public/t/1/live`、`/public/t/1/rankings`、`/public/t/1/bracket` 均 200 + SPA，刷新不 404 |
+| 相对 `/api` | 前端全部请求落在同源 `/api/...`（无跨主机、无 CORS 需求） |
+| 防火墙行为 | 只读检测 + 人工提示；未申请管理员权限、未改动任何规则 |
+| 未验收 | **无第二台真实手机**，因此本机 LAN 地址 HTTP 验证通过 ≠ 跨设备验收通过；真机跨设备验收留 Day6 |
+
+## 28. 测试
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd backend && pytest` | 见回执（含 D4D 新增 3 条） |
+| `cd frontend && pnpm install --frozen-lockfile` | OK |
+| `cd frontend && pnpm exec tsc --noEmit` | 退出码 0 |
+| `cd frontend && pnpm test` | 3 个文件 / 29 条通过（原 17 条 + 新增 12 条） |
+| `cd frontend && pnpm build` | OK |
+| `cd frontend && pnpm contract:check` | 见回执（若有 diff 会明确区分本 PR 引入 vs master baseline） |
+
+前端测试用例矩阵（`PublicViewStates.test.tsx`）：
+
+| 场景 | 断言 |
+| --- | --- |
+| 排名页无排名行 | 出现「暂无赛事排名」+「查看签表」指向 `/public/t/12/bracket` |
+| 排名页 Public 标题 | h2 含「赛事排名」、不含「小组排名」 |
+| 签表页无签表无小组 | 出现「暂无淘汰赛签表」+「查看排名」指向 `/public/t/12/rankings`；旧文案不再出现 |
+| 空态副作用 | 不调用 `generate-knockout` / `/score` / `finish-group-stage` |
+| 空态 + localStorage 陷阱 | 不出现另一场赛事的链接或请求 |
+| 有排名数据 | 正常渲染名次表，空态不出现 |
+| 有签表数据 | 正常渲染签表，空态不出现，且无「录入大比分」/「生成淘汰赛签表」按钮 |
+| Public 排名页 | 无 `/console`、`/players`… 管理端链接，无指向 `/` 的返回，有「返回实况」 |
+| Public 签表页 | 无管理端链接、无「冠军之路」/「打印秩序册」 |
+| 未知 Public 子路径 | 落到本赛事实况页（发 `/dashboard` 请求） |
+| 大屏 FINISHED 且无签表 | 出现「赛事排名」+ 后端名次行 + 「比赛进度」 |
+| 大屏 FINISHED 且有冠军 | 渲染冠军，且不叠加「赛事排名」 |
+
+## 29. 尚未完成 / 外部阻塞（必须显式记录，不得虚报）
+
+| 项 | 状态 | 归属 |
+| --- | --- | --- |
+| Public 多赛制接线（`format_code` → 导航可见性 / 空态 / 不适用页） | **未做**：等 #47 / #48 进入 master | D（下一轮） |
+| Public 导航按赛制隐藏「签表 / 排名 / 冠军」入口 | **未做**：同上 | D |
+| 扫码/深链接进入 `bracket` 时针对 SINGLE_ELIMINATION 的「不设循环赛排名」专用文案 | 目前用**中性空态**覆盖（对三种赛制都成立），专项文案等契约 | D |
+| ROUND_ROBIN 大屏「不展示淘汰赛区域」的显式判定 | 目前只在「已结束且无签表」时展示赛事排名；显式判定等契约 | D |
+| PR #45（手机录分）未合并 | 外部阻塞，本 D 轮无法推进 | A/C/维护者 |
+| LAN 跨设备验收（真实手机） | 无第二台设备，未验收 | 现场 / Day6 |
+| Day5 报名确认 / 二维码 / Organization / Venue | 本轮冻结范围内**不做** | Day5+ |
+
+## 30. 多赛制接线接入点（给下一轮的确切位置）
+
+#47 / #48 进入 master 后，只需在**一个**位置接线，其余全部复用本轮成果：
+
+1. `git fetch origin && git merge origin/master`；
+2. `pnpm contract:generate` 重新生成 `frontend/src/generated/openapi.d.ts`，
+   确认 `TournamentOut.format_code`（及 `rule_config` / `rule_version`）已出现；
+3. 新增 `frontend/src/publicCapabilities.ts`：`getPublicCapabilities(formatCode)` 返回
+   `{ showRankings, showBracket, showChampion }`。**只返回 UI capability**，
+   不计算参赛者 / 晋级者 / BYE / 排名 / 对阵 / 完赛状态；枚举值必须取自 generated DTO，
+   不新建第二套 enum；
+4. `PublicLayout.tsx` 的 `NAV_ITEMS` 用该 helper 过滤（实况 / 赛程恒显示；
+   GROUP_KNOCKOUT 增排名+签表+冠军；ROUND_ROBIN 增排名；SINGLE_ELIMINATION 增签表+冠军）；
+5. `PublicRoutes.tsx` 的三个 adapter 把对应 capability 作为 prop 传入
+   `RankingsPage` / `KnockoutPage`，页面在「不适用」时渲染**已有的** `PublicEmptyState`
+   （文案按赛制专项化：循环赛 → 不设淘汰签表；单淘汰 → 不设循环赛排名）；
+6. `BigScreenPage.tsx` 用同一 helper 决定是否渲染「小组排名（出线区）」与签表区域。
+
+这样 Public 页面不需要新增第二套“前端赛制引擎”，也不会与 B 轨 Handler 出现两个真相源。
+

@@ -207,6 +207,28 @@ export default function BigScreenPage({ tid: tidProp }: { tid?: number } = {}) {
         </div>
       )}
 
+      {/* D 轨 Day 4D：已结束、且本赛事没有淘汰赛签表（例如循环赛制：没有决赛，
+          名次本身就是最终成绩）时，展示后端发布的赛事排名。
+          这里不推断赛制、不计算名次、不补造冠军；只把 `RankingsResult` 原样展示。
+          有淘汰赛签表的赛事仍走上面的冠军 / 签表分支，行为不变。 */}
+      {stage === 'FINISHED' && !knockoutReady && (rankings?.rankings.length ?? 0) > 0 && (
+        <div className="bigscreen-cols">
+          <div className="bigscreen-col">
+            <h2>赛事排名</h2>
+            {rankings!.rankings.map((g) => (
+              <div key={g.group_id} className="bigscreen-group">
+                <div className="bigscreen-group-name">{g.group_name}</div>
+                {g.entries.map((e) => (
+                  <div key={e.player_id}>
+                    {e.rank}. {e.name}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!knockoutReady && stage === 'KNOCKOUT' && (
         <p className="muted">淘汰赛尚未生成。</p>
       )}
