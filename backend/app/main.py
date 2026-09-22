@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .db import init_db
+from .openapi_contract import install_openapi_contract
 from .static_hosting import install_static_hosting
 from .routers import (
     auth,
@@ -43,6 +44,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="乒乓球赛事编排与赛务管理系统 Demo", version="0.1.0", lifespan=lifespan)
+install_openapi_contract(app)
 
 
 @app.middleware("http")

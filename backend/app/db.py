@@ -1,6 +1,6 @@
 """SQLite 连接与建表。
 
-- 数据库文件：默认 backend/data/demo.db，可用环境变量 DEMO_DB_PATH 覆盖（测试用）。
+- 数据库文件：默认 backend/data/demo.db，可用 PINGPONG_DB_PATH 覆盖；兼容旧变量 DEMO_DB_PATH（测试用）。
 - 每个请求独立连接；连接上强制 PRAGMA foreign_keys = ON。
 - 状态字段用 CHECK 约束兜底枚举取值；比分用 CHECK 保证非负。
 """
@@ -380,7 +380,7 @@ def _upgrade_entry_type_for_team(conn: sqlite3.Connection) -> None:
 
 
 def _db_path() -> Path:
-    override = os.environ.get("DEMO_DB_PATH")
+    override = os.environ.get("PINGPONG_DB_PATH") or os.environ.get("DEMO_DB_PATH")
     return Path(override) if override else DEFAULT_DB_PATH
 
 

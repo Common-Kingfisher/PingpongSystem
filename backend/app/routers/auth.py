@@ -10,6 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from .. import schemas
 from ..db import get_db
 from ..auth_dependencies import AuthContext, extract_session_token, get_current_user
+from ..openapi_contract import (
+    CLEAR_SESSION_COOKIE_HEADER,
+    SET_SESSION_COOKIE_HEADER,
+    error_response,
+)
 from ..services import auth as auth_service
 
 
@@ -58,6 +63,21 @@ def _clear_session_cookie(response: Response) -> None:
     "/login",
     response_model=schemas.AuthLoginResponse,
     response_model_exclude_none=True,
+    responses={
+        200: {
+            "description": "登录成功；browser 设置 Cookie，bearer 返回 access_token。",
+            "headers": {"Set-Cookie": SET_SESSION_COOKIE_HEADER},
+        },
+        401: error_response(
+            "用户名、密码或账号状态错误。",
+            codes=["AUTH_INVALID_CREDENTIALS"],
+            example_message="用户名或密码错误",
+        ),
+    },
+    openapi_extra={
+        "x-auth-modes": ["browser", "bearer"],
+        "x-credential-conflict": {"status": 401, "code": "AUTH_REQUIRED"},
+    },
 )
 def login(
     payload: schemas.AuthLoginRequest,
@@ -84,22 +104,51 @@ def login(
     )
 
 
-@router.post("/logout", status_code=204)
+@router.post(
+    "/logout",
+    status_code=204,
+    responses={
+        204: {
+            "description": "退出成功或幂等成功；成功时删除 pp_session Cookie。",
+            "headers": {"Set-Cookie": CLEAR_SESSION_COOKIE_HEADER},
+        },
+        401: error_response(
+            "Cookie 与 Bearer 指向不同会话，或 Authorization 格式无效。",
+            codes=["AUTH_REQUIRED"],
+            example_message="请求携带了冲突的登录凭据",
+        ),
+    },
+    openapi_extra={
+        "x-auth-behavior": {
+            "credentials": "optional",
+            "accepted": ["sessionCookie", "bearerAuth"],
+            "idempotent_without_valid_credentials": True,
+            "credential_conflict": {"status": 401, "code": "AUTH_REQUIRED"},
+        }
+    },
+)
 def logout(
     request: Request,
     response: Response,
     conn: Connection = Depends(get_db),
 ) -> None:
     """撤销当前凭据对应的 Session；无凭据或重复退出均保持幂等。"""
-    try:
-        token = extract_session_token(request)
-    except HTTPException:
-        token = request.cookies.get(SESSION_COOKIE_NAME)
+    token = extract_session_token(request)
     auth_service.logout(conn, token)
     _clear_session_cookie(response)
 
 
-@router.get("/me", response_model=schemas.AuthMeResponse)
+@router.get(
+    "/me",
+    response_model=schemas.AuthMeResponse,
+    responses={
+        401: error_response(
+            "未登录、凭据冲突、会话过期、撤销或账号停用。",
+            codes=["AUTH_REQUIRED"],
+            example_message="请先登录",
+        ),
+    },
+)
 def me(
     context: AuthContext = Depends(get_current_user),
     conn: Connection = Depends(get_db),
@@ -112,7 +161,25 @@ def me(
     )
 
 
-@router.post("/change-password", status_code=204)
+@router.post(
+    "/change-password",
+    status_code=204,
+    responses={
+        204: {
+            "description": "改密成功并撤销该用户全部旧会话，同时删除当前 Cookie。",
+            "headers": {"Set-Cookie": CLEAR_SESSION_COOKIE_HEADER},
+        },
+        401: error_response(
+            "未登录、会话失效或当前密码错误。",
+            codes=["AUTH_REQUIRED", "AUTH_INVALID_CREDENTIALS"],
+            example_code="AUTH_INVALID_CREDENTIALS",
+            example_message="当前密码错误",
+        ),
+    },
+    openapi_extra={
+        "x-business-error-codes": {"422": ["INVALID_NEW_PASSWORD"]},
+    },
+)
 def change_password(
     payload: schemas.AuthChangePasswordRequest,
     response: Response,

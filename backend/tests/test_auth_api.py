@@ -244,3 +244,67 @@ def test_deactivation_invalidates_existing_browser_session(client):
 
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "AUTH_REQUIRED"
+
+
+def test_logout_without_credentials_is_idempotent(client):
+    client.cookies.clear()
+
+    assert client.post("/api/v1/auth/logout").status_code == 204
+    assert client.post("/api/v1/auth/logout").status_code == 204
+
+
+def test_logout_rejects_conflicting_cookie_and_bearer_credentials(client):
+    _create_user()
+    assert _login(client, mode="browser").status_code == 200
+    cookie_token = client.cookies.get("pp_session")
+    bearer_token = _login(client, mode="bearer").json()["access_token"]
+
+    response = client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {bearer_token}"},
+        cookies={"pp_session": cookie_token},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == {
+        "code": "AUTH_REQUIRED",
+        "message": "请求携带了冲突的登录凭据",
+    }
+
+    conn = db_module.connect()
+    try:
+        sessions = conn.execute(
+            "SELECT revoked_at FROM user_sessions ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(sessions) == 2
+    assert all(session["revoked_at"] is None for session in sessions)
+
+def test_lan_client_auth_and_role_checks_do_not_depend_on_ip(client):
+    """Patch P-01：LAN 仅改变传输路径，不改变认证和系统角色判定。"""
+    _create_user()
+
+    with TestClient(
+        app,
+        client=("192.168.50.10", 50000),
+    ) as lan_client:
+        assert lan_client.get("/api/health").status_code == 200
+
+        login = _login(lan_client)
+        assert login.status_code == 200
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        assert lan_client.get("/api/v1/auth/me", headers=headers).status_code == 200
+
+        forbidden = lan_client.post(
+            "/api/v1/system/users",
+            headers=headers,
+            json={
+                "username": "lan-created",
+                "display_name": "不应创建",
+                "password": "StrongPassword123",
+            },
+        )
+
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"]["code"] == "FORBIDDEN"

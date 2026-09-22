@@ -60,6 +60,15 @@ class TournamentOut(BaseModel):
     operation_mode: TournamentMode = TournamentMode.LIVE
 
 
+class ApiErrorDetail(BaseModel):
+    code: str
+    message: str
+
+
+class ApiErrorResponse(BaseModel):
+    detail: ApiErrorDetail
+
+
 class AuthLoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=1, max_length=500)

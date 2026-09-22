@@ -1,6 +1,6 @@
 # A 轨 D2：认证鉴权与契约交付详细执行计划
 
-> 状态：执行计划修订稿（A2.1-A2.4 已提交；A2.5 实现与专项验收完成，待人工审核提交；A2.6+ 按 PR #42 最新 C/D 轨反馈调整）
+> 状态：执行计划修订稿（A2.1-A2.5 已提交；A2.6 实现、专项验收与全量回归完成，待人工审核提交；A2.7 未开始，按 PR #42 最新 C/D 轨反馈实施）
 > 基线：`master@b8fe480`（PR #38 已合入）
 > A2.1 已完成提交：`564e2d2`
 > 工作分支：`feature/AuthAndPortalSkeleton`  
@@ -14,6 +14,7 @@
 3. `EVENT_ADMIN` 创建字段冻结为 `username`、`display_name`、`password`、`phone`（可选）、`note`（可选）；A 侧通过后续迁移将 `phone`、`note` 补为 nullable 字段。
 4. 保留 `OWNER`、`ADMIN`、`OPERATOR`、`VIEWER` 赛事角色。C D2 只根据后端授权结果实现允许、只读、无权限 UI，不实现复杂权限编辑器。
 5. `feature/AuthAndPortalSkeleton` 当前落后于 `origin/master@b8fe480`；A2.2 开始前先 merge 最新 master，避免与 #38 前端布局和路由冲突。
+6. 2026-09-22 合并 V0.3 方案补丁 P-01 的 A 侧边界：LAN 只作为部署/传输层，EVENT_ADMIN/PUBLIC 权限判断不得依赖 IP 网段；后端 SQLite 路径统一支持 `PINGPONG_DB_PATH` 并兼容 `DEMO_DB_PATH`；后端发布依赖锁定到已验证版本。C/D/E 负责的前端脚本、启动脚本和公网迁移不在本次 A 侧改动内。
 
 ## 1. 阶段目标
 
@@ -356,6 +357,8 @@ C 轨 D2 不实现复杂权限编辑器；前端只根据后端返回的允许�
 
 依赖：A2.3 的稳定响应模型与 A2.4 的权限语义。
 
+状态：实现、专项验收与全量回归完成，待人工审核提交；已纳入 P-01 的 A 侧配置/鉴权边界；未修改 `frontend/src/**` 或其他非 A 侧文件。
+
 职责边界：
 
 - C 轨拥有 LoginPage、AuthContext/Guard、403、EVENT_ADMIN 登录分流、AdminLayout、System 前端页面及前端路由接入。
@@ -371,11 +374,15 @@ C 轨 D2 不实现复杂权限编辑器；前端只根据后端返回的允许�
 4. 明确 C 轨只消费后端允许/只读/无权限结果，不实现复杂权限编辑器。
 5. 增加 OpenAPI 契约测试，防止敏感字段、错误码或状态枚举被静默改坏。
 6. 不修改 `frontend/src/**`。
+7. 按 P-01 固化 A 侧部署边界：客户端来自 loopback 或 LAN 时使用同一套认证/角色校验；Bootstrap 写入口仍保持本机专用安全边界；数据库路径支持 `PINGPONG_DB_PATH`，旧 `DEMO_DB_PATH` 继续兼容。
 
 交付文件：
 
+- `backend/app/openapi_contract.py`
 - `docs/openapi-v0.2.json`
 - `backend/tests/test_openapi_auth_contract.py`
+- `backend/tests/test_deployment_config.py`
+- `backend/requirements.txt`
 - A2.7 交付报告中的 C 轨接入说明
 
 验收测试：
@@ -384,6 +391,16 @@ C 轨 D2 不实现复杂权限编辑器；前端只根据后端返回的允许�
 - bootstrap 三状态、local-only 入口、active=false 会话失效语义在 contract 中可验证。
 - A 轨没有修改 C 轨拥有的前端文件。
 - contract 冻结后若需变更，已有明确版本化说明和通知机制。
+- 来自私网地址的客户端仍按正常 Cookie/Bearer 与系统角色规则判定，不因位于 LAN 自动获得 EVENT_ADMIN 权限；Bootstrap 的本机写入口例外不受影响。
+- `PINGPONG_DB_PATH` 优先于旧 `DEMO_DB_PATH`，且旧变量仍可驱动测试库路径。
+
+验收证据（2026-09-22）：
+
+- OpenAPI 契约专项测试 `9 passed`。
+- `python export_openapi.py --check` 返回 `OpenAPI snapshot is up to date`。
+- 后端全量回归收集 `864` 项，跳过 `28` 项，其余全部通过，进程退出码 `0`。
+- `git status --short -- frontend/src` 无输出，确认未修改 C 轨前端源码。
+- 认证、部署配置与 OpenAPI 契约专项合计 24 passed。
 
 ### A2.7 契约、测试与交付证据
 
@@ -498,14 +515,14 @@ pnpm contract:check
 
 ## 9. 当前进度
 
-当前已提交进度：`4/7（约 57%）`；A2.5 实现与专项验收已完成，尚未提交。
+当前已提交进度：`5/7（约 71%）`；A2.6 实现与验收已完成，尚未提交。
 
 - A2.1：已完成，提交 `564e2d2`；专项测试 `7 passed`。
 - A2.2：已完成，提交 `2ac51cd`；新增迁移版本 3、持久化 bootstrap 状态、`phone/note` 字段、原子首次初始化、账号停用与会话撤销；认证专项测试 `28 passed`。
 - A2.3：已完成，提交 `eb465ac`；认证 API、Bootstrap API 与系统用户接口已落地。
 - A2.4：已完成，提交 `51bab8f`；统一鉴权依赖与赛事资源授权已落地。
-- A2.5：实现与专项验收完成，尚未提交；40 条赛事管理写路由全部接入鉴权，专项测试 `7 passed`；全量回归结果在最终交付报告中登记。
-- A2.6：职责已调整为契约交接；前端实现归 C 轨，等待认证 contract 冻结。
+- A2.5：已完成，提交 `e6e907b`；40 条赛事管理写路由全部接入鉴权，专项测试 `7 passed`。
+- A2.6：实现、专项验收与全量回归完成，尚未提交；认证 OpenAPI contract 已冻结，契约专项测试 `9 passed`，OpenAPI 快照校验通过，后端全量回归 `864` 项收集、`28` 跳过且其余通过，未修改 `frontend/src/**`。
 - A2.7：未开始。
 
-本文件代表 A2.1-A2.4 已提交；A2.5 已实现并通过专项验收，等待全量回归与人工审核提交；A2.6-A2.7 仍按修订后的执行顺序和验收边界实施。
+本文件代表 A2.1-A2.5 已提交；A2.6 已实现并通过专项验收与全量回归，等待人工审核提交；A2.7 仍按修订后的执行顺序和验收边界实施。
