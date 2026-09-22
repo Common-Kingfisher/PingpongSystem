@@ -7,8 +7,8 @@
  * **不会 remount**，只有 props 变化。旧实现里 `load()` 自己 `setData(...)`，于是：
  *
  * ```text
- * 打开 /admin/t/A/score/X（关键 GET 悬挂）
- *   → 同 SPA 导航到 /admin/t/B/score/Y，B/Y 先完成并正确显示
+ * 打开 /admin/t/A/matches/X/score（关键 GET 悬挂）
+ *   → 同 SPA 导航到 /admin/t/B/matches/Y/score，B/Y 先完成并正确显示
  *   → 释放 A/X 旧请求，旧响应晚返回 → setData(A/X) 覆盖页面
  * ```
  *
@@ -222,10 +222,10 @@ function RaceProbe({ to }: { to: string }) {
 /** 使用**生产环境真实 adapter** 的路由树；探针只注入到外层。 */
 function renderRace({ to }: { to: string }) {
   return render(
-    <MemoryRouter initialEntries={[`/admin/t/${TID_A}/score/${MATCH_X}`]}>
+    <MemoryRouter initialEntries={[`/admin/t/${TID_A}/matches/${MATCH_X}/score`]}>
       <RaceProbe to={to} />
       <Routes>
-        <Route element={<AdminScoreAdapter />} path="/admin/t/:tid/score/:matchId" />
+        <Route element={<AdminScoreAdapter />} path="/admin/t/:tid/matches/:matchId/score" />
       </Routes>
     </MemoryRouter>,
   )
@@ -256,7 +256,7 @@ describe('路由切换：陈旧响应不得覆盖新比赛页面', () => {
     localStorage.setItem(STORAGE_KEY, String(STORAGE_TID))
     deferMatchesFor.add(TID_A)
 
-    renderRace({ to: `/admin/t/${TID_B}/score/${MATCH_Y}` })
+    renderRace({ to: `/admin/t/${TID_B}/matches/${MATCH_Y}/score` })
 
     // Step 1：A/X 处于加载中（关键 GET 被悬挂）
     await waitFor(() => expect(document.querySelector('.ms-loading')).not.toBeNull())
@@ -304,7 +304,7 @@ describe('路由切换：陈旧响应不得覆盖新比赛页面', () => {
     // 一个**不含 X** 的比赛列表 —— 若旧代码在 load() 内写 failure，B/Y 会被改写。
     deferMatchesFor.add(TID_A)
 
-    renderRace({ to: `/admin/t/${TID_B}/score/${MATCH_Y}` })
+    renderRace({ to: `/admin/t/${TID_B}/matches/${MATCH_Y}/score` })
 
     await waitFor(() => expect(document.querySelector('.ms-loading')).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: /导航到/ }))
@@ -323,7 +323,7 @@ describe('路由切换：陈旧响应不得覆盖新比赛页面', () => {
     // 否则裁判会在新比赛页面上看到上一场的提示。
     deferMatchesFor.add(TID_A)
 
-    renderRace({ to: `/admin/t/${TID_B}/score/${MATCH_Y}` })
+    renderRace({ to: `/admin/t/${TID_B}/matches/${MATCH_Y}/score` })
 
     await waitFor(() => expect(document.querySelector('.ms-loading')).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: /导航到/ }))

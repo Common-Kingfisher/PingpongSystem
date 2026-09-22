@@ -7,8 +7,11 @@
  * 2. 提交后**重新拉取真实 Match**，完成态由服务端状态驱动（不靠本地 state 假装 FINISHED）；
  * 3. 后端 422 业务错误原样展示，且**不清空**用户已输入的数据；
  * 4. 防重复提交：连点只发出一次请求，且提交期间按钮 disabled / 显示“提交中…”；
- * 5. 路由：赛事上下文只来自 URL path（`/admin/t/:tid/score/:matchId`），
+ * 5. 路由：赛事上下文只来自 URL path（`/admin/t/:tid/matches/:matchId/score`），
  *    绝不回退到 `localStorage.activeTournamentId`，也不从别的赛事读比赛。
+ *
+ * Route ownership（哪些 `/admin/...` 属于 D 轨、哪些必须交还 A/C）由
+ * `MobileScoreRouteOwnership.test.tsx` 单独覆盖。
  *
  * 测试策略：渲染**真实** `App`（含真实路由分支），只替换网络层 `fetch`。
  * 断言落在真实请求 URL / 请求体上，而不是只断言页面文案 —— 否则“页面看起来对、
@@ -248,7 +251,7 @@ afterEach(() => {
 
 describe('手机录分路由：赛事/比赛上下文只来自 URL path', () => {
   it('渲染真实录分页，且所有赛事请求都命中 URL 里的 tid', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     // 顶部必须显示：赛事名称 / 阶段 / 球台 / 比赛状态
@@ -269,7 +272,7 @@ describe('手机录分路由：赛事/比赛上下文只来自 URL path', () => 
   it('URL 与 localStorage 冲突时，URL path 获胜（不读 localStorage 赛事）', async () => {
     localStorage.setItem(STORAGE_KEY, String(STORAGE_TID))
 
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     expect(screen.queryByText('LOCALSTORAGE-TRAP-99')).toBeNull()
@@ -279,7 +282,7 @@ describe('手机录分路由：赛事/比赛上下文只来自 URL path', () => 
   it('比赛不属于该赛事时明确报错，且不会去别的赛事里找它', async () => {
     localStorage.setItem(STORAGE_KEY, String(STORAGE_TID))
 
-    renderAt(`/admin/t/${URL_TID}/score/999999`)
+    renderAt(`/admin/t/${URL_TID}/matches/999999/score`)
 
     await screen.findByText('比赛不存在')
     expect(screen.getByText(/没有编号为 #999999 的比赛/)).toBeTruthy()
@@ -289,14 +292,14 @@ describe('手机录分路由：赛事/比赛上下文只来自 URL path', () => 
   it('非法路由参数不渲染录分页，也不发出任何赛事数据请求', async () => {
     localStorage.setItem(STORAGE_KEY, String(STORAGE_TID))
 
-    renderAt(`/admin/t/${URL_TID}/score/not-a-number`)
+    renderAt(`/admin/t/${URL_TID}/matches/not-a-number/score`)
 
     await screen.findByText('链接不可用')
     expect(requestedPaths.filter((p) => p.includes('/api/tournaments/'))).toEqual([])
   })
 
   it('手机录分页不渲染管理端顶部导航（不会出现 11 个管理入口）', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     expect(screen.queryByText('赛事大屏')).toBeNull()
@@ -306,7 +309,7 @@ describe('手机录分路由：赛事/比赛上下文只来自 URL path', () => 
 
 describe('正常比分：只录大比分', () => {
   it('不展开小比分时，payload 不携带 games，且提交后重新拉取真实 Match', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '1')
@@ -333,7 +336,7 @@ describe('正常比分：只录大比分', () => {
   })
 
   it('大比分未填完时直接提示，不发请求', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fireEvent.change(scoreInput('张三'), { target: { value: '2' } })
@@ -344,7 +347,7 @@ describe('正常比分：只录大比分', () => {
   })
 
   it('大比分平局时前端只做基础提示，不发请求（最终判定仍在服务端）', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '2')
@@ -359,7 +362,7 @@ describe('正常比分：只录大比分', () => {
     // 三局两胜里 1:0 业务上非法，但必须允许它走到后端，由后端返回 422。
     server.onScorePost = () => jsonResponse({ detail: '大比分胜局数必须为 2' }, 422)
 
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('1', '0')
@@ -373,7 +376,7 @@ describe('正常比分：只录大比分', () => {
   })
 
   it('步进按钮只做 +1 / −1 与下限 0，不受 gamesToWin 限制、也不改动另一方', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     const plusA = screen.getByRole('button', { name: '张三 加一局' })
@@ -394,7 +397,7 @@ describe('正常比分：只录大比分', () => {
 
 describe('正常比分：可选逐局小比分', () => {
   it('大比分 + 完整小比分可以同次提交，使用 contract 字段 games[].side_a_score/side_b_score', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '1')
@@ -428,7 +431,7 @@ describe('正常比分：可选逐局小比分', () => {
   })
 
   it('半局数据（只填一边）被拦下，不发请求', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '1')
@@ -442,7 +445,7 @@ describe('正常比分：可选逐局小比分', () => {
   })
 
   it('删除局分后可以重新提交，不再携带被删除的局', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '1')
@@ -471,7 +474,7 @@ describe('异常结果', () => {
     ['WALKOVER', '直接晋级（对手未到场）'],
     ['DISQUALIFIED', '取消资格'],
   ])('%s：携带 result_type + forfeit_entry_id，且不伪造 games', async (type, label) => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fireEvent.click(screen.getByRole('button', { name: '异常结果' }))
@@ -495,7 +498,7 @@ describe('异常结果', () => {
   })
 
   it('未选择异常方时不提交', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fireEvent.click(screen.getByRole('button', { name: '异常结果' }))
@@ -506,7 +509,7 @@ describe('异常结果', () => {
   })
 
   it('异常结果完成态显示「李四弃权」，不显示成 2:1 这种正常比分', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     // 小组赛弃权：服务端会为排名写入行政比分 2:0，但页面必须区分展示
@@ -538,7 +541,7 @@ describe('错误处理与防重复提交', () => {
   it('后端 422 业务错误原样展示，且不清空已输入数据', async () => {
     server.onScorePost = () => jsonResponse({ detail: '逐局小比分与大比分不一致' }, 422)
 
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '1')
@@ -555,7 +558,7 @@ describe('错误处理与防重复提交', () => {
   it('后端 409 冲突错误展示为“当前比赛状态不允许这样操作”', async () => {
     server.onScorePost = () => jsonResponse({ detail: '只有进行中或待安排的比赛可以录入比分' }, 409)
 
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '0')
@@ -569,7 +572,7 @@ describe('错误处理与防重复提交', () => {
       throw new TypeError('Failed to fetch')
     }
 
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '1')
@@ -602,7 +605,7 @@ describe('错误处理与防重复提交', () => {
       return realFetch(input as RequestInfo, init)
     })
 
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '1')
@@ -638,7 +641,7 @@ describe('错误处理与防重复提交', () => {
       return jsonResponse(finishedMatch())
     }
 
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '1')
@@ -661,7 +664,7 @@ describe('错误处理与防重复提交', () => {
     // 服务端拒绝：比赛已被别处改分（409 冲突）
     server.onScorePost = () => jsonResponse({ detail: '只有进行中或待安排的比赛可以录入比分' }, 409)
 
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '1')
@@ -681,7 +684,7 @@ describe('错误处理与防重复提交', () => {
 
 describe('操作人留痕', () => {
   it('填写操作人后随请求提交，并记忆到 localStorage', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fireEvent.change(screen.getByLabelText('操作人（选填）'), { target: { value: '王裁判' } })
@@ -694,7 +697,7 @@ describe('操作人留痕', () => {
   })
 
   it('不填操作人时不发送 operator_name（留空不冒充操作人）', async () => {
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
 
     fillBigScore('2', '0')
@@ -709,7 +712,7 @@ describe('已结束比赛：不重开改分流程', () => {
   it('已结束比赛只展示结果，并指向赛事管理端改分', async () => {
     server.matches = [finishedMatch()]
 
-    renderAt(`/admin/t/${URL_TID}/score/${MATCH_ID}`)
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
 
     await screen.findByText('比分已保存')
     expect(screen.getByText('比赛已结束')).toBeTruthy()
