@@ -1035,12 +1035,12 @@ Day4D 的原始目标是「Public 排名 / 签表 / 实况适配多赛制」。�
 
 | 命令 | 结果 |
 | --- | --- |
-| `cd backend && pytest` | 见回执（含 D4D 新增 3 条） |
-| `cd frontend && pnpm install --frozen-lockfile` | OK |
+| `cd backend && pytest` | **863 passed, 30 skipped, 4 warnings**（master baseline 为 860 passed / 30 skipped，本 PR 新增 3 条全绿） |
+| `cd frontend && pnpm install --frozen-lockfile` | 退出码 0 |
 | `cd frontend && pnpm exec tsc --noEmit` | 退出码 0 |
-| `cd frontend && pnpm test` | 3 个文件 / 29 条通过（原 17 条 + 新增 12 条） |
-| `cd frontend && pnpm build` | OK |
-| `cd frontend && pnpm contract:check` | 见回执（若有 diff 会明确区分本 PR 引入 vs master baseline） |
+| `cd frontend && pnpm test` | 3 个文件 / **29 passed**（master baseline 17 条 + 本 PR 新增 12 条） |
+| `cd frontend && pnpm build` | 退出码 0（`dist/assets/index-Xa3elwSW.css` + `index-C55edmh9.js`） |
+| `pnpm contract:check` | **失败，但为 master baseline 漂移，与本 PR 无关**：已用 `git stash push -u` 把本 PR 全部改动移出工作区后在**纯 master 状态**复跑，得到同样的退出码 1；本 PR 未触碰 `docs/openapi-v0.2.json` 与 `frontend/src/generated/openapi.d.ts`（`git diff --name-only` 两者均为空），也未升级 `openapi-typescript`。真实原因：master 上 `docs/openapi-v0.2.json` 已更新，但 `frontend/src/generated/openapi.d.ts` 长期未重新生成（漂移约 +965 行）。**本轮未重新生成、未修改 snapshot 掩盖问题**，交由 A 轨 / 维护者决定何时统一刷新。 |
 
 前端测试用例矩阵（`PublicViewStates.test.tsx`）：
 
@@ -1068,6 +1068,7 @@ Day4D 的原始目标是「Public 排名 / 签表 / 实况适配多赛制」。�
 | 扫码/深链接进入 `bracket` 时针对 SINGLE_ELIMINATION 的「不设循环赛排名」专用文案 | 目前用**中性空态**覆盖（对三种赛制都成立），专项文案等契约 | D |
 | ROUND_ROBIN 大屏「不展示淘汰赛区域」的显式判定 | 目前只在「已结束且无签表」时展示赛事排名；显式判定等契约 | D |
 | PR #45（手机录分）未合并 | 外部阻塞，本 D 轮无法推进 | A/C/维护者 |
+| PublicLayout 的「赛事首页」仍指向 `/?tid=<tid>`（= 管理端首页，且当前无 AuthGuard） | **本轮未改**：这是 Day 2 的既定设计（记为“普通导航”），但观众点进去会看到管理界面。已在本轮新增测试中**只**断言“不出现 `/console`、`/players` 等管理页面链接”，未对该链接下断言。建议与 A 轨 AuthGuard / C 轨 IA 一并决策：要么隐藏，要么在未登录时改指向 `/public/t/:tid/live`。 | D + A + C（需产品决策） |
 | LAN 跨设备验收（真实手机） | 无第二台设备，未验收 | 现场 / Day6 |
 | Day5 报名确认 / 二维码 / Organization / Venue | 本轮冻结范围内**不做** | Day5+ |
 
@@ -1090,4 +1091,21 @@ Day4D 的原始目标是「Public 排名 / 签表 / 实况适配多赛制」。�
 6. `BigScreenPage.tsx` 用同一 helper 决定是否渲染「小组排名（出线区）」与签表区域。
 
 这样 Public 页面不需要新增第二套“前端赛制引擎”，也不会与 B 轨 Handler 出现两个真相源。
+
+## 31. 多赛制行为矩阵：现状（本轮）vs 目标（#47 / #48 之后）
+
+**现状（本轮真实行为，与赛制无关）**：因为 master 上没有 `TournamentOut.format_code`，
+Public 端**不做任何赛制判定**，一律“有数据就展示、没数据就空态”，因此三种赛制下表内结果相同。
+这也是本轮唯一诚实可行的口径 —— 任何按赛制隐藏入口的实现都必须先有权威字段。
+
+| 视图 | 现状（本轮 Day4D） | 目标（GROUP_KNOCKOUT） | 目标（ROUND_ROBIN） | 目标（SINGLE_ELIMINATION） |
+| --- | --- | --- | --- | --- |
+| 实况 `/live` | 恒显示；FINAL 且无签表时展示后端「赛事排名」 | 同现状（签表 + 冠军 + 出线区） | 展示当前比赛 / 进度 / 赛事排名，不展示淘汰赛区域 | 展示当前比赛 / 进度 / 签表（BYE 按后端签表渲染）/ 冠军 |
+| 赛程 `/schedule` | 恒显示（复用 SchedulePage） | 恒显示 | 恒显示 | 恒显示 |
+| 排名 `/rankings` | 导航恒显示；无排名行 → 中性空态「暂无赛事排名」+ 查看签表 | 小组排名 | 赛事排名（后端 RR 名次） | 导航隐藏；直链 → 空态「本赛事不设置循环赛排名」+ 查看签表 |
+| 签表 `/bracket` | 导航恒显示；无签表 → 中性空态「暂无淘汰赛签表」+ 查看排名 | 淘汰签表 | 导航隐藏；直链 → 空态「本赛事不设淘汰赛签表」+ 查看排名 | 签表（非 2 次幂 / BYE / 待定 slot 全部按后端数据渲染） |
+| 冠军 `/champion` | 导航恒显示（复用 ChampionJourneyPage） | 冠军之路 | 视后端是否有可展示结果（否则隐藏） | 冠军之路 |
+| 报名 `/register` | legacy 兼容页（V0.2 行为，已显式标注） | 待 Day5 Registration contract | 待 Day5 | 待 Day5 |
+
+上表的「目标」列**本轮未实现**，已按第 30 节写成可直接落地的接入点。
 
