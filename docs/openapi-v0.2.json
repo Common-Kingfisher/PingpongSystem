@@ -662,6 +662,59 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/format": {
+      "put": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Update Tournament Format",
+        "description": "更新赛制配置三元组；已产生比赛或团体对抗时拒绝静默切换。",
+        "operationId": "update_tournament_format_api_tournaments__tournament_id__format_put",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TournamentFormatUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TournamentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}": {
       "get": {
         "tags": [
@@ -9460,6 +9513,28 @@
           "operation_mode": {
             "$ref": "#/components/schemas/TournamentMode",
             "default": "LIVE"
+          },
+          "format_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TournamentFormat"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rule_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Config"
           }
         },
         "type": "object",
@@ -9633,6 +9708,33 @@
         "title": "TournamentExportDerived",
         "description": "运行期推导结果，不属于落库数据。"
       },
+      "TournamentFormat": {
+        "type": "string",
+        "enum": [
+          "ROUND_ROBIN",
+          "SINGLE_ELIMINATION",
+          "GROUP_KNOCKOUT"
+        ],
+        "title": "TournamentFormat",
+        "description": "个人赛 Tournament 的稳定赛制代码。"
+      },
+      "TournamentFormatUpdateRequest": {
+        "properties": {
+          "format_code": {
+            "$ref": "#/components/schemas/TournamentFormat"
+          },
+          "rule_config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Rule Config"
+          }
+        },
+        "type": "object",
+        "required": [
+          "format_code"
+        ],
+        "title": "TournamentFormatUpdateRequest"
+      },
       "TournamentMode": {
         "type": "string",
         "enum": [
@@ -9717,6 +9819,32 @@
           "operation_mode": {
             "$ref": "#/components/schemas/TournamentMode",
             "default": "LIVE"
+          },
+          "format_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TournamentFormat"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rule_config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Rule Config"
+          },
+          "rule_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Version"
           }
         },
         "type": "object",

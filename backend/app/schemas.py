@@ -22,6 +22,7 @@ from .models import (
     TeamRubberType,
     TeamSide,
     TeamTieStatus,
+    TournamentFormat,
     TournamentMode,
     TournamentRole,
     TournamentStage,
@@ -40,6 +41,8 @@ class TournamentCreate(BaseModel):
     games_to_win: int = Field(default=2, ge=1, le=4)
     points_to_win: int = Field(default=11, ge=1, le=99)
     operation_mode: TournamentMode = TournamentMode.LIVE
+    format_code: TournamentFormat | None = None
+    rule_config: dict[str, Any] | None = None
 
 
 class TournamentOut(BaseModel):
@@ -59,6 +62,14 @@ class TournamentOut(BaseModel):
     roster_confirmed: bool = False
     confirmed_at: str | None = None
     operation_mode: TournamentMode = TournamentMode.LIVE
+    format_code: TournamentFormat | None = None
+    rule_config: dict[str, Any] = Field(default_factory=dict)
+    rule_version: int | None = None
+
+
+class TournamentFormatUpdateRequest(BaseModel):
+    format_code: TournamentFormat
+    rule_config: dict[str, Any] = Field(default_factory=dict)
 
 
 class ApiErrorDetail(BaseModel):

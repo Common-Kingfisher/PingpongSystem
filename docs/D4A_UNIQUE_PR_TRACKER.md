@@ -74,38 +74,47 @@ A 轨只负责数据模型、迁移、API、事务、权限和验证接线，不
 
 ## 五、实施清单
 
-- [ ] Migration v4：增加 `format_code`、`rule_config`、`rule_version`。
-- [ ] 同步基础建表 SQL 和 ORM 模型。
-- [ ] Repository：读取转换、创建参数和原子更新。
-- [ ] Service：存在性、状态、Match / TeamTie 保护与 Handler 校验。
-- [ ] Schema：更新请求模型和 Tournament 输出模型。
-- [ ] Router：新增专用 format 更新接口。
-- [ ] OpenAPI：导出并执行兼容性检查。
-- [ ] 测试：迁移、旧库升级、Unicode JSON、非法 JSON、权限、409、未知格式、导出。
-- [ ] 定向测试、全量 pytest、`git diff --check`。
+- [x] Migration v4：增加 `format_code`、`rule_config`、`rule_version`。
+- [x] 同步基础建表 SQL 和 ORM 模型。
+- [x] Repository：读取转换、创建参数和原子更新。
+- [x] Service：存在性、状态、Match / TeamTie 保护与 Handler 校验。
+- [x] Schema：更新请求模型和 Tournament 输出模型。
+- [x] Router：新增专用 format 更新接口。
+- [x] OpenAPI：导出并执行兼容性检查。
+- [x] 测试：迁移、旧库升级、Unicode JSON、非法 JSON、权限、409、未知格式、导出。
+- [x] 定向测试、全量 pytest、`git diff --check`。
 
 ## 六、完成门槛
 
-- [ ] 旧数据库迁移不丢数据，旧赛事可兼容读取。
-- [ ] 三种 format code 与 B 轨冻结定义一致。
-- [ ] 未知 format 显式失败，不回退到默认赛制。
-- [ ] 非法配置在入库前被 B validator 拒绝。
-- [ ] 更新操作原子，发生 Match 或 TeamTie 后受保护。
-- [ ] 权限边界正确。
-- [ ] TournamentOut 与导出包含赛制配置。
-- [ ] OpenAPI 已同步。
-- [ ] 定向测试 0 failed。
-- [ ] 全量 pytest 0 failed。
-- [ ] `git diff --check` 通过。
+- [x] 旧数据库迁移不丢数据，旧赛事可兼容读取。
+- [x] 三种 format code 与 B 轨冻结定义一致。
+- [x] 未知 format 显式失败，不回退到默认赛制。
+- [ ] 非法配置在入库前被 B validator 拒绝。（B 侧 schema validator 未到位，见 §4）
+- [x] 更新操作原子，发生 Match 或 TeamTie 后受保护。
+- [x] 权限边界正确。
+- [x] TournamentOut 与导出包含赛制配置。
+- [x] OpenAPI 已同步。
+- [x] 定向测试 0 failed。
+- [x] 全量 pytest 0 failed。
+- [x] `git diff --check` 通过。
 - [ ] 非作者完成赛制与 Schema 复核。
 - [ ] 无越权、数据丢失、错误赛制解析等 P0。
 
 ## 七、唯一 PR 声明
 
-本阶段唯一 PR 分支：
+本阶段唯一 PR：
 
-```text
-feat/D4A赛制配置落库
-```
+- PR：https://github.com/Common-Kingfisher/PingpongSystem/pull/47
+- 分支：`feat/D4A赛制配置落库`
 
 后续修改继续提交到本分支和本 PR。若需要同步 `master`，一律使用 merge，不使用 rebase。
+## 八、当前验证记录（2026-09-22）
+
+- `py_compile`：8 个 D4A 源码与测试文件通过。
+- OpenAPI：`backend/export_openapi.py` 生成成功，`--check` 返回 `OpenAPI snapshot is up to date`。
+- 定向测试：6 个测试文件，`40 passed`，0 failed。
+- 全量测试：在 `backend` 目录运行，收集 908 项，`884 passed / 24 skipped / 0 failed`。
+- 静态检查：`git diff --check` 通过。
+- 测试警告：仅有既有 FastAPI/Starlette 依赖弃用 warning，无功能失败。
+
+当前尚未提交：11 个已修改文件和 1 个未跟踪测试文件，全部保留在工作区供人工审核。

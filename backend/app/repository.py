@@ -4,6 +4,7 @@
 业务规则（哪些操作被禁止等）不放在本层，放在 services/ 或 domain/。
 """
 
+import json
 import sqlite3
 from typing import Any, Optional
 
@@ -14,8 +15,50 @@ from .models import TableStatus
 _TOURNAMENT_COLS = (
     "id, name, date, table_count, group_count, qualify_per_group, stage, created_at, "
     "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, "
-    "roster_confirmed, confirmed_at, operation_mode, owner_user_id"
+    "roster_confirmed, confirmed_at, operation_mode, owner_user_id, "
+    "format_code, rule_config, rule_version"
 )
+
+
+class RuleConfigError(ValueError):
+    """rule_config 不是合法 JSON object。"""
+
+
+def encode_rule_config(rule_config: dict[str, Any]) -> str:
+    """稳定序列化规则配置，避免字典顺序影响存储指纹。"""
+    if not isinstance(rule_config, dict):
+        raise RuleConfigError("rule_config 必须是 JSON object")
+    try:
+        return json.dumps(
+            rule_config,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise RuleConfigError("rule_config 必须是可稳定序列化的 JSON object") from exc
+
+
+def decode_rule_config(raw: Any) -> dict[str, Any]:
+    """把数据库 TEXT 解码为 JSON object；NULL 仅对外兼容为 {}。"""
+    if raw is None:
+        return {}
+    if not isinstance(raw, str):
+        raise RuleConfigError("rule_config 数据库值必须是 JSON 文本或 NULL")
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuleConfigError("rule_config 不是合法 JSON") from exc
+    if not isinstance(decoded, dict):
+        raise RuleConfigError("rule_config 必须是 JSON object")
+    return decoded
+
+
+def _tournament_row(row: sqlite3.Row) -> dict:
+    tournament = dict(row)
+    tournament["rule_config"] = decode_rule_config(tournament.get("rule_config"))
+    return tournament
 
 
 def create_tournament(
@@ -32,34 +75,65 @@ def create_tournament(
     points_to_win: int = 11,
     operation_mode: str = "LIVE",
     owner_user_id: int | None = None,
+    format_code: str | None = None,
+    rule_config: dict[str, Any] | None = None,
+    rule_version: int | None = None,
 ) -> dict:
+    if format_code is None:
+        if rule_config is not None or rule_version is not None:
+            raise RuleConfigError("未指定 format_code 时不能写入 rule_config/rule_version")
+        encoded_rule_config = None
+    else:
+        if rule_version is None:
+            raise RuleConfigError("指定 format_code 时必须提供 rule_version")
+        encoded_rule_config = encode_rule_config(rule_config or {})
     cur = conn.execute(
         "INSERT INTO tournaments (name, date, table_count, group_count, qualify_per_group, "
         "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode, "
-        "owner_user_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "owner_user_id, format_code, rule_config, rule_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (name, date, table_count, group_count, qualify_per_group, event_type,
          bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode,
-         owner_user_id),
+         owner_user_id, format_code, encoded_rule_config, rule_version),
     )
     row = conn.execute(
         f"SELECT {_TOURNAMENT_COLS} FROM tournaments WHERE id = ?", (cur.lastrowid,)
     ).fetchone()
-    return dict(row)
+    return _tournament_row(row)
 
 
 def get_tournament(conn: sqlite3.Connection, tournament_id: int) -> Optional[dict]:
     row = conn.execute(
         f"SELECT {_TOURNAMENT_COLS} FROM tournaments WHERE id = ?", (tournament_id,)
     ).fetchone()
-    return dict(row) if row else None
+    return _tournament_row(row) if row else None
 
 
 def list_tournaments(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         f"SELECT {_TOURNAMENT_COLS} FROM tournaments ORDER BY id DESC"
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [_tournament_row(r) for r in rows]
+
+
+def update_tournament_format_config(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    *,
+    format_code: str,
+    rule_config: dict[str, Any],
+    rule_version: int,
+) -> Optional[dict]:
+    """用单条 SQL 原子更新赛制三元组，避免出现半套配置。"""
+    encoded_rule_config = encode_rule_config(rule_config)
+    cur = conn.execute(
+        "UPDATE tournaments SET format_code = ?, rule_config = ?, rule_version = ? "
+        "WHERE id = ?",
+        (format_code, encoded_rule_config, rule_version, tournament_id),
+    )
+    if cur.rowcount == 0:
+        return None
+    return get_tournament(conn, tournament_id)
 
 
 def update_tournament_stage(conn: sqlite3.Connection, tournament_id: int, stage: str) -> None:
@@ -1442,4 +1516,4 @@ def list_tournaments_for_user(
         "ORDER BY t.id DESC",
         (user_id, user_id),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [_tournament_row(r) for r in rows]

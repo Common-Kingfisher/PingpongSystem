@@ -93,6 +93,9 @@ def test_export_available_at_every_stage(client):
     assert tournament["operation_mode"] == "LIVE"
     assert tournament["qualify_per_group"] == 1
     assert tournament["bronze_mode"] and tournament["placement_mode"]
+    assert tournament["format_code"] is None
+    assert tournament["rule_version"] is None
+    assert tournament["rule_config"] == {}
 
     # GROUP_STAGE
     client.post(f"/api/tournaments/{tid}/auto-group")
