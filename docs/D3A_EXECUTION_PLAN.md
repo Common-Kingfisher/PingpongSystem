@@ -8,7 +8,7 @@
 >
 > 当前执行状态：**A 侧实现与 A 侧自动化验证已完成（10/10）；等待 E/非作者复核、D 轨实机联调及最终 Merge Gate。**
 >
-> 当前验证状态：定向测试 28 passed；后端全量测试 883 collected / 30 skipped / 0 failed；OpenAPI snapshot up to date；`git diff --check` 通过。
+> 当前验证状态：定向测试 71 passed；干净环境后端全量测试 890 collected / 30 skipped / 0 failed；OpenAPI snapshot up to date；`git diff --check` 通过。
 >
 > 当前前置状态：D2A PR #42 已于 2026-09-22 合并到 `master`；D3A 从 `origin/master@3052c37` 独立创建。
 >
