@@ -69,6 +69,16 @@ type LoadFailure =
   | { kind: 'network'; title: string; detail: string }
   | { kind: 'server'; title: string; detail: string; status: number }
 
+/**
+ * `load()` 的返回值：**只描述事实，不写页面状态**。
+ *
+ * 把“取数”和“写 state”分开之后，调用方才能先判断 generation 是否仍然有效，
+ * 再决定要不要落到 React state（见本文件 `loadGenerationRef` 的说明）。
+ */
+type LoadResult =
+  | { ok: true; data: LoadedData }
+  | { ok: false; failure: LoadFailure }
+
 function describeLoadError(error: unknown, tid: number): LoadFailure {
   if (error instanceof ApiError) {
     if (error.status === 404) {
@@ -140,7 +150,39 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
    */
   const inFlight = useRef(false)
 
-  const load = useCallback(async () => {
+  /**
+   * 页面加载上下文代号（generation）：**陈旧响应防护的唯一依据**。
+   *
+   * ## 为什么必须有它
+   *
+   * React Router 在同一路由 pattern 下切换 `:tid` / `:matchId` 时，`MobileScorePage`
+   * **不会 remount**，只是 props 变了。于是会出现真实竞态：
+   *
+   * ```text
+   * 打开 A/X → A/X 的 GET 还在飞 → 导航到 B/Y → B/Y 先返回（页面正确显示 B/Y）
+   * → A/X 旧请求随后返回 → 旧代码仍 setData(A/X) → 页面被旧比赛覆盖
+   * ```
+   *
+   * 最危险的是「显示 A/X、但 `match.id` 已经是 Y」→ 录的分可能写到别的比赛上。
+   *
+   * ## 规则
+   *
+   * 1. 每次进入新的加载上下文就 `++loadGenerationRef.current`；
+   * 2. `load()` **自身不写任何 React state**，只返回 `LoadResult`；
+   * 3. 只有 `generation === loadGenerationRef.current` 的调用方，才允许写
+   *    `data` / `failure` / `savedMatch` / `refreshWarning` / `formError` / `submitting`。
+   *
+   * 旧 generation 的请求即使用户已经离开该页面并成功返回，也**永久失去写 state 的资格**。
+   */
+  const loadGenerationRef = useRef(0)
+
+  /**
+   * 纯取数函数：只调 API、只组装结果，**不碰 React state**。
+   *
+   * 因此它返回的 `LoadResult` 可以被任何调用方（首次加载 / 提交后刷新）复用，
+   * 由调用方统一做 generation 判断。
+   */
+  const load = useCallback(async (): Promise<LoadResult> => {
     const [tournament, matches, players, groups] = await Promise.all([
       api.getTournament(tid),
       api.listMatches(tid),
@@ -150,13 +192,16 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
 
     const match = matches.find((item) => item.id === matchId)
     if (!match) {
-      setData(null)
-      setFailure({
-        kind: 'match-missing',
-        title: '比赛不存在',
-        detail: `本赛事（#${tid}）里没有编号为 #${matchId} 的比赛。请确认链接是否属于当前赛事。`,
-      })
-      return
+      // 比赛不存在也**不能**在这里写 state：A/X 的旧请求晚返回时，
+      // 否则会把已经显示 B/Y 的页面改成“比赛不存在”。
+      return {
+        ok: false,
+        failure: {
+          kind: 'match-missing',
+          title: '比赛不存在',
+          detail: `本赛事（#${tid}）里没有编号为 #${matchId} 的比赛。请确认链接是否属于当前赛事。`,
+        },
+      }
     }
 
     const groupName = match.group_id === null
@@ -171,22 +216,73 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
       tableName = table?.name ?? `#${match.table_id}`
     }
 
-    setFailure(null)
-    setData({ tournament, match, players, groupName, tableName })
+    return { ok: true, data: { tournament, match, players, groupName, tableName } }
   }, [tid, matchId])
 
+  /**
+   * generation 一致时才写页面状态；陈旧响应直接丢弃（返回 false）。
+   *
+   * 所有异步路径（首次加载、提交后刷新）都必须经过这里，避免出现两套判断。
+   */
+  const applyLoadResult = useCallback((generation: number, result: LoadResult): boolean => {
+    if (generation !== loadGenerationRef.current) return false
+    if (result.ok) {
+      setData(result.data)
+      setFailure(null)
+    } else {
+      setData(null)
+      setFailure(result.failure)
+    }
+    return true
+  }, [])
+
   useEffect(() => {
-    let active = true
+    // 进入新的加载上下文：旧 generation 的一切响应从此失效。
+    const generation = ++loadGenerationRef.current
+
+    // 新比赛 = 新表单：清空上一场的输入与上一场的提交/刷新提示，避免串场。
     setData(null)
     setFailure(null)
-    load().catch((error: unknown) => {
-      if (!active) return
-      setFailure(describeLoadError(error, tid))
-    })
+    setSavedMatch(null)
+    setRefreshWarning(null)
+    setFormError(null)
+    setSubmitting(false)
+    setMode('normal')
+    setScoreA('')
+    setScoreB('')
+    setGamesOpen(false)
+    setGames([])
+    setResultType('FORFEIT')
+    setForfeitSide(null)
+    setNote('')
+    setNoteOpen(false)
+    setConfirmAbnormal(false)
+    // 防重复提交锁同样跨路由重置，否则上一场未归零会卡死新页面的首次提交。
+    inFlight.current = false
+
+    // ⚠️ 这里**刻意不再**用 `let active/cancelled` 闭包标志来判断新鲜度。
+    //
+    // 闭包标志只能覆盖 effect 的 cleanup 所对应的那一次切换，而“哪个响应还配写 state”
+    // 这件事应该只有**一个**权威依据：generation。所有写入统一走 `applyLoadResult()`
+    // 与显式的 generation 比较，避免出现两套并行且互相掩盖的判断
+    // （两套判断并存时，任何一套被改坏都不会被测试发现）。
+    load()
+      .then((result) => {
+        applyLoadResult(generation, result)
+      })
+      .catch((error: unknown) => {
+        if (generation !== loadGenerationRef.current) return
+        setData(null)
+        setFailure(describeLoadError(error, tid))
+      })
+
     return () => {
-      active = false
+      // 卸载 / 切换路由后让当前 generation 立即作废（只作废一次）。
+      if (loadGenerationRef.current === generation) {
+        loadGenerationRef.current += 1
+      }
     }
-  }, [load, tid, matchId])
+  }, [load, applyLoadResult, tid, matchId])
 
   const tournament = data?.tournament ?? null
   const match = data?.match ?? null
@@ -279,8 +375,16 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
   // - POST 失败（4xx/5xx/网络）→ 仍然按 `describeSubmitError` 展示，输入不清空；
   // - POST 成功 → 立即用响应里的真实 `MatchOut` 作为已保存结果；只有 reload 失败时
   //   才显示“比分已保存，但最新状态刷新失败”，并明确要求刷新页面确认。
+  //
+  // ⚠️ 陈旧响应防护：整个提交流程绑定「发起提交时的 generation」。
+  // 若裁判在 POST / 刷新期间导航到另一场比赛，这一场的异步结果（data / failure /
+  // savedMatch / refreshWarning / formError / submitting）一律不得写到新页面上，
+  // 否则会出现「显示 A/X，提交目标已是 B/Y」这种数据完整性风险。
   const runSubmit = async (payload: ScorePayload) => {
     if (!match || inFlight.current) return
+    const generation = ++loadGenerationRef.current
+    const isStale = () => generation !== loadGenerationRef.current
+
     inFlight.current = true
     setSubmitting(true)
     setFormError(null)
@@ -290,6 +394,11 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
     let savedMatch: Match
     try {
       savedMatch = await api.recordScore(match.id, payload)
+      // 路由已切换：这是旧比赛的提交结果，只释放本组件之外的资源，不写任何 state。
+      if (isStale()) {
+        inFlight.current = false
+        return
+      }
       // POST 已确认成功：先记下服务端返回的真实 Match，作为刷新失败时的兜底状态。
       setSavedMatch(savedMatch)
       const trimmedOperator = operatorName.trim()
@@ -301,6 +410,10 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
         }
       }
     } catch (error) {
+      if (isStale()) {
+        inFlight.current = false
+        return
+      }
       // 到这里才是“本次比分没有保存”。网络失败同样不清空用户输入。
       if (error instanceof ApiError) {
         setFormError(describeSubmitError(error))
@@ -314,13 +427,20 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
 
     try {
       // 不用本地 state 假装成功：重新拉取真实 Match（状态、比分、小比分均以服务端为准）。
-      await load()
+      // 与首次加载共用同一套 stale-response 防护（applyLoadResult 内部判断 generation）。
+      const result = await load()
+      applyLoadResult(generation, result)
     } catch {
       // 刷新失败**不等于**提交失败：比分已经保存，必须如实告诉裁判，并且不要引导他再点一次。
-      setRefreshWarning('比分已保存，但最新状态刷新失败，请重新加载页面确认。')
+      // 同样只在仍是当前 generation 时提示 —— 旧比赛的刷新失败不得出现在新比赛页面上。
+      if (!isStale()) {
+        setRefreshWarning('比分已保存，但最新状态刷新失败，请重新加载页面确认。')
+      }
     } finally {
-      inFlight.current = false
-      setSubmitting(false)
+      if (!isStale()) {
+        inFlight.current = false
+        setSubmitting(false)
+      }
     }
   }
 

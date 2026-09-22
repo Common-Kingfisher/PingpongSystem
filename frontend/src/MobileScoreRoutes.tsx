@@ -89,8 +89,13 @@ function AdminScoreGuardBoundary({ tid, matchId }: { tid: number; matchId: numbe
  * `/admin/t/:tid/score/:matchId` 的 route element。
  *
  * 只有它处于已匹配的 route context 内，因此只有它能读取 path param。
+ *
+ * 导出供测试复用：`src/__tests__/MobileScoreRouteRace.test.tsx` 要在**同一个
+ * MemoryRouter 内**真实切换 `:tid` / `:matchId` 才能复现“旧请求晚返回覆盖新比赛”，
+ * 而录分页本身刻意不含任何跳转链接。该测试直接复用这个真实 adapter（不复制路由实现），
+ * 只把记录接口与导航探针注入测试自己的 route element。
  */
-function AdminScoreAdapter() {
+export function AdminScoreAdapter() {
   const { tid, matchId } = useParams<{ tid: string; matchId: string }>()
   const tournamentId = parseRouteTournamentId(tid)
   const targetMatchId = parseRouteMatchId(matchId)
