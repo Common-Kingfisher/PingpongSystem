@@ -31,7 +31,17 @@ CLEAR_SESSION_COOKIE_HEADER = {
 }
 
 OPENAPI_DESCRIPTION = """\
-A 轨 D2 认证、授权、Bootstrap 与系统用户管理契约（A2.6 冻结）。
+A 轨 D2/D3 认证、授权、Bootstrap、系统用户与协作管理员契约。
+
+D3A 协作管理员接口：
+- `GET /api/tournaments/{tournament_id}/admins`：Owner / Admin 查询授权。
+- `POST /api/tournaments/{tournament_id}/admins`：Owner / Admin 新增或更新
+  `ADMIN / OPERATOR / VIEWER` 授权。
+- `DELETE /api/tournaments/{tournament_id}/admins/{user_id}`：Owner / Admin
+  软撤销普通授权。
+- `OWNER` 只来自 `tournaments.owner_user_id`，不能通过普通授权接口授予或撤销。
+- 目标账号必须是存在、有效、`active=true` 的 `EVENT_ADMIN`。
+- Operator / Viewer 或无赛事权限统一按 404 `RESOURCE_NOT_FOUND` 防泄漏。
 
 认证方式：
 - browser 登录成功只通过 Set-Cookie 建立 `pp_session` 会话，不返回 access_token；
@@ -103,12 +113,26 @@ CONTRACT_METADATA: dict[str, Any] = {
         "notify_consumer": "C",
         "breaking_changes_require_new_contract_version": True,
     },
+    "tournament_admins": {
+        "manage_roles": ["OWNER", "ADMIN"],
+        "grantable_roles": ["ADMIN", "OPERATOR", "VIEWER"],
+        "owner_source": "tournaments.owner_user_id",
+        "owner_protected": {"status": 409, "code": "OWNER_PROTECTED"},
+        "no_access_status": 404,
+        "target_requirements": {
+            "active": True,
+            "system_role": "EVENT_ADMIN",
+        },
+    },
 }
 
 _SECURED_OPERATIONS = {
     ("/api/v1/auth/me", "get"),
     ("/api/v1/auth/change-password", "post"),
     ("/api/v1/system/users", "post"),
+    ("/api/tournaments/{tournament_id}/admins", "get"),
+    ("/api/tournaments/{tournament_id}/admins", "post"),
+    ("/api/tournaments/{tournament_id}/admins/{user_id}", "delete"),
 }
 
 

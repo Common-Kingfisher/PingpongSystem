@@ -35,6 +35,12 @@ WRITE_TOURNAMENT_ROLES = frozenset(
     }
 )
 READ_TOURNAMENT_ROLES = frozenset(role.value for role in TournamentRole)
+MANAGE_TOURNAMENT_ADMIN_ROLES = frozenset(
+    {
+        TournamentRole.OWNER.value,
+        TournamentRole.ADMIN.value,
+    }
+)
 
 
 def require_event_admin(
@@ -177,8 +183,18 @@ def require_tournament_write(
     return access
 
 
+def require_tournament_admin_management(
+    access: dict[str, Any] = Depends(get_tournament_access),
+) -> dict[str, Any]:
+    """只允许 Owner / Admin 进入赛事授权管理面。"""
+    if access.get("role") not in MANAGE_TOURNAMENT_ADMIN_ROLES:
+        raise _error(404, "RESOURCE_NOT_FOUND", "资源不存在")
+    return access
+
+
 __all__ = [
     "AuthContext",
+    "MANAGE_TOURNAMENT_ADMIN_ROLES",
     "READ_TOURNAMENT_ROLES",
     "WRITE_TOURNAMENT_ROLES",
     "extract_session_token",
@@ -187,6 +203,7 @@ __all__ = [
     "require_event_admin",
     "require_public_tournament_read",
     "require_system_admin",
+    "require_tournament_admin_management",
     "require_tournament_read",
     "require_tournament_write",
 ]

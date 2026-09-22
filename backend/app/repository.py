@@ -1340,6 +1340,69 @@ def upsert_tournament_admin(
     return dict(row)
 
 
+def list_tournament_admins(
+    conn: sqlite3.Connection, tournament_id: int
+) -> list[dict]:
+    """返回赛事 Owner 与未撤销的普通协作管理员，不重复返回 Owner 行。"""
+    rows = conn.execute(
+        """
+        SELECT u.id AS user_id, u.username, u.display_name,
+               'OWNER' AS role, u.active, 1 AS is_owner,
+               t.created_at AS created_at, NULL AS created_by_user_id
+        FROM tournaments t
+        JOIN users u ON u.id = t.owner_user_id
+        WHERE t.id = ?
+
+        UNION ALL
+
+        SELECT u.id AS user_id, u.username, u.display_name,
+               ta.role, u.active, 0 AS is_owner,
+               ta.created_at, ta.created_by_user_id
+        FROM tournament_admins ta
+        JOIN users u ON u.id = ta.user_id
+        WHERE ta.tournament_id = ?
+          AND ta.revoked_at IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM tournaments t
+              WHERE t.id = ta.tournament_id AND t.owner_user_id = ta.user_id
+          )
+        ORDER BY is_owner DESC, user_id
+        """,
+        (tournament_id, tournament_id),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_tournament_admin(
+    conn: sqlite3.Connection, tournament_id: int, user_id: int
+) -> Optional[dict]:
+    """读取一条未撤销的普通协作管理员授权。"""
+    row = conn.execute(
+        """
+        SELECT u.id AS user_id, u.username, u.display_name,
+               ta.role, u.active, 0 AS is_owner,
+               ta.created_at, ta.created_by_user_id
+        FROM tournament_admins ta
+        JOIN users u ON u.id = ta.user_id
+        WHERE ta.tournament_id = ? AND ta.user_id = ? AND ta.revoked_at IS NULL
+        """,
+        (tournament_id, user_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def revoke_tournament_admin(
+    conn: sqlite3.Connection, tournament_id: int, user_id: int
+) -> bool:
+    """软撤销赛事授权；重复调用保持幂等。"""
+    cur = conn.execute(
+        "UPDATE tournament_admins SET revoked_at = datetime('now') "
+        "WHERE tournament_id = ? AND user_id = ? AND revoked_at IS NULL",
+        (tournament_id, user_id),
+    )
+    return cur.rowcount > 0
+
+
 def get_tournament_access(
     conn: sqlite3.Connection, tournament_id: int, user_id: int
 ) -> Optional[dict]:
