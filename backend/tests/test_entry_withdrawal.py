@@ -12,8 +12,8 @@ from app.services import scheduling as scheduling_service
 from app.services import scores as scores_service
 
 
-def _group_event(conn):
-    tournament = repo.create_tournament(conn, "退赛测试", "2026-09-09", 2, 1, 2)
+def _group_event(conn, qualify=2):
+    tournament = repo.create_tournament(conn, "退赛测试", "2026-09-09", 2, 1, qualify)
     repo.create_tables_for_tournament(conn, tournament["id"], 2)
     for index in range(4):
         repo.add_player(conn, tournament["id"], f"参赛者{index + 1}", "体育学院")
@@ -63,6 +63,40 @@ def test_withdrawal_preserves_finished_and_forfeits_unfinished(conn):
     withdrawn = next(item for item in ranking["entries"] if item["player_id"] == withdrawn_id)
     assert withdrawn["entry_status"] == "WITHDRAWN"
     assert withdrawn["qualified"] is False
+
+
+def test_withdrawal_shifts_cutoff_and_reports_missing_relevant_point_scores(conn):
+    """退赛者居首时，ACTIVE 并列组必须按实际晋级线提示补录小分。"""
+    tournament_id, entries = _group_event(conn, qualify=1)
+    withdrawn_id, second_id, third_id, fourth_id = [entry["id"] for entry in entries]
+    missing_point_score_match_ids = set()
+    cycle_winner_by_pair = {
+        frozenset((second_id, third_id)): second_id,
+        frozenset((third_id, fourth_id)): third_id,
+        frozenset((second_id, fourth_id)): fourth_id,
+    }
+
+    for match in repo.list_matches(conn, tournament_id):
+        a, b = match["entry_a_id"], match["entry_b_id"]
+        if withdrawn_id in (a, b):
+            winner, score = withdrawn_id, ((2, 0) if a == withdrawn_id else (0, 2))
+        else:
+            winner = cycle_winner_by_pair[frozenset((a, b))]
+            score = (2, 1) if winner == a else (1, 2)
+            missing_point_score_match_ids.add(match["id"])
+        scores_service.record_score(conn, match["id"], *score)
+
+    entry_service.withdraw_from_tournament(
+        conn, tournament_id, withdrawn_id, "李主裁", "赛后伤病退赛"
+    )
+
+    group = rankings_service.get_rankings(conn, tournament_id)[0]
+
+    assert group["ambiguous_qualification"] is True
+    assert group["needs_point_scores"] is True
+    assert set(group["point_score_match_ids"]) == missing_point_score_match_ids
+    assert set(group["manual_candidate_entry_ids"]) == {second_id, third_id, fourth_id}
+    assert not [entry for entry in group["entries"] if entry["qualified"]]
 
 
 def test_withdrawal_api_requires_operator_and_reason(client):

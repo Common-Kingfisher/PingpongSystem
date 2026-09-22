@@ -152,20 +152,28 @@ def _resolve_by_point_ratio(
 
 
 def missing_point_score_match_ids(
-    matches: list[dict[str, Any]], entries: list[dict[str, Any]], qualify_count: int
+    matches: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
+    qualify_count: int,
+    *,
+    resolve_all_ties: bool = False,
 ) -> list[int]:
-    """返回影响出线线且尚未补录小分的场次。"""
-    tied_ids = {
-        entry["player_id"] for entry in entries
-        if entry.get("tied") and entry.get("rank", 9999) <= qualify_count
-    }
-    if not tied_ids:
+    """返回尚未补录小分的相关场次。
+
+    小组出线只需要晋级线并列组；单循环赛最终排名则必须解析所有未解决并列。
+    """
+    relevant_ids = (
+        {entry["player_id"] for entry in entries if entry.get("tied")}
+        if resolve_all_ties
+        else set(qualification_cutoff_candidates(entries, qualify_count))
+    )
+    if not relevant_ids:
         return []
     missing = []
     for match in matches:
         a = match.get("entry_a_id") or match.get("player_a_id")
         b = match.get("entry_b_id") or match.get("player_b_id")
-        if (a in tied_ids and b in tied_ids
+        if (a in relevant_ids and b in relevant_ids
                 and match.get("status") == "FINISHED"
                 and match.get("result_type") in (None, "NORMAL")
                 and not match.get("games")):
@@ -236,3 +244,24 @@ def compute_qualification(
             ambiguous = True
             break
     return qualified, ambiguous
+
+
+def qualification_cutoff_candidates(
+    entries: list[dict[str, Any]], qualify_count: int
+) -> list[int]:
+    """返回唯一横跨晋级线的并列组；未跨线时返回空列表。"""
+    groups: dict[int, list[int]] = {}
+    for entry in sorted(entries, key=lambda item: (item["rank"], item["player_id"])):
+        groups.setdefault(entry["rank"], []).append(entry["player_id"])
+
+    accepted = 0
+    for rank in sorted(groups):
+        ids = groups[rank]
+        remaining = qualify_count - accepted
+        if remaining <= 0:
+            break
+        if len(ids) <= remaining:
+            accepted += len(ids)
+        else:
+            return ids
+    return []
