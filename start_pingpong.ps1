@@ -357,23 +357,52 @@ $lanIps = @(Get-LanIPv4)
     - 不写死任何 id：拿不到就返回 $null，由调用方退化为“只展示 base URL”；
     - 只读打开（mode=ro），不改库、不迁移、不加锁；
     - 失败一律静默降级：探测不到赛事不应阻断启动。
+
+    ## 数据库路径语义必须与真实后端一致（PR #50 review P1）
+
+    后端启动方式是 `Set-Location $backend; python -m uvicorn app.main:app ...`，
+    而 `backend/app/db.py::_db_path()` 对覆盖值直接 `Path(override)`。
+    因此 `PINGPONG_DB_PATH=data\demo.db` 的真实含义是 `<repo>\backend\data\demo.db`
+    —— **相对 override 相对 backend 解析**，不是相对“调用脚本时的当前目录”。
+
+    若探测器按调用方 CWD 解析，就会出现两类错误：
+    A) 解析出的文件不存在 → 静默失败，只打印 base URL（信息退化）；
+    B) 解析出的路径恰好存在另一份 SQLite → 打印出**指向错误赛事**的链接
+       （例如打印 `/public/t/3/live`，而真实 FastAPI 用的是赛事 12）。B 类是本条 P1 的根因。
+
+    因此本函数：
+    1. 在 PowerShell 侧解析出唯一绝对路径（PINGPONG_DB_PATH > DEMO_DB_PATH > backend\data\demo.db）；
+    2. 相对 override 用 `Join-Path $backend` 拼接（不是 $root、不是 CWD），再 `GetFullPath` 规范化；
+    3. 只把**绝对路径**作为 argv 传给 probe，且 probe **不再读环境变量**
+       —— 否则进程里的原始相对 env 会覆盖已规范化的 argv，修复失效。
+
+    这样无论从哪个目录调用脚本，读到的都是 FastAPI 实际使用的那一个库。
 #>
 function Get-PublicTournamentId {
     if ($TournamentId -gt 0) { return $TournamentId }
 
     $probeFile = Join-Path ([System.IO.Path]::GetTempPath()) ("pingpong_tid_probe_{0}.py" -f $PID)
+
+    # 与 backend/app/db.py::_db_path() 同序：PINGPONG_DB_PATH > DEMO_DB_PATH > 默认
     $dbPath = $env:PINGPONG_DB_PATH
     if ([string]::IsNullOrWhiteSpace($dbPath)) { $dbPath = $env:DEMO_DB_PATH }
+
     if ([string]::IsNullOrWhiteSpace($dbPath)) {
         $dbPath = Join-Path $backend 'data\demo.db'
+    } elseif (-not [System.IO.Path]::IsPathRooted($dbPath)) {
+        # 相对 override：基准是 $backend（= 后端的 CWD），不是调用脚本的当前目录 / $root
+        $dbPath = Join-Path $backend $dbPath
     }
+    $dbPath = [System.IO.Path]::GetFullPath($dbPath)
 
     $probeCode = @'
 import os
 import sqlite3
 import sys
 
-db = os.environ.get("PINGPONG_DB_PATH") or os.environ.get("DEMO_DB_PATH") or sys.argv[1]
+# 只消费 PowerShell 已规范化的绝对路径：
+# 这里**不得**再读环境变量，否则进程里的原始相对路径会覆盖 argv，使路径语义修复失效。
+db = sys.argv[1]
 if not os.path.isfile(db):
     sys.exit(0)
 try:
