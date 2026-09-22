@@ -122,13 +122,20 @@ def test_event_admin_create_sets_owner_and_owner_grant_with_tables(client, conn)
     assert len(repo.list_tables(conn, tournament["id"])) == TOURNAMENT_PAYLOAD["table_count"]
 
 
-def test_other_event_admin_cannot_read_modify_or_delete_tournament(client, conn):
+def test_other_event_admin_can_public_read_but_not_access_sensitive_or_write(
+    client, conn
+):
     owned = client.post("/api/tournaments", json=TOURNAMENT_PAYLOAD).json()
     _, token = _create_event_admin("second-event-admin")
     headers = _headers(token)
 
+    public_read = client.get(
+        f"/api/tournaments/{owned['id']}", headers=headers
+    )
+    assert public_read.status_code == 200, public_read.text
+    assert public_read.json()["id"] == owned["id"]
+
     responses = (
-        client.get(f"/api/tournaments/{owned['id']}", headers=headers),
         client.get(f"/api/tournaments/{owned['id']}/export", headers=headers),
         client.post(
             f"/api/tournaments/{owned['id']}/players",

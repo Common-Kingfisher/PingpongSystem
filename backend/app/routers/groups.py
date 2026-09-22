@@ -5,7 +5,10 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
-from ..dependencies import require_tournament_read, require_tournament_write
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_write,
+)
 from ..services import groups as groups_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["groups"])
@@ -15,7 +18,7 @@ router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["groups"])
 def get_groups(
     tournament_id: int,
     conn: Connection = Depends(get_db),
-    _access=Depends(require_tournament_read),
+    _access=Depends(require_public_tournament_read),
 ):
     if repo.get_tournament(conn, tournament_id) is None:
         raise HTTPException(status_code=404, detail="赛事不存在")

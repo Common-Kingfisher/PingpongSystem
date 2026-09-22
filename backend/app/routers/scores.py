@@ -7,7 +7,11 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
-from ..dependencies import require_tournament_read, require_tournament_write
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_read,
+    require_tournament_write,
+)
 from ..services import rankings as rankings_service
 from ..services import scores as scores_service
 
@@ -91,7 +95,7 @@ def list_score_audits(
 def get_rankings(
     tournament_id: int,
     conn: Connection = Depends(get_db),
-    _access=Depends(require_tournament_read),
+    _access=Depends(require_public_tournament_read),
 ):
     try:
         data = rankings_service.get_rankings(conn, tournament_id)

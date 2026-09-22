@@ -5,7 +5,10 @@ from sqlite3 import Connection
 
 from .. import schemas
 from ..db import get_db
-from ..dependencies import require_tournament_read, require_tournament_write
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_write,
+)
 from ..services import entries as entry_service
 from ..services import teams as teams_service
 
@@ -20,7 +23,7 @@ def _http(exc: entry_service.EntryError | teams_service.TeamError) -> HTTPExcept
 def list_entries(
     tournament_id: int,
     conn: Connection = Depends(get_db),
-    _access=Depends(require_tournament_read),
+    _access=Depends(require_public_tournament_read),
 ):
     try:
         return entry_service.list_entries(conn, tournament_id)

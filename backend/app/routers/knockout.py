@@ -5,7 +5,10 @@ from sqlite3 import Connection
 
 from .. import schemas
 from ..db import get_db
-from ..dependencies import require_tournament_read, require_tournament_write
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_write,
+)
 from ..services import knockout as knockout_service
 from ..services import formats as format_service
 
@@ -36,7 +39,7 @@ def generate_knockout(
 def get_knockout(
     tournament_id: int,
     conn: Connection = Depends(get_db),
-    _access=Depends(require_tournament_read),
+    _access=Depends(require_public_tournament_read),
 ):
     try:
         tree = knockout_service.get_knockout(conn, tournament_id)

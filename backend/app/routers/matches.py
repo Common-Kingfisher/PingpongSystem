@@ -7,7 +7,10 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
-from ..dependencies import require_tournament_read, require_tournament_write
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_write,
+)
 from ..services import formats as format_service
 from ..services import matches as matches_service
 
@@ -47,7 +50,7 @@ def list_matches(
     status: Literal["WAITING", "PLAYING", "FINISHED"] | None = Query(default=None),
     group_id: int | None = Query(default=None),
     conn: Connection = Depends(get_db),
-    _access=Depends(require_tournament_read),
+    _access=Depends(require_public_tournament_read),
 ):
     if repo.get_tournament(conn, tournament_id) is None:
         raise HTTPException(status_code=404, detail="赛事不存在")

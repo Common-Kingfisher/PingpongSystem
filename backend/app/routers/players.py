@@ -5,7 +5,10 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
-from ..dependencies import require_tournament_read, require_tournament_write
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_write,
+)
 from ..services import import_players as import_service
 from ..services import players as players_service
 from ..services import teams as teams_service
@@ -72,7 +75,7 @@ def _http(exc) -> HTTPException:
 def list_players(
     tournament_id: int,
     conn: Connection = Depends(get_db),
-    _access=Depends(require_tournament_read),
+    _access=Depends(require_public_tournament_read),
 ):
     _ensure_tournament(conn, tournament_id)
     return repo.list_players(conn, tournament_id)

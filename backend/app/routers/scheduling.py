@@ -5,7 +5,11 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
-from ..dependencies import require_tournament_read, require_tournament_write
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_read,
+    require_tournament_write,
+)
 from ..services import eta as eta_service
 from ..services import scheduling as scheduling_service
 
@@ -66,7 +70,7 @@ def schedule_next(
 def dashboard(
     tournament_id: int,
     conn: Connection = Depends(get_db),
-    _access=Depends(require_tournament_read),
+    _access=Depends(require_public_tournament_read),
 ):
     try:
         data = scheduling_service.get_dashboard(conn, tournament_id)

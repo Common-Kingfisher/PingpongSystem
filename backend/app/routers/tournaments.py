@@ -8,6 +8,7 @@ from ..db import get_db
 from ..dependencies import (
     get_current_user,
     require_event_admin,
+    require_public_tournament_read,
     require_tournament_read,
     require_tournament_write,
 )
@@ -81,7 +82,7 @@ def export_tournament(
 def get_tournament(
     tournament_id: int,
     conn: Connection = Depends(get_db),
-    _access=Depends(require_tournament_read),
+    _access=Depends(require_public_tournament_read),
 ):
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:

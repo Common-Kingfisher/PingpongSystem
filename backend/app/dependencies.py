@@ -155,6 +155,20 @@ def require_tournament_read(
     return access
 
 
+def require_public_tournament_read(
+    request: Request,
+    conn: Connection = Depends(get_db),
+) -> None:
+    """校验 Public 只读目标赛事存在，但不要求登录或赛事管理授权。
+
+    该依赖只用于冻结的 Public 页面实际依赖的赛事级只读 GET。管理端 Export、
+    审计、排程估算等敏感读取仍必须使用 ``require_tournament_read``。
+    """
+    tournament_id = _lookup_tournament_id(request, conn)
+    if tournament_id is None or repo.get_tournament(conn, tournament_id) is None:
+        raise _error(404, "RESOURCE_NOT_FOUND", "资源不存在")
+
+
 def require_tournament_write(
     access: dict[str, Any] = Depends(get_tournament_access),
 ) -> dict[str, Any]:
@@ -171,6 +185,7 @@ __all__ = [
     "get_current_user",
     "get_tournament_access",
     "require_event_admin",
+    "require_public_tournament_read",
     "require_system_admin",
     "require_tournament_read",
     "require_tournament_write",
