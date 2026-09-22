@@ -14,7 +14,7 @@ from .models import TableStatus
 _TOURNAMENT_COLS = (
     "id, name, date, table_count, group_count, qualify_per_group, stage, created_at, "
     "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, "
-    "roster_confirmed, confirmed_at, operation_mode"
+    "roster_confirmed, confirmed_at, operation_mode, owner_user_id"
 )
 
 
@@ -31,13 +31,16 @@ def create_tournament(
     games_to_win: int = 2,
     points_to_win: int = 11,
     operation_mode: str = "LIVE",
+    owner_user_id: int | None = None,
 ) -> dict:
     cur = conn.execute(
         "INSERT INTO tournaments (name, date, table_count, group_count, qualify_per_group, "
-        "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode, "
+        "owner_user_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (name, date, table_count, group_count, qualify_per_group, event_type,
-         bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode),
+         bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode,
+         owner_user_id),
     )
     row = conn.execute(
         f"SELECT {_TOURNAMENT_COLS} FROM tournaments WHERE id = ?", (cur.lastrowid,)
@@ -1313,6 +1316,30 @@ def revoke_user_sessions(conn: sqlite3.Connection, user_id: int) -> int:
     return cur.rowcount
 
 
+def upsert_tournament_admin(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    user_id: int,
+    role: str,
+    created_by_user_id: int | None = None,
+) -> dict:
+    """新增或恢复赛事授权；同一赛事-用户组合只保留一条有效授权。"""
+    conn.execute(
+        "INSERT INTO tournament_admins "
+        "(tournament_id, user_id, role, created_by_user_id) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, tournament_id) DO UPDATE SET "
+        "role = excluded.role, created_by_user_id = excluded.created_by_user_id, "
+        "revoked_at = NULL",
+        (tournament_id, user_id, role, created_by_user_id),
+    )
+    row = conn.execute(
+        "SELECT id, tournament_id, user_id, role, created_by_user_id, revoked_at, created_at "
+        "FROM tournament_admins WHERE tournament_id = ? AND user_id = ?",
+        (tournament_id, user_id),
+    ).fetchone()
+    return dict(row)
+
+
 def get_tournament_access(
     conn: sqlite3.Connection, tournament_id: int, user_id: int
 ) -> Optional[dict]:
@@ -1338,3 +1365,18 @@ def count_tournament_access(conn: sqlite3.Connection, user_id: int) -> int:
         (user_id, user_id),
     ).fetchone()
     return int(row["count"])
+
+
+def list_tournaments_for_user(
+    conn: sqlite3.Connection, user_id: int
+) -> list[dict]:
+    """只返回当前用户为 Owner 或拥有有效赛事授权的赛事。"""
+    rows = conn.execute(
+        f"SELECT {_TOURNAMENT_COLS} FROM tournaments t "
+        "WHERE t.owner_user_id = ? OR EXISTS ("
+        "SELECT 1 FROM tournament_admins ta WHERE ta.tournament_id = t.id "
+        "AND ta.user_id = ? AND ta.revoked_at IS NULL) "
+        "ORDER BY t.id DESC",
+        (user_id, user_id),
+    ).fetchall()
+    return [dict(r) for r in rows]

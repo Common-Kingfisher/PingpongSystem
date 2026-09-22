@@ -107,4 +107,5 @@ def test_case5_delete_tournament_cascades_no_orphans(client):
 def test_case6_delete_nonexistent_tournament_404(client):
     resp = client.delete("/api/tournaments/99999")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "赛事不存在"
+    # A2.5：赛事读/写入口统一用 RESOURCE_NOT_FOUND，避免泄漏资源存在性。
+    assert resp.json()["detail"] == {"code": "RESOURCE_NOT_FOUND", "message": "资源不存在"}

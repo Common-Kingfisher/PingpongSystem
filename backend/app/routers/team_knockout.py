@@ -13,6 +13,7 @@ from sqlite3 import Connection
 
 from .. import schemas
 from ..db import get_db
+from ..dependencies import require_tournament_read, require_tournament_write
 from ..services import team_knockout as knockout_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}/team-knockout", tags=["team-knockout"])
@@ -23,7 +24,11 @@ def _http(exc) -> HTTPException:
 
 
 @router.get("", response_model=schemas.TeamKnockoutOut)
-def get_team_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
+def get_team_knockout(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     try:
         return knockout_service.get_team_knockout(conn, tournament_id)
     except knockout_service.ServiceError as exc:
@@ -31,7 +36,11 @@ def get_team_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
 
 
 @router.post("/generate", response_model=schemas.TeamKnockoutOut)
-def generate_team_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
+def generate_team_knockout(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     try:
         return knockout_service.generate_team_knockout(conn, tournament_id)
     except knockout_service.ServiceError as exc:

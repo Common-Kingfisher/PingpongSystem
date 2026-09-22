@@ -5,6 +5,7 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
+from ..dependencies import require_tournament_read, require_tournament_write
 from ..services import eta as eta_service
 from ..services import scheduling as scheduling_service
 
@@ -17,7 +18,10 @@ def _http(exc: scheduling_service.SchedulingError) -> HTTPException:
 
 @router.post("/api/matches/{match_id}/assign-table", response_model=schemas.MatchOut)
 def assign_table(
-    match_id: int, payload: schemas.AssignTableRequest, conn: Connection = Depends(get_db)
+    match_id: int,
+    payload: schemas.AssignTableRequest,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         match = scheduling_service.assign_table(conn, match_id, payload.table_id)
@@ -27,7 +31,11 @@ def assign_table(
 
 
 @router.post("/api/matches/{match_id}/release", response_model=schemas.MatchOut)
-def release_match(match_id: int, conn: Connection = Depends(get_db)):
+def release_match(
+    match_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     try:
         match = scheduling_service.release_match(conn, match_id)
     except scheduling_service.SchedulingError as exc:
@@ -39,7 +47,11 @@ def release_match(match_id: int, conn: Connection = Depends(get_db)):
     "/api/tournaments/{tournament_id}/schedule-next",
     response_model=schemas.ScheduleNextResult,
 )
-def schedule_next(tournament_id: int, conn: Connection = Depends(get_db)):
+def schedule_next(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     try:
         assignments = scheduling_service.schedule_next(conn, tournament_id)
     except scheduling_service.SchedulingError as exc:
@@ -51,7 +63,11 @@ def schedule_next(tournament_id: int, conn: Connection = Depends(get_db)):
 
 
 @router.get("/api/tournaments/{tournament_id}/dashboard", response_model=schemas.Dashboard)
-def dashboard(tournament_id: int, conn: Connection = Depends(get_db)):
+def dashboard(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     try:
         data = scheduling_service.get_dashboard(conn, tournament_id)
     except scheduling_service.SchedulingError as exc:
@@ -77,7 +93,11 @@ def dashboard(tournament_id: int, conn: Connection = Depends(get_db)):
     "/api/tournaments/{tournament_id}/schedule-estimates",
     response_model=schemas.ScheduleEstimates,
 )
-def schedule_estimates(tournament_id: int, conn: Connection = Depends(get_db)):
+def schedule_estimates(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     """预计上场时间（只读模拟）：与自动排台同一套规则，不修改任何业务数据。
 
     签位尚未确定或超出模拟范围时返回 null，不返回假精确时间。

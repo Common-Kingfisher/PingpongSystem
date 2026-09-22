@@ -27,7 +27,8 @@ CHILD_TABLES = [
 def test_delete_missing_tournament_returns_404(client):
     resp = client.delete("/api/tournaments/999999")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "赛事不存在"
+    # A2.5：赛事读/写入口统一用 RESOURCE_NOT_FOUND，避免泄漏资源存在性。
+    assert resp.json()["detail"] == {"code": "RESOURCE_NOT_FOUND", "message": "资源不存在"}
 
 
 def test_delete_live_requires_exact_name_and_supports_backup_first(client):

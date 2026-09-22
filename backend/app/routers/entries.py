@@ -5,6 +5,7 @@ from sqlite3 import Connection
 
 from .. import schemas
 from ..db import get_db
+from ..dependencies import require_tournament_read, require_tournament_write
 from ..services import entries as entry_service
 from ..services import teams as teams_service
 
@@ -16,7 +17,11 @@ def _http(exc: entry_service.EntryError | teams_service.TeamError) -> HTTPExcept
 
 
 @router.get("/entries", response_model=list[schemas.EntryOut])
-def list_entries(tournament_id: int, conn: Connection = Depends(get_db)):
+def list_entries(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     try:
         return entry_service.list_entries(conn, tournament_id)
     except entry_service.EntryError as exc:
@@ -28,6 +33,7 @@ def pair_doubles(
     tournament_id: int,
     payload: schemas.PairingRequest,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         entries, unpaired, seed = entry_service.random_pair_doubles(
@@ -41,7 +47,11 @@ def pair_doubles(
 
 
 @router.post("/confirm-roster", response_model=schemas.ConfirmRosterResult)
-def confirm_roster(tournament_id: int, conn: Connection = Depends(get_db)):
+def confirm_roster(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     try:
         tournament, entries = entry_service.confirm_roster(conn, tournament_id)
     except (entry_service.EntryError, teams_service.TeamError) as exc:
@@ -56,6 +66,7 @@ def withdraw_entry(
     entry_id: int,
     payload: schemas.EntryWithdrawRequest,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         entry, affected, preserved = entry_service.withdraw_from_tournament(

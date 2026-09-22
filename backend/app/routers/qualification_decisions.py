@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from .. import schemas
 from ..db import get_db
+from ..dependencies import require_tournament_read, require_tournament_write
 from ..services import qualification_decisions as decision_service
 
 router = APIRouter(
@@ -28,6 +29,7 @@ def create_decision(
     group_id: int,
     body: schemas.QualificationDecisionCreate,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         return decision_service.create_decision(
@@ -51,6 +53,7 @@ def revoke_decision(
     group_id: int,
     body: schemas.QualificationDecisionRevoke,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         return decision_service.revoke_decision(
@@ -65,7 +68,10 @@ def revoke_decision(
     response_model=list[schemas.QualificationDecisionOut],
 )
 def list_decisions(
-    tournament_id: int, group_id: int, conn: Connection = Depends(get_db)
+    tournament_id: int,
+    group_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
 ):
     try:
         return decision_service.list_decisions(conn, tournament_id, group_id)

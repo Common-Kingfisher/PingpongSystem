@@ -5,6 +5,7 @@ from sqlite3 import Connection
 
 from .. import schemas
 from ..db import get_db
+from ..dependencies import require_tournament_read, require_tournament_write
 from ..services import knockout as knockout_service
 from ..services import formats as format_service
 
@@ -16,7 +17,11 @@ def _http(exc) -> HTTPException:
 
 
 @router.post("/generate-knockout", response_model=schemas.KnockoutTree)
-def generate_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
+def generate_knockout(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     try:
         handler = format_service.resolve_format_handler(format_service.GROUP_KNOCKOUT)
         tree = handler.advance_participants(conn, tournament_id)
@@ -28,7 +33,11 @@ def generate_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
 
 
 @router.get("/knockout", response_model=schemas.KnockoutTree)
-def get_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
+def get_knockout(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     try:
         tree = knockout_service.get_knockout(conn, tournament_id)
     except knockout_service.KnockoutError as exc:
@@ -37,7 +46,11 @@ def get_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
 
 
 @router.post("/knockout/undo", response_model=schemas.KnockoutUndoResult)
-def undo_knockout(tournament_id: int, conn: Connection = Depends(get_db)):
+def undo_knockout(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     """撤销淘汰签表（主签 + 名次排位），恢复到可修正小组结果的状态。
 
     淘汰赛已经开始（有 PLAYING 或已录比分）时返回 409，不静默删除真实结果。

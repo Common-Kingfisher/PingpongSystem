@@ -18,6 +18,7 @@ from sqlite3 import Connection
 
 from .. import schemas
 from ..db import get_db
+from ..dependencies import require_tournament_read
 from ..services import team_standings as standings_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}/team-groups", tags=["team-standings"])
@@ -32,6 +33,7 @@ def list_team_group_standings(
     tournament_id: int,
     group_id: int | None = Query(default=None, description="只看某个小组"),
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
 ):
     try:
         return standings_service.list_team_group_standings(conn, tournament_id, group_id)
@@ -41,7 +43,10 @@ def list_team_group_standings(
 
 @router.get("/{group_id}/standings", response_model=schemas.TeamGroupStandingsOut)
 def get_team_group_standings(
-    tournament_id: int, group_id: int, conn: Connection = Depends(get_db)
+    tournament_id: int,
+    group_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
 ):
     try:
         return standings_service.get_team_group_standings(conn, tournament_id, group_id)

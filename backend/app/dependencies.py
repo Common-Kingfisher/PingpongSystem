@@ -59,78 +59,74 @@ def _lookup_tournament_id(request: Request, conn: Connection) -> int | None:
     """从路径参数解析所属赛事，不信任客户端额外传入的赛事 ID。
 
     支持直接使用 ``tournament_id``，也支持现有路由中的资源 ID 反查。
-    任何资源不存在、参数非法或同一请求中的资源归属冲突都按资源不存在处理。
+    参数非法、已存在子资源的归属冲突一律按资源不存在处理；子资源不存在时，
+    若路径已给出 ``tournament_id``，则以该赛事作为授权目标（具体是 404 还是
+    业务 409 交给业务层判断），否则同样按资源不存在处理。
     """
     path_params = request.path_params
     resolved: list[int] = []
 
-    if "match_id" in path_params:
-        match_id = _parse_int(path_params["match_id"])
-        match = repo.get_match(conn, match_id) if match_id is not None else None
-        tournament_id = _parse_int(match.get("tournament_id")) if match else None
-        if tournament_id is None:
-            return None
-        resolved.append(tournament_id)
+    def _collect(resource: dict[str, Any] | None) -> None:
+        """收集子资源所属赛事。
 
-    if "tie_id" in path_params:
-        tie_id = _parse_int(path_params["tie_id"])
-        tie = repo.get_team_tie(conn, tie_id) if tie_id is not None else None
-        tournament_id = _parse_int(tie.get("tournament_id")) if tie else None
-        if tournament_id is None:
-            return None
-        resolved.append(tournament_id)
+        子资源不存在时不在这里下结论：若路径同时给出 ``tournament_id``，
+        授权目标就是该赛事，具体 404/409 由业务层决定；若路径只有子资源
+        ID，则最终没有可解析的赛事，仍按资源不存在处理。
+        """
+        tournament_id = _parse_int(resource.get("tournament_id")) if resource else None
+        if tournament_id is not None:
+            resolved.append(tournament_id)
 
-    if "rubber_id" in path_params:
-        rubber_id = _parse_int(path_params["rubber_id"])
+    def _collect_rubber(raw_id: Any) -> None:
+        rubber_id = _parse_int(raw_id)
         rubber = repo.get_team_rubber(conn, rubber_id) if rubber_id is not None else None
         tie_id = _parse_int(rubber.get("team_tie_id")) if rubber else None
         tie = repo.get_team_tie(conn, tie_id) if tie_id is not None else None
-        tournament_id = _parse_int(tie.get("tournament_id")) if tie else None
-        if tournament_id is None:
-            return None
-        resolved.append(tournament_id)
+        _collect(tie)
+
+    if "match_id" in path_params:
+        match_id = _parse_int(path_params["match_id"])
+        _collect(repo.get_match(conn, match_id) if match_id is not None else None)
+
+    if "tie_id" in path_params:
+        tie_id = _parse_int(path_params["tie_id"])
+        _collect(repo.get_team_tie(conn, tie_id) if tie_id is not None else None)
+
+    if "rubber_id" in path_params:
+        _collect_rubber(path_params["rubber_id"])
 
     if "group_id" in path_params:
         group_id = _parse_int(path_params["group_id"])
-        group = repo.get_group(conn, group_id) if group_id is not None else None
-        tournament_id = _parse_int(group.get("tournament_id")) if group else None
-        if tournament_id is None:
-            return None
-        resolved.append(tournament_id)
+        _collect(repo.get_group(conn, group_id) if group_id is not None else None)
 
     if "entry_id" in path_params:
         entry_id = _parse_int(path_params["entry_id"])
-        entry = repo.get_entry(conn, entry_id) if entry_id is not None else None
-        tournament_id = _parse_int(entry.get("tournament_id")) if entry else None
-        if tournament_id is None:
-            return None
-        resolved.append(tournament_id)
+        _collect(repo.get_entry(conn, entry_id) if entry_id is not None else None)
 
     if "player_id" in path_params:
         player_id = _parse_int(path_params["player_id"])
-        player = repo.get_player(conn, player_id) if player_id is not None else None
-        tournament_id = _parse_int(player.get("tournament_id")) if player else None
-        if tournament_id is None:
-            return None
-        resolved.append(tournament_id)
+        _collect(repo.get_player(conn, player_id) if player_id is not None else None)
 
     if "table_id" in path_params:
         table_id = _parse_int(path_params["table_id"])
-        table = repo.get_table(conn, table_id) if table_id is not None else None
-        tournament_id = _parse_int(table.get("tournament_id")) if table else None
-        if tournament_id is None:
-            return None
-        resolved.append(tournament_id)
+        _collect(repo.get_table(conn, table_id) if table_id is not None else None)
 
     if "tournament_id" in path_params:
         tournament_id = _parse_int(path_params["tournament_id"])
         if tournament_id is None:
             return None
+        # 路径里的赛事就是授权目标；已能解析出的子资源必须与它归属一致，
+        # 否则（例如伪造其他赛事的子资源 ID）按资源不存在处理。
         if any(item != tournament_id for item in resolved):
             return None
         return tournament_id
 
-    return resolved[0] if resolved else None
+    if not resolved:
+        return None
+    # 同一个请求里解析出的多个子资源必须属于同一赛事，否则按资源不存在处理。
+    if any(item != resolved[0] for item in resolved):
+        return None
+    return resolved[0]
 
 
 def get_tournament_access(
