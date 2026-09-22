@@ -5,7 +5,7 @@
  *
  * ```
  * /public/t/:tid/live                     ← Day 2 公开页
- * /admin/t/:tid/score/:matchId            ← Day 3 手机录分
+ * /admin/t/:tid/matches/:matchId/score   ← Day 3 手机录分
  * ```
  *
  * ## 为什么单独一个文件

@@ -19,7 +19,7 @@ import TeamRankingsPage from './pages/TeamRankingsPage'
 import TeamQualificationPage from './pages/TeamQualificationPage'
 import TeamKnockoutPage from './pages/TeamKnockoutPage'
 import PublicRoutes from './PublicRoutes'
-import MobileScoreRoutes from './MobileScoreRoutes'
+import MobileScoreRoutes, { isMobileScoreRoutePath } from './MobileScoreRoutes'
 import { getActiveTournamentId } from './activeTournament'
 import { api } from './api'
 
@@ -89,10 +89,17 @@ export default function App() {
     return <PublicRoutes />
   }
 
-  // V0.3 手机录分（D 轨 Day 3）：`/admin/t/:tid/score/:matchId` 只渲染一场比赛的录分页。
-  // 与 Public 分支同理，提前返回是为了**不渲染管理端 App Shell**（顶部 11 个导航在手机上
-  // 无法使用，且会挤掉现场录分需要的空间）。认证接线点见 MobileScoreRoutes.tsx。
-  if (pathname.startsWith('/admin/')) {
+  // V0.3 手机录分（D 轨 Day 3）：**只**在完整匹配 D 轨拥有的那一条精确 path 时才进入
+  // MobileScoreRoutes —— `/admin/t/:tid/matches/:matchId/score`。
+  //
+  // ⚠️ Route ownership：`/admin` 命名空间的总体所有权属于 A/C 轨（AdminLayout / Login /
+  // AccessState / AuthGuard / RequireTournamentAccess 及其他管理端 route）。
+  // 这里刻意**不用** `pathname.startsWith('/admin/')`，否则 A/C 后续接入的
+  // `/admin/events`、`/admin/login`、`/admin/t/:tid/settings` 都会被 D 轨截断。
+  //
+  // 判定与 D 轨 route 表共用同一个 `isMobileScoreRoutePath()`（内部是 react-router 的
+  // `matchPath(..., { end: true })` 完整匹配），因此不会出现“入口判断与 route 声明漂移”。
+  if (isMobileScoreRoutePath(pathname)) {
     return <MobileScoreRoutes />
   }
 

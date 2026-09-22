@@ -441,12 +441,13 @@ export default function ConsolePage() {
                     unavailableReason={estimateByMatchId.get(m.id)?.unavailable_reason}
                   />
                   {/*
-                    手机录分入口（D 轨 Day 3）：跳转到 /admin/t/:tid/score/:matchId。
+                    手机录分入口（D 轨 Day 3）：跳转到
+                    /admin/t/:tid/matches/:matchId/score —— D 轨拥有的唯一精确 route。
                     这里只在双方已就绪时给出入口 —— 对阵未定的比赛在手机上也无法录分，
                     而“谁已就绪”直接来自 Match 契约字段，不是前端另行推导的规则。
                   */}
                   {matchSidesReady(m) && (
-                    <Link className="btn small waiting-match-mobile" to={`/admin/t/${tid}/score/${m.id}`}>
+                    <Link className="btn small waiting-match-mobile" to={`/admin/t/${tid}/matches/${m.id}/score`}>
                       手机录分
                     </Link>
                   )}

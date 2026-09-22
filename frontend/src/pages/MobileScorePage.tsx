@@ -14,7 +14,7 @@
  *
  * ## 赛事上下文
  *
- * `tid` 与 `matchId` 只来自路由 path（`/admin/t/:tid/score/:matchId`），
+ * `tid` 与 `matchId` 只来自路由 path（`/admin/t/:tid/matches/:matchId/score`），
  * 由 `MobileScoreRoutes.tsx` 中**已匹配的 route adapter** 解析后传入。
  * 本页不读 `localStorage.activeTournamentId`，也不读 `?tid=`，
  * 因此不会出现“打开别人的赛事/比赛”。

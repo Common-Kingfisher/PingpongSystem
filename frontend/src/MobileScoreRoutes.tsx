@@ -1,7 +1,7 @@
 /**
  * 手机录分路由（D 轨 Day 3）。
  *
- * 路由：`/admin/t/:tid/score/:matchId`
+ * canonical 路由：`/admin/t/:tid/matches/:matchId/score`
  *
  * ## 为什么是 `/admin/...`
  *
@@ -12,27 +12,61 @@
  *    （见下面的 `AdminScoreGuardBoundary`）；
  * 2. 它与 `/public/t/:tid/...` 完全分离：公开端不出现任何录分入口。
  *
+ * ## ⚠️ Route ownership：D 轨**只**拥有这一条精确 path
+ *
+ * `/admin` 命名空间的总体所有权属于 A/C 轨（AdminLayout / Login / AccessState /
+ * AuthGuard / RequireTournamentAccess 及其他管理端 route）。
+ *
+ * 因此本文件：
+ *
+ * - **只**声明 `/admin/t/:tid/matches/:matchId/score` 一条 route；
+ * - **不声明** `/admin/*` catch-all：未知 `/admin/...` 一律交还外层管理端 route tree，
+ *   否则 A/C 后续接入的 `/admin/events`、`/admin/login`、`/admin/t/:tid/settings`
+ *   等都会被 D 轨截断；
+ * - 入口判断（`App.tsx`）使用 `matchPath(..., { end: true })` 做**完整**匹配，
+ *   绝不使用 `pathname.startsWith('/admin/')`。
+ *
  * ## 与 Day 2 相同的 tid 解析约束（PR #44 P1 的教训）
  *
  * `useParams()` 只能读到**当前组件已经处于的**匹配 Route 及祖先 Route 的参数。
  * 因此：
  *
  * - ❌ 在 `MobileScoreRoutes()` 顶层调用 `useParams()` 会得到 `undefined`；
- * - ✅ 只有作为 `/admin/t/:tid/score/:matchId` 的 element 渲染的组件
- *   （下面的 `AdminScoreAdapter`）才在匹配上下文内。
+ * - ✅ 只有作为该 route 的 element 渲染的组件（下面的 `AdminScoreAdapter`）
+ *   才在匹配上下文内。
  *
  * 非法 / 缺失 param **不等于**“换一场比赛”：adapter 一律不渲染录分页，
  * 因此页面永远不会回退到 `?tid=` 或 `localStorage.activeTournamentId`。
  *
  * ## 本文件是 D 轨在 App.tsx 中的唯一入口
  *
- * 与 `PublicRoutes.tsx` 同样的做法：`App.tsx` 只增加一个提前返回分支，
+ * 与 `PublicRoutes.tsx` 同样的做法：`App.tsx` 只增加一个入口分支，
  * 具体路由收敛在这里，减少与 A/C 轨争抢同一段代码。
  */
 
-import { Route, Routes, useParams } from 'react-router-dom'
+import { Route, Routes, matchPath, useParams } from 'react-router-dom'
 import MobileScorePage from './pages/MobileScorePage'
 import { parseRouteMatchId, parseRouteTournamentId } from './routeParams'
+
+/**
+ * D 轨拥有的**唯一**路由 pattern。
+ *
+ * 导出给 `App.tsx` 做入口完整匹配，避免把路径字符串写两遍而出现漂移。
+ */
+export const MOBILE_SCORE_ROUTE_PATH = '/admin/t/:tid/matches/:matchId/score'
+
+/**
+ * 入口判定：该 pathname 是否命中 D 轨拥有的那条精确 route。
+ *
+ * `App.tsx` 与 route ownership 测试**共用这一个**判断，测试因此能在真正生效的
+ * 决策表上验证，而不是验证测试自己复制的一份逻辑。
+ *
+ * 用 react-router 自己的 `matchPath(..., { end: true })` 做**完整**匹配
+ * （不自写字符串解析、也绝不用 `startsWith('/admin/')`）。
+ */
+export function isMobileScoreRoutePath(pathname: string): boolean {
+  return matchPath({ path: MOBILE_SCORE_ROUTE_PATH, end: true }, pathname) !== null
+}
 
 /** 非法 / 缺失路由参数时的轻量提示（不回退到任何别的赛事或比赛）。 */
 function AdminScoreInvalidLink() {
@@ -42,7 +76,7 @@ function AdminScoreInvalidLink() {
         <h1>链接不可用</h1>
         <p>这个录分地址里没有有效的赛事编号或比赛编号。</p>
         <p>
-          正确格式形如 <code>/admin/t/12/score/345</code>，请向赛事组织者索取完整地址。
+          正确格式形如 <code>/admin/t/12/matches/345/score</code>，请向赛事组织者索取完整地址。
         </p>
       </div>
     </div>
@@ -86,7 +120,7 @@ function AdminScoreGuardBoundary({ tid, matchId }: { tid: number; matchId: numbe
 }
 
 /**
- * `/admin/t/:tid/score/:matchId` 的 route element。
+ * 手机录分 canonical route 的 element。
  *
  * 只有它处于已匹配的 route context 内，因此只有它能读取 path param。
  *
@@ -106,16 +140,18 @@ export function AdminScoreAdapter() {
 }
 
 /**
- * 手机录分路由表。
+ * 手机录分路由表 —— **只**声明 D 轨拥有的那一条精确 route。
  *
- * 注意：本组件**不读取** `:tid` / `:matchId`（它们在下面声明的 descendant Route 里）。
+ * 注意两点：
+ *
+ * 1. 本组件**不读取** `:tid` / `:matchId`（它们在下面声明的 descendant Route 里）；
+ * 2. 这里**没有** `/admin/*` catch-all：未匹配的 `/admin/...` 必须交还外层管理端
+ *    route tree（A/C 轨），D 轨不替管理端决定“未知 admin 路径该显示什么”。
  */
 export default function MobileScoreRoutes() {
   return (
     <Routes>
-      <Route element={<AdminScoreAdapter />} path="/admin/t/:tid/score/:matchId" />
-      {/* 未知 /admin/* 子路径：给出可读提示，而不是白屏或误落到别的赛事 */}
-      <Route element={<AdminScoreInvalidLink />} path="/admin/*" />
+      <Route element={<AdminScoreAdapter />} path={MOBILE_SCORE_ROUTE_PATH} />
     </Routes>
   )
 }
