@@ -116,9 +116,14 @@
   前端**不按赛事局制预判比分是否合法**（例如三局两胜里填 1:0 会照常发给后端并由后端拒绝），
   步进按钮也不受局制限制、更不会自动改写另一方比分；
   已结束比赛只展示结果并指向赛事管理端，不在本页重开改分流程。
-- **Auth 接线未完成**：A 轨认证契约（`/auth/me`、Session、赛事权限 Guard）尚未进入 master，
-  接线点已固定在 `frontend/src/MobileScoreRoutes.tsx`；当前页面结构与后端错误处理均已就绪，
-  契约合入后即可挂载 Guard。详见 [D 轨 Day 3](docs/WORKSTREAM_D.md#d-轨-day-3-实施结果)。
+- **认证与赛事授权已接入后端**：`POST /api/matches/{id}/score` 由 `require_tournament_write` 保护。
+  未登录返回 401 `AUTH_REQUIRED`，无该赛事授权 / 跨赛事资源统一返回 404 `RESOURCE_NOT_FOUND`
+  （资源不可见语义，防枚举）。前端不再把这类结构化错误显示成"请求失败 (401)"，
+  而是展示服务端真实 message：未登录显示「请先登录」，跨赛事显示「资源不存在」。
+- **剩余的前端 shell 依赖**：C 轨 `RequireAuth` / `RequireTournamentAccess` 尚未合入，
+  因此 `frontend/src/MobileScoreRoutes.tsx::AdminScoreGuardBoundary` 仍是唯一接线点。
+  D 轨**没有**引入任何临时认证（无临时 token 存储、无 localStorage 登录、无第二套 Guard）；
+  后端鉴权已独立保证数据安全。详见 [D 轨 Day 3](docs/WORKSTREAM_D.md#d-轨-day-3-实施结果)。
 
 ### 修复
 

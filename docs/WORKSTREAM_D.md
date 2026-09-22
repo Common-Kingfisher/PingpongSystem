@@ -1061,15 +1061,19 @@ AuthGuard / RequireTournamentAccess 及其他管理端 route）。因此：
 
 ## 27. Auth 集成状态（明确边界，不含“later”）
 
-**当前状态：未接线。**
+> ⚠️ **本节记录的是 Day 3 当时（`master@c900e71`）的状态，已被后面的合入取代。**
+> A 轨认证与赛事授权契约**已经合入 master**（`master@81827b3`），
+> `POST /api/matches/{id}/score` 现在由 `require_tournament_write` 保护。
+> 当前状态请看 **第 48 节（第四轮：同步 master + Auth/赛事授权真实集成验收）**。
 
-截至本 PR 基线 `master@c900e71`：
+**当时状态：未接线。**
+
+截至 Day 3 基线 `master@c900e71`：
 
 * 后端**没有**任何 auth router / session / `/auth/me` / 权限依赖：
   `backend/app/main.py` 只注册业务 routers，没有 auth 相关模块；
 * C 轨的 `AdminLayout` / `LoginPage` / `AccessStatePage` 等**展示层**已合入 master，
-  但 PR #42（A2.1/A2.2 数据模型与 Session 服务）与开放 PR `feat/v03-admin-auth-routing`
-  （A2.3 Auth API + AuthContext/Guard）**都还没有进入 master**。
+  但当时的认证工作包与 C 轨 Guard 分支**都还没有进入 master**。
 
 因此在 Day 3 内**没有**实现：token、localStorage 登录态、临时用户系统、第二套权限判断。
 这些都属 A 轨契约，自己造会与正式认证直接冲突。
@@ -1207,7 +1211,7 @@ Day 3 的核心是**现场首次录分**。页面在比赛已 FINISHED 时：
 
 | 项 | 状态 |
 | --- | --- |
-| **Auth 最终接线** | ⛔ 未接线：A 轨认证契约（`/auth/me`、Session、`RequireTournamentAccess`）尚未进入 master。接线点已在 `MobileScoreRoutes.tsx::AdminScoreGuardBoundary` 固定，契约合入后在**同一个 PR** 内完成 |
+| **Auth 最终接线** | 后端已完成并实测（第 48 节）；**前端 shell 仍等 C 轨** `RequireAuth` / `RequireTournamentAccess`。接线点已在 `MobileScoreRoutes.tsx::AdminScoreGuardBoundary` 固定。D 轨未引入任何临时认证 |
 | **LAN 真机二机实测** | ⛔ 未做：本环境无第二台设备。已用本机私网地址 `192.168.3.32` 验证非 localhost 来源可正常打开并录分 |
 | **iOS Safari / Android Chrome 真机触摸** | ⛔ 未做：本轮为 Chrome 153 headless + CDP 视口测量与真实输入，非真机。视口尺寸、触摸目标高度、无横向滚动均已实测 |
 | **键盘弹出后的可视区域** | ⛔ 未在真机验证：提交按钮为 sticky bottom + `env(safe-area-inset-bottom)`，headless 无法模拟软键盘遮挡 |
@@ -1613,4 +1617,207 @@ deferred promise 悬挂 A/X → 同 SPA 导航 B/Y → B/Y 显示 → 释放 A/X
 | 契约层验收 | `day3_mobile_score_acceptance.ps1` | **22 PASS / 0 FAIL** |
 | 端到端 | `day3_mobile_e2e.mjs`（真实 Chrome 390×844，canonical URL） | **21 PASS / 0 FAIL** |
 | 小屏 | `scripts_mobile_viewport_check.mjs`（canonical URL） | **60 PASS / 0 FAIL** |
+
+---
+---
+
+# D 轨 Day 3 第四轮返工：同步最新 master + Auth/赛事授权真实集成验收
+
+分支与 PR 未变：`feat/d-day3-mobile-score` / **PR #45**。本轮把 PR45 的开发基线从
+`master@c900e71` 前移到最新 master，并让全部 Day3 验收走**真实认证**。
+
+## 48. 同步 master
+
+| 项 | 值 |
+| --- | --- |
+| merge 前 PR head | `7c5b23b6ec19e4fee88d1192e73db16c939b2ff8` |
+| 合入的 master | `81827b3ea9c81b3c4c54078f5c45c95d0faac19b`（PR #46 D3A 协作管理员与异常结果接口） |
+| merge commit | `52190f6` |
+| 冲突 | **无**（`git merge origin/master --no-edit` 一次通过） |
+
+为什么没冲突：master 自 `c900e71` 以来**完全没有改 `frontend/src/`**（`git diff --name-only c900e71 origin/master -- frontend/src` 为空），
+A 轨改动全部落在 `backend/`、`docs/`、`docs/openapi-v0.2.json`。D 轨的全部产物
+（MobileScorePage / MobileScoreRoutes / mobileScore.ts / routeParams.ts / 测试 / 验收脚本）
+在 merge 后逐项复核仍在位，`isMobileScoreRoutePath`、`loadGenerationRef` 等不变量未回退。
+
+## 49. 当前 Auth 契约（合并后实际状态）
+
+来源：`docs/A2.7_AUTH_CONTRACT_DELIVERY.md`、`backend/app/routers/auth.py`、
+`backend/app/auth_dependencies.py`、`backend/app/dependencies.py`、
+`backend/app/routers/scores.py`、`docs/openapi-v0.2.json`。
+
+### 49.1 认证入口与凭据
+
+| 项 | 契约 |
+| --- | --- |
+| 登录 | `POST /api/v1/auth/login`（`mode: "browser" \| "bearer"`） |
+| 退出 | `POST /api/v1/auth/logout`（幂等，成功删除 Cookie） |
+| 当前用户 | `GET /api/v1/auth/me` |
+| 改密 | `POST /api/v1/auth/change-password` |
+| 浏览器凭据 | `pp_session` Cookie：`HttpOnly` / `SameSite=Lax` / `Path=/`，HTTPS 追加 `Secure`；**browser 模式不返回 `access_token`** |
+| 脚本凭据 | `Authorization: Bearer <opaque token>`（bearer 模式返回 `access_token`） |
+| 凭据冲突 | 同一请求同时带 Cookie 与 Bearer 且指向不同会话 → 401 `AUTH_REQUIRED` |
+
+### 49.2 赛事写权限
+
+```text
+POST /api/matches/{match_id}/score
+    ↓ Depends(require_tournament_write)     # WRITE_TOURNAMENT_ROLES = OWNER/ADMIN/OPERATOR
+    ↓ 赛事归属来自 tournaments.owner_user_id 或有效的 tournament_admins 授权
+```
+
+### 49.3 错误语义（页面必须尊重）
+
+| 场景 | 状态 | `detail.code` | `detail.message` |
+| --- | --- | --- | --- |
+| 未登录 | 401 | `AUTH_REQUIRED` | 请先登录 / 登录状态已失效，请重新登录 |
+| 无该赛事授权 / 跨赛事资源 | 404 | `RESOURCE_NOT_FOUND` | 资源不存在 |
+| 系统角色不足 | 403 | `FORBIDDEN` | 需要…权限 |
+
+跨赛事统一 404 是**防资源枚举**设计：不得改写成“你没有某赛事权限”。
+
+## 50. MobileScoreRoutes 的 Auth 状态更新
+
+`AdminScoreGuardBoundary` **保持为唯一接线点**，未新增任何临时认证。
+
+判断依据（实测）：`RequireAuth` / `RequireTournamentAccess` / `AuthContext` 在
+`origin/master` 上**不存在**，在 C 轨自己的 `feat/v03-c-d3-settings` 分支上也还没有
+（`frontend/src/pages/LoginPage.tsx` 仍是展示层）。因此属于"情况 B"：
+后端契约已完成，前端 shell 依赖 C 轨。
+
+代码注释已改写为当前事实（后端已落地、录分写入已受保护、前端仍等 C 轨、接线只剩一个前置条件）。
+
+## 51. 共享 `api.ts` 错误解析修复
+
+### 51.1 问题
+
+后端错误体现在有两种形态：
+
+```jsonc
+{ "detail": "逐局小比分与大比分不一致" }                              // 旧式业务错误
+{ "detail": { "code": "AUTH_REQUIRED", "message": "请先登录" } }     // A 轨结构化错误
+```
+
+`api.ts::request()` 只认字符串 detail，因此 401 在页面上退化成 `请求失败 (401)`，
+裁判看不到真实原因。
+
+### 51.2 修改（transport 层一次解析，页面复用）
+
+* `parseErrorBody()` 同时兼容字符串 detail 与结构化 `{code,message}`；
+* `ApiError` 扩展为 `status / message / code?`（可选字段，未改造整个前端异常体系）；
+* 页面**不**自己解析 response、**不**自己判断 `detail.code`。
+
+`MobileScorePage` 只在必要时加前缀，message 一律用服务端原文：
+
+| 后端 | 页面显示 |
+| --- | --- |
+| 401 `AUTH_REQUIRED`「请先登录」 | `请先登录后再提交：请先登录` |
+| 404 `RESOURCE_NOT_FOUND`「资源不存在」 | `服务端拒绝了本次录分：资源不存在`（**不**翻译成权限推断） |
+| 403 `FORBIDDEN` | `当前账号没有该操作的权限：…` |
+| 422 业务错误 | 前缀 + 服务端原文（不变） |
+
+新增 `frontend/src/__tests__/ApiErrorParsing.test.tsx`（6 例）直接测 transport 层。
+
+## 52. 验收脚本如何认证化
+
+| 脚本 | 变化 |
+| --- | --- |
+| `day3_auth_client.py`（新增） | 真实 Bootstrap → 真实建 EVENT_ADMIN → 真实登录（Bearer / Cookie 两种模式）；**不含任何绕过** |
+| `day3_auth_acceptance.py`（新增，替代 `.ps1`） | 30 项断言，全部经真实认证的 HTTP |
+| `day3_e2e_fixture.py` / `day3_longname_fixture.py` | 先真实登录再建赛事（创建赛事本身需要 `require_event_admin`），并打印浏览器 E2E 用的账号密码 |
+| `day3_cdp_auth.mjs`（新增） | Node 侧共享 CDP 客户端；让**浏览器自己**登录建立 `pp_session` |
+| `day3_mobile_e2e.mjs` | 先匿名验证后端拒绝，再真实浏览器登录后跑完整流程 |
+| `scripts_mobile_viewport_check.mjs` | 测量前先建立真实会话，避免只测到 401 页面尺寸 |
+
+明确**没有**做：关闭鉴权、dependency override、`TEST_MODE`、"本机/局域网就放行"、
+直接调 service 层代替 HTTP 写操作、把 bearer token 塞 localStorage 冒充浏览器登录。
+
+## 53. 真实 Auth 场景验收结果
+
+`day3_auth_acceptance.py`：**30 PASS / 0 FAIL**
+
+| 场景 | 结果 |
+| --- | --- |
+| A 已登录 + 有写权限（OWNER） | 200，`FINISHED`，`2:1` 落库，`games=[]` |
+| B 匿名 POST score | **401 `AUTH_REQUIRED`**「请先登录」，比赛仍 `WAITING` 且比分未写入 |
+| B4 匿名写操作（新增选手） | 401 `AUTH_REQUIRED` |
+| B2/B3 匿名只读（比赛列表 / 排名） | 200 —— 这是 master 冻结的 Public 只读契约，不是漏洞 |
+| C 已登录但无该赛事授权 | **404 `RESOURCE_NOT_FOUND`**「资源不存在」，比赛状态不变，响应不泄露资源存在性 |
+| D 只录大比分 | 200，`games=[]` |
+| E 大比分 + 完整小分 | 200，逐局 `11-7 / 9-11 / 11-8` 正确 |
+| F 非法比分 | 422 三次（一致性 / 平局 / 局制），被拒后状态未变 |
+| G 异常结果（弃权） | 200，`result_type` / `forfeit_entry_id` 落库，无逐局小分 |
+| H 同一 request_id 重放 | 200 幂等，只有 1 条 RECORD；换载荷 409 |
+| I 已结束比赛再次录分 | 409 |
+| J `GET /api/v1/auth/me` | 200，返回当前用户 |
+
+## 54. C/D 文件所有权
+
+保持：D 轨本轮只改自己的文件（`MobileScorePage.tsx` 的错误文案映射、
+`MobileScoreRoutes.tsx` 的 Auth 注释），以及共享 `api.ts` 的 transport 解析（第 51 节，属
+"一次解析、所有页面复用"，不是页面级 Auth 逻辑）。
+
+`ConsolePage.tsx` 本轮**未改动**。C 轨拥有的桌面端错误分层 / `pageError` / `actionError` /
+`scoreError` / 桌面改分二次确认 / `ScoreSheet` 桌面体验 / 赛事设置，D 轨一律未碰。
+
+## 55. P-01 核验
+
+* `frontend/src` 生产代码仍只使用相对 `/api/...`；grep `http://|localhost|127.0.0.1|192.168|:5173|:8000|:8099` **无命中**；
+* 认证与授权**不依赖任何 IP 网段**：身份 = Cookie/Bearer → User → Owner/TournamentAdmin；
+  代码中不存在 `if private_ip: allow` / `if LAN: skip auth` 之类分支（A 轨契约第 6 节同款约束）；
+* 未开发公网 / Tunnel / Caddy / 域名 / QR / LAN 自动发现。
+
+## 56. 本轮验证结果（重新执行，不沿用历史常数）
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 后端全量 | `backend> python -m pytest` | **860 passed, 30 skipped, 4 warnings** |
+| OpenAPI 快照 | `backend> python export_openapi.py --check` | `OpenAPI snapshot is up to date` |
+| 依赖锁定 | `frontend> pnpm install --frozen-lockfile` | 通过，`package.json` / `pnpm-lock.yaml` 无 diff |
+| 前端全量 | `frontend> pnpm test` | **89 passed**（5 files） |
+| 前端类型 | `frontend> pnpm exec tsc --noEmit` | 通过（exit 0） |
+| 生产构建 | `frontend> pnpm build` | 通过 |
+| 契约检查 | `frontend> pnpm contract:check` | 通过（generated 已按 master 的 OpenAPI 重新生成，见第 57 节） |
+| 后端授权验收 | `day3_auth_acceptance.py` | **30 PASS / 0 FAIL** |
+| 浏览器端到端 | `day3_mobile_e2e.mjs`（真实 Chrome 390×844 + 真实会话） | **31 PASS / 0 FAIL** |
+| 小屏 | `scripts_mobile_viewport_check.mjs`（canonical URL + 真实会话） | **62 PASS / 0 FAIL** |
+
+> 历史记录的 `758 passed` 是 Day3 初版基线，本轮已按实际结果更新为 **860 passed**；
+> A2.7 报告中的 `835 passed` 也不是验收常数。
+
+## 57. OpenAPI generated 漂移（机械重新生成）
+
+master 更新了 `docs/openapi-v0.2.json`（新增认证 / 系统 / 赛事协作管理员接口），
+但**没有**同步 `frontend/src/generated/openapi.d.ts`，因此 `pnpm contract:check` 在 master 上本身就是失败的。
+
+D 轨用 `pnpm contract:generate` 机械重新生成，并**机械校验**（不是肉眼看）：
+
+```text
+contract schemas : 126     contract paths : 66
+generated types  : 111     generated paths: 66
+types NOT in contract (会表明是发明的): ['parameters', 'requestBody', 'responses']  ← 生成器自身的辅助键
+contract paths missing from generated : []
+generated paths not in contract       : []
+```
+
+即：`generated/openapi.d.ts` 完全来自已提交的 `docs/openapi-v0.2.json`，
+**D 轨没有发明或手工编辑任何契约**（`contract:check` 现已通过）。
+
+## 58. 本轮 commit
+
+```text
+52190f6  Merge remote-tracking branch 'origin/master' into feat/d-day3-mobile-score
+593c118  fix(frontend): parse structured API error details
+5f1eedb  fix(D-Day3): integrate mobile scoring with the landed auth contract
+2cc2c49  chore(frontend): regenerate OpenAPI types from the committed contract
+```
+
+## 59. 剩余依赖
+
+```text
+Backend Auth and tournament authorization are integrated and verified.
+The remaining frontend-shell dependency is C-track
+RequireAuth / RequireTournamentAccess integration.
+No temporary D-track authentication layer was introduced.
+```
 

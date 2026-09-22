@@ -97,7 +97,7 @@ python -m pytest -v
 | WTT 直播感冠军之路、打印秩序册 | ✅ |
 | 正式/演示赛事隔离、正式赛事防误删 | ✅ |
 | 比分请求防重复提交 | ✅ |
-| 手机录分页 `/admin/t/:tid/matches/:matchId/score`（大比分必填、逐局小比分可选、异常结果、防重复点击） | ⚙️ 交互层已可用；Auth 接线等 A 轨契约（见 [D 轨 Day 3](docs/WORKSTREAM_D.md#d-轨-day-3-实施结果)） |
+| 手机录分页 `/admin/t/:tid/matches/:matchId/score`（大比分必填、逐局小比分可选、异常结果、防重复点击；录分写入已由后端鉴权保护） | ⚙️ 页面已可用；前端 Auth shell 待 C 轨 `RequireAuth` / `RequireTournamentAccess`（见 [D 轨 Day 3](docs/WORKSTREAM_D.md#d-轨-day-3-实施结果)） |
 | 双败 / 总决赛重置 | 不在本版范围 |
 
 ## 正式与演示模式
