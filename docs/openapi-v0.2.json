@@ -2,9 +2,517 @@
   "openapi": "3.1.0",
   "info": {
     "title": "乒乓球赛事编排与赛务管理系统 Demo",
-    "version": "0.1.0"
+    "version": "0.2.0",
+    "description": "A 轨 D2/D3 认证、授权、Bootstrap、系统用户与协作管理员契约。\n\nD3A 协作管理员接口：\n- `GET /api/tournaments/{tournament_id}/admins`：Owner / Admin 查询授权。\n- `POST /api/tournaments/{tournament_id}/admins`：Owner / Admin 新增或更新\n  `ADMIN / OPERATOR / VIEWER` 授权。\n- `DELETE /api/tournaments/{tournament_id}/admins/{user_id}`：Owner / Admin\n  软撤销普通授权。\n- `OWNER` 只来自 `tournaments.owner_user_id`，不能通过普通授权接口授予或撤销。\n- 目标账号必须是存在、有效、`active=true` 的 `EVENT_ADMIN`。\n- Operator / Viewer 或无赛事权限统一按 404 `RESOURCE_NOT_FOUND` 防泄漏。\n\n认证方式：\n- browser 登录成功只通过 Set-Cookie 建立 `pp_session` 会话，不返回 access_token；\n  Cookie 属性固定为 HttpOnly、SameSite=Lax、Path=/，HTTPS 环境追加 Secure。\n- bearer 登录成功返回不透明 `access_token`，客户端使用 `Authorization: Bearer <token>`。\n- 同一请求同时携带 Cookie 与 Bearer 且指向不同会话时必须返回 401 `AUTH_REQUIRED`。\n- 账号 `active=false`、会话撤销、过期或改密后，旧 Cookie/Bearer 均返回 401 `AUTH_REQUIRED`。\n- logout 对无凭据、未知凭据或已撤销凭据保持幂等 204；冲突凭据必须返回 401 `AUTH_REQUIRED`。\n\nBootstrap：\n- 状态固定为 `NEEDS_INITIALIZATION`、`READY`、`RECOVERY_REQUIRED`。\n- `GET /api/v1/system/bootstrap/status` 为只读分流接口，不返回账号、路径或恢复信息。\n- `POST /api/v1/system/bootstrap` 仅服务器本机 socket 客户端可调用；非本机返回 404 `RESOURCE_NOT_FOUND`。\n- 初始化完成后 Web bootstrap 永久关闭；无可用 SYSTEM_ADMIN 时只进入 recovery，不重新开放 C 轨 `/setup` 写入口。\n\n前端消费边界：\n- C 轨只消费后端返回的允许、只读、无权限结果；不实现复杂权限编辑器。\n- 真实权限始终以后端判定为准，前端不得根据角色名称自行推导资源权限。\n- browser Cookie 默认走同源或 Vite `/api` proxy；当前 CORS 未开启 credentials，C 轨不得依赖跨源 Cookie。\n- 跨源 Cookie 需求必须先单独评审 CORS、SameSite、CSRF 与 HTTPS 边界，再升级本 contract。\n\n变更机制：\n- 本文件冻结后，任何字段、状态枚举或错误码变化必须先更新版本化契约与变更说明，再通知 C 轨。\n- 未产生新的版本化说明前，不得静默破坏现有 contract。\n"
   },
   "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "登录成功；browser 设置 Cookie，bearer 返回 access_token。",
+            "headers": {
+              "Set-Cookie": {
+                "description": "仅 browser 登录成功时设置。Cookie 名为 pp_session，属性为 HttpOnly、SameSite=Lax、Path=/；HTTPS 追加 Secure。",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthLoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "用户名、密码或账号状态错误。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "detail": {
+                    "code": "AUTH_INVALID_CREDENTIALS",
+                    "message": "用户名或密码错误"
+                  }
+                }
+              }
+            },
+            "x-error-codes": [
+              "AUTH_INVALID_CREDENTIALS"
+            ]
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-auth-modes": [
+          "browser",
+          "bearer"
+        ],
+        "x-credential-conflict": {
+          "status": 401,
+          "code": "AUTH_REQUIRED"
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout",
+        "description": "撤销当前凭据对应的 Session；无凭据或重复退出均保持幂等。",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "退出成功或幂等成功；成功时删除 pp_session Cookie。",
+            "headers": {
+              "Set-Cookie": {
+                "description": "成功响应中删除 pp_session Cookie。",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Cookie 与 Bearer 指向不同会话，或 Authorization 格式无效。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "detail": {
+                    "code": "AUTH_REQUIRED",
+                    "message": "请求携带了冲突的登录凭据"
+                  }
+                }
+              }
+            },
+            "x-error-codes": [
+              "AUTH_REQUIRED"
+            ]
+          }
+        },
+        "x-auth-behavior": {
+          "credentials": "optional",
+          "accepted": [
+            "sessionCookie",
+            "bearerAuth"
+          ],
+          "idempotent_without_valid_credentials": true,
+          "credential_conflict": {
+            "status": 401,
+            "code": "AUTH_REQUIRED"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Me",
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthMeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、凭据冲突、会话过期、撤销或账号停用。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "detail": {
+                    "code": "AUTH_REQUIRED",
+                    "message": "请先登录"
+                  }
+                }
+              }
+            },
+            "x-error-codes": [
+              "AUTH_REQUIRED"
+            ]
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/change-password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change Password",
+        "operationId": "change_password_api_v1_auth_change_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "改密成功并撤销该用户全部旧会话，同时删除当前 Cookie。",
+            "headers": {
+              "Set-Cookie": {
+                "description": "成功响应中删除 pp_session Cookie。",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、会话失效或当前密码错误。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "detail": {
+                    "code": "AUTH_INVALID_CREDENTIALS",
+                    "message": "当前密码错误"
+                  }
+                }
+              }
+            },
+            "x-error-codes": [
+              "AUTH_REQUIRED",
+              "AUTH_INVALID_CREDENTIALS"
+            ]
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-business-error-codes": {
+          "422": [
+            "INVALID_NEW_PASSWORD"
+          ]
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/bootstrap/status": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Bootstrap Status",
+        "operationId": "bootstrap_status_api_v1_system_bootstrap_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapStatusResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "数据库初始化状态异常。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "detail": {
+                    "code": "SYSTEM_STATE_MISSING",
+                    "message": "系统初始化状态缺失"
+                  }
+                }
+              }
+            },
+            "x-error-codes": [
+              "SYSTEM_STATE_MISSING"
+            ]
+          }
+        },
+        "x-bootstrap-status-states": [
+          "NEEDS_INITIALIZATION",
+          "READY",
+          "RECOVERY_REQUIRED"
+        ],
+        "x-bootstrap-write-endpoint": "/api/v1/system/bootstrap"
+      }
+    },
+    "/api/v1/system/bootstrap": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Bootstrap",
+        "operationId": "bootstrap_api_v1_system_bootstrap_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "非服务器本机访问 Web bootstrap，统一伪装为资源不存在。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "detail": {
+                    "code": "RESOURCE_NOT_FOUND",
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "x-error-codes": [
+              "RESOURCE_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "系统已完成初始化或需要本机恢复，或用户名冲突。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "detail": {
+                    "code": "BOOTSTRAP_ALREADY_COMPLETED",
+                    "message": "系统已经完成初始化"
+                  }
+                }
+              }
+            },
+            "x-error-codes": [
+              "BOOTSTRAP_ALREADY_COMPLETED",
+              "RECOVERY_REQUIRED",
+              "USERNAME_ALREADY_EXISTS"
+            ]
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-local-only": true,
+        "x-local-detection": "request.client.host; proxy headers are ignored",
+        "x-non-local-status": 404,
+        "x-non-local-code": "RESOURCE_NOT_FOUND",
+        "x-business-error-codes": {
+          "422": [
+            "INVALID_BOOTSTRAP_INPUT",
+            "INVALID_BOOTSTRAP_PASSWORD"
+          ],
+          "500": [
+            "SYSTEM_STATE_MISSING",
+            "SYSTEM_STATE_ERROR"
+          ]
+        }
+      }
+    },
+    "/api/v1/system/users": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Create Event Admin",
+        "operationId": "create_event_admin_api_v1_system_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventAdminCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventAdminOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、凭据冲突或会话失效。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "detail": {
+                    "code": "AUTH_REQUIRED",
+                    "message": "请先登录"
+                  }
+                }
+              }
+            },
+            "x-error-codes": [
+              "AUTH_REQUIRED"
+            ]
+          },
+          "403": {
+            "description": "当前系统角色不是 SYSTEM_ADMIN。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "detail": {
+                    "code": "FORBIDDEN",
+                    "message": "需要系统管理员权限"
+                  }
+                }
+              }
+            },
+            "x-error-codes": [
+              "FORBIDDEN"
+            ]
+          },
+          "409": {
+            "description": "用户名已存在，用户名比较大小写不敏感。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "detail": {
+                    "code": "USERNAME_ALREADY_EXISTS",
+                    "message": "用户名已存在"
+                  }
+                }
+              }
+            },
+            "x-error-codes": [
+              "USERNAME_ALREADY_EXISTS"
+            ]
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-business-error-codes": {
+          "422": [
+            "INVALID_EVENT_ADMIN_INPUT",
+            "INVALID_EVENT_ADMIN_PASSWORD"
+          ]
+        },
+        "x-permission": "SYSTEM_ADMIN only; created EVENT_ADMIN receives no tournament access",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/tournaments": {
       "get": {
         "tags": [
@@ -244,6 +752,339 @@
             }
           }
         }
+      }
+    },
+    "/api/tournaments/{tournament_id}/admins": {
+      "get": {
+        "tags": [
+          "tournament-admins"
+        ],
+        "summary": "List Tournament Admins",
+        "operationId": "list_tournament_admins_api_tournaments__tournament_id__admins_get",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TournamentAdminOut"
+                  },
+                  "title": "Response List Tournament Admins Api Tournaments  Tournament Id  Admins Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、凭据冲突或会话失效。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "AUTH_REQUIRED",
+                    "message": "请先登录"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AUTH_REQUIRED"
+            ]
+          },
+          "404": {
+            "description": "赛事不存在，或当前用户没有该赛事授权管理权限。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "RESOURCE_NOT_FOUND",
+                    "message": "资源不存在"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RESOURCE_NOT_FOUND"
+            ]
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-permission": "tournament OWNER or ADMIN only",
+        "x-owner-source": "tournaments.owner_user_id",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "tournament-admins"
+        ],
+        "summary": "Grant Tournament Admin",
+        "operationId": "grant_tournament_admin_api_tournaments__tournament_id__admins_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TournamentAdminGrantRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TournamentAdminOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、凭据冲突或会话失效。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "AUTH_REQUIRED",
+                    "message": "请先登录"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AUTH_REQUIRED"
+            ]
+          },
+          "404": {
+            "description": "赛事不存在，或当前用户没有该赛事授权管理权限。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "RESOURCE_NOT_FOUND",
+                    "message": "资源不存在"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RESOURCE_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "赛事 Owner 只能由 tournaments.owner_user_id 表示，不能通过普通授权接口变更。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "OWNER_PROTECTED",
+                    "message": "赛事 Owner 不能通过此接口变更"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OWNER_PROTECTED"
+            ]
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-permission": "tournament OWNER or ADMIN only",
+        "x-grantable-roles": [
+          "ADMIN",
+          "OPERATOR",
+          "VIEWER"
+        ],
+        "x-target-requirements": "active EVENT_ADMIN user",
+        "x-business-error-codes": {
+          "422": [
+            "INVALID_TOURNAMENT_ROLE"
+          ]
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/tournaments/{tournament_id}/admins/{user_id}": {
+      "delete": {
+        "tags": [
+          "tournament-admins"
+        ],
+        "summary": "Revoke Tournament Admin",
+        "operationId": "revoke_tournament_admin_api_tournaments__tournament_id__admins__user_id__delete",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "未登录、凭据冲突或会话失效。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "AUTH_REQUIRED",
+                    "message": "请先登录"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AUTH_REQUIRED"
+            ]
+          },
+          "404": {
+            "description": "赛事不存在，或当前用户没有该赛事授权管理权限。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "RESOURCE_NOT_FOUND",
+                    "message": "资源不存在"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RESOURCE_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "赛事 Owner 不能通过普通授权接口撤销。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "OWNER_PROTECTED",
+                    "message": "赛事 Owner 不能通过此接口变更"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OWNER_PROTECTED"
+            ]
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-permission": "tournament OWNER or ADMIN only",
+        "x-idempotent": true,
+        "x-owner-source": "tournaments.owner_user_id",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/api/tournaments/{tournament_id}/players/import": {
@@ -3240,6 +4081,36 @@
   },
   "components": {
     "schemas": {
+      "ApiErrorDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiErrorDetail"
+      },
+      "ApiErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ApiErrorDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ApiErrorResponse"
+      },
       "AssignTableRequest": {
         "properties": {
           "table_id": {
@@ -3252,6 +4123,143 @@
           "table_id"
         ],
         "title": "AssignTableRequest"
+      },
+      "AuthChangePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Current Password"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 12,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "AuthChangePasswordRequest"
+      },
+      "AuthLoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Password"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "browser",
+              "bearer"
+            ],
+            "title": "Mode",
+            "default": "browser"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "AuthLoginRequest"
+      },
+      "AuthLoginResponse": {
+        "properties": {
+          "access_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token"
+          },
+          "token_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "Bearer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Type"
+          },
+          "expires_at": {
+            "type": "string",
+            "title": "Expires At"
+          },
+          "user": {
+            "$ref": "#/components/schemas/AuthUserOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expires_at",
+          "user"
+        ],
+        "title": "AuthLoginResponse"
+      },
+      "AuthMeResponse": {
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/AuthUserOut"
+          },
+          "tournament_access_count": {
+            "type": "integer",
+            "title": "Tournament Access Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "tournament_access_count"
+        ],
+        "title": "AuthMeResponse"
+      },
+      "AuthUserOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "system_role": {
+            "$ref": "#/components/schemas/SystemRole"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "display_name",
+          "system_role"
+        ],
+        "title": "AuthUserOut"
       },
       "Body_import_players_api_tournaments__tournament_id__players_import_post": {
         "properties": {
@@ -3280,6 +4288,108 @@
           "file"
         ],
         "title": "Body_preview_import_players_api_tournaments__tournament_id__players_import_preview_post"
+      },
+      "BootstrapRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Username"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 12,
+            "title": "Password"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "display_name",
+          "password"
+        ],
+        "title": "BootstrapRequest"
+      },
+      "BootstrapResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "system_role": {
+            "$ref": "#/components/schemas/SystemRole"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "display_name",
+          "system_role"
+        ],
+        "title": "BootstrapResponse"
+      },
+      "BootstrapStatus": {
+        "type": "string",
+        "enum": [
+          "NEEDS_INITIALIZATION",
+          "READY",
+          "RECOVERY_REQUIRED"
+        ],
+        "title": "BootstrapStatus",
+        "description": "Web 初始化入口状态。"
+      },
+      "BootstrapStatusResponse": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/BootstrapStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "BootstrapStatusResponse"
       },
       "BronzeMode": {
         "type": "string",
@@ -3599,6 +4709,108 @@
           "preserved_finished_matches"
         ],
         "title": "EntryWithdrawalResult"
+      },
+      "EventAdminCreateRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Username"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 12,
+            "title": "Password"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "display_name",
+          "password"
+        ],
+        "title": "EventAdminCreateRequest"
+      },
+      "EventAdminOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "system_role": {
+            "$ref": "#/components/schemas/SystemRole"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "display_name",
+          "system_role"
+        ],
+        "title": "EventAdminOut"
       },
       "EventType": {
         "type": "string",
@@ -6031,6 +7243,15 @@
         ],
         "title": "SetSeedsRequest"
       },
+      "SystemRole": {
+        "type": "string",
+        "enum": [
+          "SYSTEM_ADMIN",
+          "EVENT_ADMIN"
+        ],
+        "title": "SystemRole",
+        "description": "系统级账号角色。"
+      },
       "TableOut": {
         "properties": {
           "id": {
@@ -8102,6 +9323,83 @@
         "title": "TeamTieStatus",
         "description": "团体对抗（TeamTie）状态。A3 只建立状态模型，状态机由 A4 实现。"
       },
+      "TournamentAdminGrantRequest": {
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "User Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ADMIN",
+              "OPERATOR",
+              "VIEWER"
+            ],
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "role"
+        ],
+        "title": "TournamentAdminGrantRequest"
+      },
+      "TournamentAdminOut": {
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TournamentRole"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "is_owner": {
+            "type": "boolean",
+            "title": "Is Owner"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "username",
+          "display_name",
+          "role",
+          "active",
+          "is_owner",
+          "created_at"
+        ],
+        "title": "TournamentAdminOut"
+      },
       "TournamentCreate": {
         "properties": {
           "name": {
@@ -8434,6 +9732,17 @@
         ],
         "title": "TournamentOut"
       },
+      "TournamentRole": {
+        "type": "string",
+        "enum": [
+          "OWNER",
+          "ADMIN",
+          "OPERATOR",
+          "VIEWER"
+        ],
+        "title": "TournamentRole",
+        "description": "赛事级授权角色。"
+      },
       "TournamentStage": {
         "type": "string",
         "enum": [
@@ -8484,6 +9793,97 @@
           "type"
         ],
         "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "pp_session",
+        "description": "browser 登录建立的 HttpOnly 服务端会话 Cookie。"
+      },
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque session token",
+        "description": "bearer 登录返回的不透明服务端会话 Token。"
+      }
+    }
+  },
+  "x-contract": {
+    "version": "0.2.0",
+    "frozen_by": "A2.6",
+    "session": {
+      "cookie": {
+        "name": "pp_session",
+        "http_only": true,
+        "same_site": "Lax",
+        "path": "/",
+        "secure": "https_only"
+      },
+      "bearer": {
+        "scheme": "bearer",
+        "token_type": "opaque"
+      },
+      "conflict": {
+        "status": 401,
+        "code": "AUTH_REQUIRED"
+      },
+      "inactive_user": {
+        "status": 401,
+        "code": "AUTH_REQUIRED"
+      },
+      "logout_idempotent_without_credentials": true
+    },
+    "bootstrap": {
+      "states": [
+        "NEEDS_INITIALIZATION",
+        "READY",
+        "RECOVERY_REQUIRED"
+      ],
+      "status_endpoint": "/api/v1/system/bootstrap/status",
+      "write_endpoint": "/api/v1/system/bootstrap",
+      "write_endpoint_local_only": true,
+      "non_local_status": 404,
+      "non_local_code": "RESOURCE_NOT_FOUND",
+      "web_bootstrap_reopens_after_initialization": false
+    },
+    "frontend_boundary": {
+      "consumer": "C",
+      "accepted_backend_results": [
+        "allowed",
+        "read_only",
+        "no_access"
+      ],
+      "complex_permission_editor": false,
+      "browser_cookie_transport": "same_origin_or_vite_proxy",
+      "cross_origin_credentials_supported": false
+    },
+    "change_policy": {
+      "requires_versioned_contract_update": true,
+      "requires_change_note": true,
+      "notify_consumer": "C",
+      "breaking_changes_require_new_contract_version": true
+    },
+    "tournament_admins": {
+      "manage_roles": [
+        "OWNER",
+        "ADMIN"
+      ],
+      "grantable_roles": [
+        "ADMIN",
+        "OPERATOR",
+        "VIEWER"
+      ],
+      "owner_source": "tournaments.owner_user_id",
+      "owner_protected": {
+        "status": 409,
+        "code": "OWNER_PROTECTED"
+      },
+      "no_access_status": 404,
+      "target_requirements": {
+        "active": true,
+        "system_role": "EVENT_ADMIN"
       }
     }
   }

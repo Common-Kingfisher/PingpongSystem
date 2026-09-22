@@ -17,6 +17,7 @@ from sqlite3 import Connection
 
 from .. import schemas
 from ..db import get_db
+from ..dependencies import require_tournament_read, require_tournament_write
 from ..services import team_qualification as qualification_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["team-qualification"])
@@ -27,7 +28,11 @@ def _http(exc) -> HTTPException:
 
 
 @router.get("/qualification", response_model=schemas.TeamQualificationOut)
-def get_qualification(tournament_id: int, conn: Connection = Depends(get_db)):
+def get_qualification(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     try:
         return qualification_service.get_qualification(conn, tournament_id)
     except qualification_service.ServiceError as exc:
@@ -39,6 +44,7 @@ def confirm_qualification(
     tournament_id: int,
     payload: schemas.TeamQualificationConfirmRequest,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         return qualification_service.confirm_qualification(

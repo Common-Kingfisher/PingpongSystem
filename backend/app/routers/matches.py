@@ -7,6 +7,10 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_write,
+)
 from ..services import formats as format_service
 from ..services import matches as matches_service
 
@@ -14,7 +18,11 @@ router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["matches"])
 
 
 @router.post("/generate-group-matches", response_model=schemas.GenerateMatchesResult)
-def generate_group_matches(tournament_id: int, conn: Connection = Depends(get_db)):
+def generate_group_matches(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     try:
         handler = format_service.resolve_format_handler(format_service.GROUP_KNOCKOUT)
         result = handler.generate_matches(conn, tournament_id)
@@ -42,6 +50,7 @@ def list_matches(
     status: Literal["WAITING", "PLAYING", "FINISHED"] | None = Query(default=None),
     group_id: int | None = Query(default=None),
     conn: Connection = Depends(get_db),
+    _access=Depends(require_public_tournament_read),
 ):
     if repo.get_tournament(conn, tournament_id) is None:
         raise HTTPException(status_code=404, detail="赛事不存在")

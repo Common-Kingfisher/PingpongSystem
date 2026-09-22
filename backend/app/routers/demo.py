@@ -8,6 +8,7 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
+from ..dependencies import require_tournament_write
 from ..services import matches as matches_service
 from ..services import players as players_service
 from ..services import scores as scores_service
@@ -28,6 +29,7 @@ def generate_players(
     tournament_id: int,
     payload: schemas.GenerateDemoPlayersRequest,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     _ensure_demo(conn, tournament_id)
     try:
@@ -40,7 +42,11 @@ def generate_players(
 
 
 @router.post("/finish-group-stage", response_model=schemas.DemoFinishGroupStageResult)
-def finish_group_stage(tournament_id: int, conn: Connection = Depends(get_db)):
+def finish_group_stage(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     _ensure_demo(conn, tournament_id)
     try:
         finished = matches_service.finish_group_stage(conn, tournament_id)

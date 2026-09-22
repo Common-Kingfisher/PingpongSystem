@@ -86,7 +86,7 @@ def test_unknown_api_path_is_not_swallowed_by_spa_fallback(hosted_app):
     assert resp.json()["detail"] == "Not Found"
 
 
-def test_catch_all_does_not_match_api_paths_at_all():
+def test_catch_all_does_not_match_api_paths_at_all(tmp_path):
     """回归护栏：catch-all 必须在**路径匹配阶段**就放掉 ``/api/*``。
 
     若 catch-all 命中了 ``/api/*``，Starlette 会因“路径匹配、方法不匹配”返回
@@ -96,7 +96,11 @@ def test_catch_all_does_not_match_api_paths_at_all():
     """
     from starlette.routing import Match
 
-    catch_all = next(r for r in default_app.routes if getattr(r, "name", None) == "spa-fallback")
+    app = FastAPI()
+    assert install_static_hosting(app, _make_dist(tmp_path)) is True
+    catch_all = next(
+        route for route in app.routes if getattr(route, "name", None) == "spa-fallback"
+    )
     api_scope = {
         "type": "http",
         "method": "POST",

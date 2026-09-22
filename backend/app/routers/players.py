@@ -5,6 +5,10 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_write,
+)
 from ..services import import_players as import_service
 from ..services import players as players_service
 from ..services import teams as teams_service
@@ -22,6 +26,7 @@ def import_players(
     tournament_id: int,
     file: UploadFile = File(...),
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     content = file.file.read()
     if len(content) > 5 * 1024 * 1024:
@@ -42,6 +47,7 @@ def preview_import_players(
     tournament_id: int,
     file: UploadFile = File(...),
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     content = file.file.read()
     if len(content) > 5 * 1024 * 1024:
@@ -66,7 +72,11 @@ def _http(exc) -> HTTPException:
 
 
 @router.get("", response_model=list[schemas.PlayerOut])
-def list_players(tournament_id: int, conn: Connection = Depends(get_db)):
+def list_players(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_public_tournament_read),
+):
     _ensure_tournament(conn, tournament_id)
     return repo.list_players(conn, tournament_id)
 
@@ -76,6 +86,7 @@ def add_player(
     tournament_id: int,
     payload: schemas.PlayerCreate,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         with teams_service._roster_write_tx(conn):
@@ -93,6 +104,7 @@ def update_player(
     player_id: int,
     payload: schemas.PlayerUpdate,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         with teams_service._roster_write_tx(conn):
@@ -108,7 +120,12 @@ def update_player(
 
 
 @router.delete("/{player_id}", status_code=204)
-def delete_player(tournament_id: int, player_id: int, conn: Connection = Depends(get_db)):
+def delete_player(
+    tournament_id: int,
+    player_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     try:
         players_service.delete_player(conn, tournament_id, player_id)
     except (players_service.PlayerError, teams_service.TeamError) as exc:

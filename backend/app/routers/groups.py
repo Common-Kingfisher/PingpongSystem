@@ -5,13 +5,21 @@ from sqlite3 import Connection
 
 from .. import repository as repo, schemas
 from ..db import get_db
+from ..dependencies import (
+    require_public_tournament_read,
+    require_tournament_write,
+)
 from ..services import groups as groups_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}", tags=["groups"])
 
 
 @router.get("/groups", response_model=schemas.GroupingResult)
-def get_groups(tournament_id: int, conn: Connection = Depends(get_db)):
+def get_groups(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_public_tournament_read),
+):
     if repo.get_tournament(conn, tournament_id) is None:
         raise HTTPException(status_code=404, detail="赛事不存在")
     return schemas.GroupingResult(
@@ -20,7 +28,11 @@ def get_groups(tournament_id: int, conn: Connection = Depends(get_db)):
 
 
 @router.post("/auto-group", response_model=schemas.GroupingResult)
-def auto_group(tournament_id: int, conn: Connection = Depends(get_db)):
+def auto_group(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     try:
         groups = groups_service.auto_group_tournament(conn, tournament_id)
     except groups_service.TournamentNotFoundError as exc:
@@ -31,7 +43,11 @@ def auto_group(tournament_id: int, conn: Connection = Depends(get_db)):
 
 
 @router.post("/ungroup", status_code=204)
-def ungroup(tournament_id: int, conn: Connection = Depends(get_db)):
+def ungroup(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     try:
         groups_service.ungroup_tournament(conn, tournament_id)
     except groups_service.TournamentNotFoundError as exc:
@@ -46,6 +62,7 @@ def set_group_qualification(
     group_id: int,
     body: schemas.GroupQualifyUpdate,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     tournament = repo.get_tournament(conn, tournament_id)
     group = repo.get_group(conn, group_id)

@@ -9,8 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .db import init_db
+from .openapi_contract import install_openapi_contract
 from .static_hosting import install_static_hosting
 from .routers import (
+    auth,
     demo,
     entries,
     groups,
@@ -22,12 +24,14 @@ from .routers import (
     scheduling,
     scores,
     seeds,
+    system,
     team_knockout,
     team_qualification,
     team_standings,
     team_ties,
     team_roster,
     teams,
+    tournament_admins,
     tournaments,
 )
 
@@ -41,6 +45,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="乒乓球赛事编排与赛务管理系统 Demo", version="0.1.0", lifespan=lifespan)
+install_openapi_contract(app)
 
 
 @app.middleware("http")
@@ -74,7 +79,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
+app.include_router(system.router)
 app.include_router(tournaments.router)
+app.include_router(tournament_admins.router)
 app.include_router(players.router)
 app.include_router(entries.router)
 app.include_router(groups.router)

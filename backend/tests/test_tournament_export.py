@@ -202,7 +202,8 @@ def test_export_is_read_only(conn):
 def test_export_missing_tournament(client):
     resp = client.get("/api/tournaments/999999/export")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "赛事不存在"
+    # A2.5：赛事读/写入口统一用 RESOURCE_NOT_FOUND，避免泄漏资源存在性。
+    assert resp.json()["detail"] == {"code": "RESOURCE_NOT_FOUND", "message": "资源不存在"}
 
 
 def test_api_export_with_qualification_decision(client):

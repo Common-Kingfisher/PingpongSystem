@@ -5,6 +5,7 @@ from sqlite3 import Connection
 
 from .. import schemas
 from ..db import get_db
+from ..dependencies import require_tournament_read, require_tournament_write
 from ..services import teams as teams_service
 
 router = APIRouter(prefix="/api/tournaments/{tournament_id}/teams", tags=["teams"])
@@ -15,7 +16,11 @@ def _http(exc) -> HTTPException:
 
 
 @router.get("", response_model=list[schemas.EntryOut])
-def list_teams(tournament_id: int, conn: Connection = Depends(get_db)):
+def list_teams(
+    tournament_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     try:
         return teams_service.list_team_entries(conn, tournament_id)
     except teams_service.TeamError as exc:
@@ -27,6 +32,7 @@ def create_team(
     tournament_id: int,
     payload: schemas.TeamEntryCreate,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         return teams_service.create_team_entry(
@@ -41,7 +47,12 @@ def create_team(
 
 
 @router.get("/{entry_id}", response_model=schemas.EntryOut)
-def get_team(tournament_id: int, entry_id: int, conn: Connection = Depends(get_db)):
+def get_team(
+    tournament_id: int,
+    entry_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_read),
+):
     try:
         return teams_service.get_team_entry(conn, tournament_id, entry_id)
     except teams_service.TeamError as exc:
@@ -54,6 +65,7 @@ def update_team(
     entry_id: int,
     payload: schemas.TeamEntryUpdate,
     conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
 ):
     try:
         return teams_service.update_team_entry(
@@ -69,7 +81,12 @@ def update_team(
 
 
 @router.delete("/{entry_id}", status_code=204)
-def delete_team(tournament_id: int, entry_id: int, conn: Connection = Depends(get_db)):
+def delete_team(
+    tournament_id: int,
+    entry_id: int,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
     try:
         teams_service.delete_team_entry(conn, tournament_id, entry_id)
     except teams_service.TeamError as exc:

@@ -14,7 +14,7 @@ from .models import TableStatus
 _TOURNAMENT_COLS = (
     "id, name, date, table_count, group_count, qualify_per_group, stage, created_at, "
     "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, "
-    "roster_confirmed, confirmed_at, operation_mode"
+    "roster_confirmed, confirmed_at, operation_mode, owner_user_id"
 )
 
 
@@ -31,13 +31,16 @@ def create_tournament(
     games_to_win: int = 2,
     points_to_win: int = 11,
     operation_mode: str = "LIVE",
+    owner_user_id: int | None = None,
 ) -> dict:
     cur = conn.execute(
         "INSERT INTO tournaments (name, date, table_count, group_count, qualify_per_group, "
-        "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode, "
+        "owner_user_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (name, date, table_count, group_count, qualify_per_group, event_type,
-         bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode),
+         bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode,
+         owner_user_id),
     )
     row = conn.execute(
         f"SELECT {_TOURNAMENT_COLS} FROM tournaments WHERE id = ?", (cur.lastrowid,)
@@ -1171,3 +1174,272 @@ def decorate_match(conn: sqlite3.Connection, match: dict) -> dict:
     result["entry_b_name"] = (entries.get(result.get("entry_b_id")) or {}).get("display_name")
     result["games"] = list_match_games(conn, result["id"])
     return result
+
+
+# ------------------------------------------------------------------- auth
+
+_USER_COLS = (
+    "id, username, display_name, phone, note, password_hash, system_role, active, "
+    "created_at, updated_at"
+)
+
+
+def create_user(
+    conn: sqlite3.Connection,
+    username: str,
+    display_name: str,
+    password_hash: str,
+    system_role: str,
+    phone: str | None = None,
+    note: str | None = None,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO users "
+        "(username, display_name, password_hash, system_role, phone, note) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (username, display_name, password_hash, system_role, phone, note),
+    )
+    row = conn.execute(
+        f"SELECT {_USER_COLS} FROM users WHERE id = ?", (cur.lastrowid,)
+    ).fetchone()
+    return dict(row)
+
+
+def get_user_by_username(conn: sqlite3.Connection, username: str) -> Optional[dict]:
+    row = conn.execute(
+        f"SELECT {_USER_COLS} FROM users WHERE username = ? COLLATE NOCASE",
+        (username,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_id(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
+    row = conn.execute(
+        f"SELECT {_USER_COLS} FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_bootstrap_completed(conn: sqlite3.Connection) -> Optional[bool]:
+    row = conn.execute(
+        "SELECT bootstrap_completed FROM system_state WHERE id = 1"
+    ).fetchone()
+    return bool(row["bootstrap_completed"]) if row else None
+
+
+def has_active_system_admin(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT COUNT(*) AS count FROM users "
+        "WHERE system_role = 'SYSTEM_ADMIN' AND active = 1"
+    ).fetchone()
+    return int(row["count"]) > 0
+
+
+def mark_bootstrap_completed(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "UPDATE system_state SET bootstrap_completed = 1, "
+        "updated_at = datetime('now') WHERE id = 1"
+    )
+
+
+def update_user_password(
+    conn: sqlite3.Connection, user_id: int, password_hash: str
+) -> None:
+    conn.execute(
+        "UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?",
+        (password_hash, user_id),
+    )
+
+
+def set_user_active(conn: sqlite3.Connection, user_id: int, active: bool) -> None:
+    conn.execute(
+        "UPDATE users SET active = ?, updated_at = datetime('now') WHERE id = ?",
+        (1 if active else 0, user_id),
+    )
+
+
+def create_user_session(
+    conn: sqlite3.Connection,
+    user_id: int,
+    token_hash: str,
+    expires_at: str,
+) -> dict:
+    cur = conn.execute(
+        "INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+        (user_id, token_hash, expires_at),
+    )
+    row = conn.execute(
+        "SELECT id, user_id, token_hash, expires_at, revoked_at, last_seen_at, created_at "
+        "FROM user_sessions WHERE id = ?",
+        (cur.lastrowid,),
+    ).fetchone()
+    return dict(row)
+
+
+def get_user_session_by_token_hash(
+    conn: sqlite3.Connection, token_hash: str
+) -> Optional[dict]:
+    row = conn.execute(
+        "SELECT s.id AS session_id, s.user_id, s.token_hash, s.expires_at, s.revoked_at, "
+        "s.last_seen_at, s.created_at, u.username, u.display_name, u.password_hash, "
+        "u.system_role, u.active, u.created_at AS user_created_at, "
+        "u.updated_at AS user_updated_at "
+        "FROM user_sessions s JOIN users u ON u.id = s.user_id "
+        "WHERE s.token_hash = ?",
+        (token_hash,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def touch_user_session(conn: sqlite3.Connection, session_id: int) -> None:
+    conn.execute(
+        "UPDATE user_sessions SET last_seen_at = datetime('now') WHERE id = ?",
+        (session_id,),
+    )
+
+
+def revoke_user_session_by_hash(conn: sqlite3.Connection, token_hash: str) -> bool:
+    cur = conn.execute(
+        "UPDATE user_sessions SET revoked_at = datetime('now') "
+        "WHERE token_hash = ? AND revoked_at IS NULL",
+        (token_hash,),
+    )
+    return cur.rowcount > 0
+
+
+def revoke_user_sessions(conn: sqlite3.Connection, user_id: int) -> int:
+    cur = conn.execute(
+        "UPDATE user_sessions SET revoked_at = datetime('now') "
+        "WHERE user_id = ? AND revoked_at IS NULL",
+        (user_id,),
+    )
+    return cur.rowcount
+
+
+def upsert_tournament_admin(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    user_id: int,
+    role: str,
+    created_by_user_id: int | None = None,
+) -> dict:
+    """新增或恢复赛事授权；同一赛事-用户组合只保留一条有效授权。"""
+    conn.execute(
+        "INSERT INTO tournament_admins "
+        "(tournament_id, user_id, role, created_by_user_id) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, tournament_id) DO UPDATE SET "
+        "role = excluded.role, created_by_user_id = excluded.created_by_user_id, "
+        "revoked_at = NULL",
+        (tournament_id, user_id, role, created_by_user_id),
+    )
+    row = conn.execute(
+        "SELECT id, tournament_id, user_id, role, created_by_user_id, revoked_at, created_at "
+        "FROM tournament_admins WHERE tournament_id = ? AND user_id = ?",
+        (tournament_id, user_id),
+    ).fetchone()
+    return dict(row)
+
+
+def list_tournament_admins(
+    conn: sqlite3.Connection, tournament_id: int
+) -> list[dict]:
+    """返回赛事 Owner 与未撤销的普通协作管理员，不重复返回 Owner 行。"""
+    rows = conn.execute(
+        """
+        SELECT u.id AS user_id, u.username, u.display_name,
+               'OWNER' AS role, u.active, 1 AS is_owner,
+               t.created_at AS created_at, NULL AS created_by_user_id
+        FROM tournaments t
+        JOIN users u ON u.id = t.owner_user_id
+        WHERE t.id = ?
+
+        UNION ALL
+
+        SELECT u.id AS user_id, u.username, u.display_name,
+               ta.role, u.active, 0 AS is_owner,
+               ta.created_at, ta.created_by_user_id
+        FROM tournament_admins ta
+        JOIN users u ON u.id = ta.user_id
+        WHERE ta.tournament_id = ?
+          AND ta.revoked_at IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM tournaments t
+              WHERE t.id = ta.tournament_id AND t.owner_user_id = ta.user_id
+          )
+        ORDER BY is_owner DESC, user_id
+        """,
+        (tournament_id, tournament_id),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_tournament_admin(
+    conn: sqlite3.Connection, tournament_id: int, user_id: int
+) -> Optional[dict]:
+    """读取一条未撤销的普通协作管理员授权。"""
+    row = conn.execute(
+        """
+        SELECT u.id AS user_id, u.username, u.display_name,
+               ta.role, u.active, 0 AS is_owner,
+               ta.created_at, ta.created_by_user_id
+        FROM tournament_admins ta
+        JOIN users u ON u.id = ta.user_id
+        WHERE ta.tournament_id = ? AND ta.user_id = ? AND ta.revoked_at IS NULL
+        """,
+        (tournament_id, user_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def revoke_tournament_admin(
+    conn: sqlite3.Connection, tournament_id: int, user_id: int
+) -> bool:
+    """软撤销赛事授权；重复调用保持幂等。"""
+    cur = conn.execute(
+        "UPDATE tournament_admins SET revoked_at = datetime('now') "
+        "WHERE tournament_id = ? AND user_id = ? AND revoked_at IS NULL",
+        (tournament_id, user_id),
+    )
+    return cur.rowcount > 0
+
+
+def get_tournament_access(
+    conn: sqlite3.Connection, tournament_id: int, user_id: int
+) -> Optional[dict]:
+    """返回用户在指定赛事中的角色；不存在或无权访问时返回 None。"""
+    row = conn.execute(
+        "SELECT t.id AS tournament_id, "
+        "CASE WHEN t.owner_user_id = ? THEN 'OWNER' ELSE ta.role END AS role "
+        "FROM tournaments t "
+        "LEFT JOIN tournament_admins ta ON ta.tournament_id = t.id "
+        "AND ta.user_id = ? AND ta.revoked_at IS NULL "
+        "WHERE t.id = ? AND (t.owner_user_id = ? OR ta.role IS NOT NULL)",
+        (user_id, user_id, tournament_id, user_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def count_tournament_access(conn: sqlite3.Connection, user_id: int) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS count FROM tournaments t "
+        "WHERE t.owner_user_id = ? OR EXISTS ("
+        "SELECT 1 FROM tournament_admins ta WHERE ta.tournament_id = t.id "
+        "AND ta.user_id = ? AND ta.revoked_at IS NULL)",
+        (user_id, user_id),
+    ).fetchone()
+    return int(row["count"])
+
+
+def list_tournaments_for_user(
+    conn: sqlite3.Connection, user_id: int
+) -> list[dict]:
+    """只返回当前用户为 Owner 或拥有有效赛事授权的赛事。"""
+    rows = conn.execute(
+        f"SELECT {_TOURNAMENT_COLS} FROM tournaments t "
+        "WHERE t.owner_user_id = ? OR EXISTS ("
+        "SELECT 1 FROM tournament_admins ta WHERE ta.tournament_id = t.id "
+        "AND ta.user_id = ? AND ta.revoked_at IS NULL) "
+        "ORDER BY t.id DESC",
+        (user_id, user_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
