@@ -15,7 +15,16 @@
 
 当前 `master` 尚未包含 `rule_config` 字段。Handler 以 `tournament.get("rule_config")` 兼容字段缺失；A 轨落库后可直接调用 `validate_rule_config()`，并将 `draw_seed` 传入单淘汰生成，无需修改抽签核心。D4B 不修改数据库、Migration、Schema、Router 或 OpenAPI，也不建立正式 Affiliation 模型。
 
-纯循环的 Handler 完成态已可查询；由于当前 `master` 尚未持久化 `format_code`，最后一场比分写入时不能安全地判定是否应把赛事阶段回写为 `FINISHED`。该同步必须由 A #47 落库后的 A/B 集成在比分服务的单一写入路径接线，不能由查询方法隐式写库。
+循环赛完成态仍由 Handler 查询，且始终无副作用。`sync_round_robin_stage()` 仅在比分事实写入的同一事务内运行：兼容读取 `tournament.get("format_code")`，只处理已持久化为 `ROUND_ROBIN` 的赛事。`COMPLETED` 将阶段同步为 `FINISHED`；若改分后变成 `RANKING_DATA_INSUFFICIENT` 或 `RANKING_UNRESOLVED`，已完成赛事会回退到 `GROUP_STAGE`。字段尚未存在的 B standalone 环境自动 no-op。
+
+## 2026-09-22 第二轮 A/B 联调记录
+
+- B 侧同步入口只修改 `formats.py`、`scores.py` 与 `entries.py`：覆盖 `record_score()`、`revise_score()` 的逐局小分补录与常规改分路径，以及 `withdraw_from_tournament()` 的自动判负路径；入口本身不提交事务。
+- 不复制循环赛排名或完成态算法；同步只消费 `RoundRobinHandler.get_completion_state()`。`GROUP_KNOCKOUT`、`SINGLE_ELIMINATION`、TEAM、旧赛事和 `format_code` 为空的赛事均为 no-op。
+- B standalone 回归使用 `repo.get_tournament()` 的测试替身补充 `format_code`，因此不修改 A 轨 Migration、Repository、Schema、Router 或 OpenAPI。
+- 临时组合环境：A `aa5cfb558d7c76ed35a41f9aa0d2e0b5a556afdd` + 上轮 B `2494185277c19fe34b314d48b549f1c39e1d8c9b`，仅本地 `local/D4AB-integration`；真实持久化 `format_code=ROUND_ROBIN` 的三人循环赛最后一场录分后，Handler 为 `COMPLETED` 且 `Tournament.stage=FINISHED`。
+- 组合定向：`117 passed, 0 failed`；组合后端全量：`934 passed, 20 skipped, 0 failed`（A 配置持久化 + B Handler/录分/改分/退赛）。
+- B 后端全量：`909 passed, 20 skipped, 4 warnings`；`python export_openapi.py --check` 与 `git diff --check` 均通过。
 
 ## 2026-09-22 返工验证记录
 
