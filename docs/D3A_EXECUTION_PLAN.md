@@ -6,7 +6,9 @@
 >
 > 原始计划目标：**支持协作管理员最小模型；异常结果接口配合**
 >
-> 当前建议状态：**0/10（0%）**
+> 当前执行状态：**A 侧实现与 A 侧自动化验证已完成（10/10）；等待 E/非作者复核、D 轨实机联调及最终 Merge Gate。**
+>
+> 当前验证状态：定向测试 28 passed；后端全量测试 883 collected / 30 skipped / 0 failed；OpenAPI snapshot up to date；`git diff --check` 通过。
 >
 > 当前前置状态：D2A PR #42 已于 2026-09-22 合并到 `master`；D3A 从 `origin/master@3052c37` 独立创建。
 >
@@ -113,20 +115,22 @@ D2A 当前已经建立：
 
 ## A3.0 检查 D2A 是否已经进入 master
 
-- [ ] `git fetch --prune origin`
-- [ ] 确认 PR #42 是否已合并。
-- [ ] 确认 `origin/master` 已包含 D2A：
+- [x] `git fetch --prune origin`
+- [x] 确认 PR #42 是否已合并。
+- [x] 确认 `origin/master` 已包含 D2A：
   - User；
   - TournamentAdmin；
   - Auth API；
   - Session；
   - `require_tournament_read/write`；
   - Tournament owner / access。
-- [ ] 确认 D2A 最终 OpenAPI 已稳定。
-- [ ] 确认工作区干净。
-- [ ] 确认没有未提交或未跟踪的重要文件。
+- [x] 确认 D2A 最终 OpenAPI 已稳定。
+- [x] 确认工作区干净。
+- [x] 确认没有未提交或未跟踪的重要文件。
 
 ### 如果 D2A 尚未合并
+
+> 说明：D2A 已合并，本条件分支不适用；以下保留原计划内容，不作为 D3A 未完成项。
 
 D3A 暂停正式代码实现，只允许：
 
@@ -199,15 +203,15 @@ D3A 的“协作管理员”定义为：
 
 检查项：
 
-- [ ] `OWNER` 仍由 `tournaments.owner_user_id` 表示。
-- [ ] 不允许通过普通协作管理员接口转移 Owner。
-- [ ] 普通授权接口只管理：
+- [x] `OWNER` 仍由 `tournaments.owner_user_id` 表示。
+- [x] 不允许通过普通协作管理员接口转移 Owner。
+- [x] 普通授权接口只管理：
   - `ADMIN`
   - `OPERATOR`
   - `VIEWER`
-- [ ] `SYSTEM_ADMIN` 不因为系统身份自动获得赛事角色。
-- [ ] 被授权账号必须是有效 `EVENT_ADMIN`。
-- [ ] 被停用账号即使授权记录仍在，也不能继续访问。
+- [x] `SYSTEM_ADMIN` 不因为系统身份自动获得赛事角色。
+- [x] 被授权账号必须是有效 `EVENT_ADMIN`。
+- [x] 被停用账号即使授权记录仍在，也不能继续访问。
 
 ---
 
@@ -235,29 +239,29 @@ PATCH  /api/tournaments/{tournament_id}/admins/{user_id}
 
 返回最小信息：
 
-- [ ] user id
-- [ ] username
-- [ ] display_name
-- [ ] tournament role
-- [ ] active
-- [ ] 是否为 owner
-- [ ] 授权创建时间
-- [ ] 可选：created_by_user_id
+- [x] user id
+- [x] username
+- [x] display_name
+- [x] tournament role
+- [x] active
+- [x] 是否为 owner
+- [x] 授权创建时间
+- [x] 可选：created_by_user_id
 
 不得返回：
 
-- [ ] password_hash
-- [ ] Session token
-- [ ] token hash
-- [ ] 内部敏感认证字段
+- [x] password_hash
+- [x] Session token
+- [x] token hash
+- [x] 内部敏感认证字段
 
 权限：
 
-- [ ] OWNER 可查看。
-- [ ] ADMIN 可查看。
-- [ ] OPERATOR 不允许查看授权管理面。
-- [ ] VIEWER 不允许查看。
-- [ ] 无权赛事统一按现有防泄漏规则处理。
+- [x] OWNER 可查看。
+- [x] ADMIN 可查看。
+- [x] OPERATOR 不允许查看授权管理面。
+- [x] VIEWER 不允许查看。
+- [x] 无权赛事统一按现有防泄漏规则处理。
 
 ## 6.2 POST 添加 / 更新协作管理员
 
@@ -283,28 +287,28 @@ PATCH  /api/tournaments/{tournament_id}/admins/{user_id}
 
 校验：
 
-- [ ] 目标赛事存在。
-- [ ] 操作者拥有授权管理权限。
-- [ ] 目标用户存在。
-- [ ] 目标用户为 `EVENT_ADMIN`。
-- [ ] 目标用户 `active=true`。
-- [ ] role 仅允许 `ADMIN / OPERATOR / VIEWER`。
-- [ ] 禁止通过该接口写 `OWNER`。
-- [ ] 同一个用户重复授权保持幂等或更新角色。
-- [ ] 已撤销授权重新添加时可恢复。
-- [ ] 写入 `created_by_user_id`。
-- [ ] 整个操作使用单事务提交。
+- [x] 目标赛事存在。
+- [x] 操作者拥有授权管理权限。
+- [x] 目标用户存在。
+- [x] 目标用户为 `EVENT_ADMIN`。
+- [x] 目标用户 `active=true`。
+- [x] role 仅允许 `ADMIN / OPERATOR / VIEWER`。
+- [x] 禁止通过该接口写 `OWNER`。
+- [x] 同一个用户重复授权保持幂等或更新角色。
+- [x] 已撤销授权重新添加时可恢复。
+- [x] 写入 `created_by_user_id`。
+- [x] 整个操作使用单事务提交。
 
 ## 6.3 DELETE 撤销协作管理员
 
-- [ ] OWNER 可撤销普通协作管理员。
-- [ ] ADMIN 按冻结规则可管理赛事授权。
-- [ ] OPERATOR 不可撤销。
-- [ ] VIEWER 不可撤销。
-- [ ] 不允许通过此接口删除赛事 OWNER。
-- [ ] 撤销使用现有 `revoked_at` 语义，优先软撤销，不删除历史授权记录。
-- [ ] 重复撤销保持稳定、可预期。
-- [ ] 被撤销用户下一次请求立即失去赛事访问能力。
+- [x] OWNER 可撤销普通协作管理员。
+- [x] ADMIN 按冻结规则可管理赛事授权。
+- [x] OPERATOR 不可撤销。
+- [x] VIEWER 不可撤销。
+- [x] 不允许通过此接口删除赛事 OWNER。
+- [x] 撤销使用现有 `revoked_at` 语义，优先软撤销，不删除历史授权记录。
+- [x] 重复撤销保持稳定、可预期。
+- [x] 被撤销用户下一次请求立即失去赛事访问能力。
 
 ---
 
@@ -329,14 +333,14 @@ get_tournament_admin()
 
 ## Repository 检查
 
-- [ ] 查询只返回未撤销授权。
-- [ ] Owner 能出现在管理列表中，但来源应明确为 `owner_user_id`。
-- [ ] 普通 TournamentAdmin 来自 `tournament_admins`。
-- [ ] 不制造重复 owner 行。
-- [ ] role 更新后立即反映在 `get_tournament_access()`。
-- [ ] revoke 后 `get_tournament_access()` 返回无权。
-- [ ] SQL 使用参数绑定。
-- [ ] 不拼接用户输入 SQL。
+- [x] 查询只返回未撤销授权。
+- [x] Owner 能出现在管理列表中，但来源应明确为 `owner_user_id`。
+- [x] 普通 TournamentAdmin 来自 `tournament_admins`。
+- [x] 不制造重复 owner 行。
+- [x] role 更新后立即反映在 `get_tournament_access()`。
+- [x] revoke 后 `get_tournament_access()` 返回无权。
+- [x] SQL 使用参数绑定。
+- [x] 不拼接用户输入 SQL。
 
 ## Service 层
 
@@ -348,14 +352,14 @@ backend/app/services/tournament_admins.py
 
 职责只做：
 
-- [ ] 授权前校验；
-- [ ] 用户类型校验；
-- [ ] role 校验；
-- [ ] owner 保护；
-- [ ] grant / update；
-- [ ] revoke；
-- [ ] 事务处理；
-- [ ] 稳定业务错误。
+- [x] 授权前校验；
+- [x] 用户类型校验；
+- [x] role 校验；
+- [x] owner 保护；
+- [x] grant / update；
+- [x] revoke；
+- [x] 事务处理；
+- [x] 稳定业务错误。
 
 不要把复杂权限判断散落在 Router。
 
@@ -373,30 +377,30 @@ backend/app/main.py
 
 ## Schema 建议
 
-- [ ] `TournamentAdminGrantRequest`
-- [ ] `TournamentAdminOut`
-- [ ] 可选 `TournamentAdminListResponse`
+- [x] `TournamentAdminGrantRequest`
+- [x] `TournamentAdminOut`
+- [x] 可选 `TournamentAdminListResponse`
 
 Schema 必须表达：
 
-- [ ] user_id / username
-- [ ] display_name
-- [ ] role
-- [ ] active
-- [ ] is_owner
-- [ ] created_at
+- [x] user_id / username
+- [x] display_name
+- [x] role
+- [x] active
+- [x] is_owner
+- [x] created_at
 
 不要暴露敏感字段。
 
 ## Router
 
-- [ ] Router 注册到 `main.py`。
-- [ ] 读取/授权管理使用赛事权限依赖。
-- [ ] 不通过前端参数信任 `owner_user_id`。
-- [ ] 不信任客户端传 `created_by_user_id`。
-- [ ] `created_by_user_id` 必须来自当前认证用户。
-- [ ] 目标 tournament_id 必须来自 URL / 后端资源关系。
-- [ ] 错误格式保持现有 D2A 稳定错误结构。
+- [x] Router 注册到 `main.py`。
+- [x] 读取/授权管理使用赛事权限依赖。
+- [x] 不通过前端参数信任 `owner_user_id`。
+- [x] 不信任客户端传 `created_by_user_id`。
+- [x] `created_by_user_id` 必须来自当前认证用户。
+- [x] 目标 tournament_id 必须来自 URL / 后端资源关系。
+- [x] 错误格式保持现有 D2A 稳定错误结构。
 
 ---
 
@@ -412,39 +416,39 @@ backend/tests/test_tournament_admin_management.py
 
 ## 成功路径
 
-- [ ] OWNER 添加 ADMIN。
-- [ ] OWNER 添加 OPERATOR。
-- [ ] OWNER 添加 VIEWER。
-- [ ] ADMIN 添加 OPERATOR。
-- [ ] 重复添加同一用户更新角色而不产生重复授权。
-- [ ] revoke 后重新添加可恢复授权。
+- [x] OWNER 添加 ADMIN。
+- [x] OWNER 添加 OPERATOR。
+- [x] OWNER 添加 VIEWER。
+- [x] ADMIN 添加 OPERATOR。
+- [x] 重复添加同一用户更新角色而不产生重复授权。
+- [x] revoke 后重新添加可恢复授权。
 
 ## 权限边界
 
-- [ ] 未登录调用返回 401。
-- [ ] 无赛事访问权限返回 404。
-- [ ] VIEWER 不能授权。
-- [ ] OPERATOR 不能授权。
-- [ ] VIEWER 不能撤销。
-- [ ] OPERATOR 不能撤销。
-- [ ] SYSTEM_ADMIN 没有显式赛事授权时不能操作该赛事授权。
-- [ ] 另一赛事的 OWNER 不能管理当前赛事。
+- [x] 未登录调用返回 401。
+- [x] 无赛事访问权限返回 404。
+- [x] VIEWER 不能授权。
+- [x] OPERATOR 不能授权。
+- [x] VIEWER 不能撤销。
+- [x] OPERATOR 不能撤销。
+- [x] SYSTEM_ADMIN 没有显式赛事授权时不能操作该赛事授权。
+- [x] 另一赛事的 OWNER 不能管理当前赛事。
 
 ## 用户合法性
 
-- [ ] 不存在用户不能授权。
-- [ ] inactive EVENT_ADMIN 不能新增授权。
-- [ ] SYSTEM_ADMIN 不能被当作普通协作赛事管理员授权。
-- [ ] 非法 role 被拒绝。
-- [ ] 普通 grant API 不能授予 OWNER。
-- [ ] 普通 revoke API 不能撤销 OWNER。
+- [x] 不存在用户不能授权。
+- [x] inactive EVENT_ADMIN 不能新增授权。
+- [x] SYSTEM_ADMIN 不能被当作普通协作赛事管理员授权。
+- [x] 非法 role 被拒绝。
+- [x] 普通 grant API 不能授予 OWNER。
+- [x] 普通 revoke API 不能撤销 OWNER。
 
 ## 即时失效
 
-- [ ] OPERATOR 撤销前可以调用赛事写接口。
-- [ ] revoke 后同一账号再次请求赛事写接口立即失败。
-- [ ] role 从 OPERATOR 降为 VIEWER 后写操作立即失败。
-- [ ] role 从 VIEWER 升为 OPERATOR 后写操作按新权限生效。
+- [x] OPERATOR 撤销前可以调用赛事写接口。
+- [x] revoke 后同一账号再次请求赛事写接口立即失败。
+- [x] role 从 OPERATOR 降为 VIEWER 后写操作立即失败。
+- [x] role 从 VIEWER 升为 OPERATOR 后写操作按新权限生效。
 
 ---
 
@@ -463,21 +467,21 @@ POST /api/matches/{match_id}/score
 POST /api/matches/{match_id}/revise-score
 ```
 
-- [ ] 不新增第二个异常结果写接口。
-- [ ] 不新增第二套比赛完成状态。
-- [ ] 不在 A 轨重算 winner。
-- [ ] 不在 A 轨重算 ranking。
-- [ ] 不在 A 轨实现淘汰晋级。
-- [ ] 不在 A 轨复制 B 轨 score validation。
+- [x] 不新增第二个异常结果写接口。
+- [x] 不新增第二套比赛完成状态。
+- [x] 不在 A 轨重算 winner。
+- [x] 不在 A 轨重算 ranking。
+- [x] 不在 A 轨实现淘汰晋级。
+- [x] 不在 A 轨复制 B 轨 score validation。
 
 ## 10.2 当前异常类型
 
 检查现有：
 
-- [ ] `FORFEIT`
-- [ ] `WALKOVER`
-- [ ] `NO_SHOW`
-- [ ] `DISQUALIFIED`
+- [x] `FORFEIT`
+- [x] `WALKOVER`
+- [x] `NO_SHOW`
+- [x] `DISQUALIFIED`
 
 注意：
 
@@ -489,31 +493,31 @@ POST /api/matches/{match_id}/revise-score
 
 针对异常结果提交：
 
-- [ ] 未登录 → 401。
-- [ ] 无权赛事 → 404。
-- [ ] VIEWER → 不可写。
-- [ ] OPERATOR → 可按赛事写权限提交。
-- [ ] ADMIN → 可提交。
-- [ ] OWNER → 可提交。
-- [ ] SYSTEM_ADMIN 无赛事授权 → 不自动获得写权限。
+- [x] 未登录 → 401。
+- [x] 无权赛事 → 404。
+- [x] VIEWER → 不可写。
+- [x] OPERATOR → 可按赛事写权限提交。
+- [x] ADMIN → 可提交。
+- [x] OWNER → 可提交。
+- [x] SYSTEM_ADMIN 无赛事授权 → 不自动获得写权限。
 
 ## 10.4 A 轨负责的接口契约
 
 确认 OpenAPI 对以下字段可见：
 
-- [ ] `result_type`
-- [ ] `forfeit_entry_id`
-- [ ] `note`
-- [ ] `request_id`
-- [ ] `operator_name`
-- [ ] `change_reason`
+- [x] `result_type`
+- [x] `forfeit_entry_id`
+- [x] `note`
+- [x] `request_id`
+- [x] `operator_name`
+- [x] `change_reason`
 
 确认：
 
-- [ ] 异常结果不要求前端伪造 `games`。
-- [ ] 不要求 D 轨生成假局分。
-- [ ] 异常结果错误返回可被 D 轨统一展示。
-- [ ] API 保持当前相对 `/api/...` 路径，不写死 localhost / LAN IP。
+- [x] 异常结果不要求前端伪造 `games`。
+- [x] 不要求 D 轨生成假局分。
+- [x] 异常结果错误返回可被 D 轨统一展示。
+- [x] API 保持当前相对 `/api/...` 路径，不写死 localhost / LAN IP。
 
 ---
 
@@ -587,9 +591,9 @@ D3A 应检查：
 
 必须：
 
-- [ ] 更新 Pydantic Schema。
-- [ ] 注册 Router。
-- [ ] 重新导出：
+- [x] 更新 Pydantic Schema。
+- [x] 注册 Router。
+- [x] 重新导出：
 
 ```powershell
 cd backend
@@ -597,11 +601,11 @@ python export_openapi.py
 python export_openapi.py --check
 ```
 
-- [ ] 检查 `docs/openapi-v0.2.json`。
-- [ ] 不手改生成 OpenAPI。
+- [x] 检查 `docs/openapi-v0.2.json`。
+- [x] 不手改生成 OpenAPI。
 - [ ] 通知 C 轨消费新的管理员授权接口。
 - [ ] 如前端生成类型受影响，由前端 Owner 更新。
-- [ ] 不在 A 轨直接修改 C/D 拥有的页面完成“顺手适配”。
+- [x] 不在 A 轨直接修改 C/D 拥有的页面完成“顺手适配”。
 
 ---
 
@@ -628,11 +632,11 @@ python -m pytest `
 
 验收：
 
-- [ ] 0 failed。
-- [ ] 越权反例全部覆盖。
-- [ ] grant / revoke / role change 有测试。
-- [ ] 异常结果权限有测试。
-- [ ] OpenAPI 契约有测试。
+- [x] 0 failed。
+- [x] 越权反例全部覆盖。
+- [x] grant / revoke / role change 有测试。
+- [x] 异常结果权限有测试。
+- [x] OpenAPI 契约有测试。
 
 ## 14.2 全量后端测试
 
@@ -644,17 +648,17 @@ python -m pytest
 
 记录：
 
-- [ ] collected
-- [ ] passed
-- [ ] skipped
-- [ ] warnings
-- [ ] exit code
-- [ ] 总耗时
+- [x] collected
+- [x] passed
+- [x] skipped
+- [x] warnings
+- [x] exit code
+- [x] 总耗时
 
 要求：
 
-- [ ] `0 failed`
-- [ ] exit code `0`
+- [x] `0 failed`
+- [x] exit code `0`
 
 不要把测试数量写死为历史值；以 D3A 最终 HEAD 实际结果为准。
 
@@ -668,13 +672,13 @@ git diff origin/master...HEAD
 
 检查：
 
-- [ ] 无临时 DB。
-- [ ] 无 `.venv`。
-- [ ] 无缓存。
-- [ ] 无探针脚本误提交。
-- [ ] 无无关格式化。
-- [ ] 无 B/C/D 轨业务代码越界。
-- [ ] 无第二套 Auth / Score 实现。
+- [x] 无临时 DB。
+- [x] 无 `.venv`。
+- [x] 无缓存。
+- [x] 无探针脚本误提交。
+- [x] 无无关格式化。
+- [x] 无 B/C/D 轨业务代码越界。
+- [x] 无第二套 Auth / Score 实现。
 
 ---
 
@@ -716,24 +720,24 @@ backend/tests/test_openapi_auth_contract.py
 
 # 16. 今日明确不做
 
-- [ ] 不做完整邀请系统。
-- [ ] 不做邮件 / 短信邀请。
-- [ ] 不做一次性邀请 Token。
-- [ ] 不做组织级权限体系。
-- [ ] 不做自定义 RBAC 权限编辑器。
-- [ ] 不做赛事 Owner 转移流程。
-- [ ] 不做 Registration。
-- [ ] 不做 Organization / Venue。
-- [ ] 不做 Tournament format/rule_config。
-- [ ] 不做 Affiliation。
-- [ ] 不做 BYE。
-- [ ] 不做种子 / 抽签。
-- [ ] 不做排名。
-- [ ] 不做晋级算法。
-- [ ] 不做手机 UI。
-- [ ] 不做部署脚本。
-- [ ] 不新建异常结果第二写入口。
-- [ ] 不修改 C/D 页面来“顺手完成联调”。
+- [x] 不做完整邀请系统。
+- [x] 不做邮件 / 短信邀请。
+- [x] 不做一次性邀请 Token。
+- [x] 不做组织级权限体系。
+- [x] 不做自定义 RBAC 权限编辑器。
+- [x] 不做赛事 Owner 转移流程。
+- [x] 不做 Registration。
+- [x] 不做 Organization / Venue。
+- [x] 不做 Tournament format/rule_config。
+- [x] 不做 Affiliation。
+- [x] 不做 BYE。
+- [x] 不做种子 / 抽签。
+- [x] 不做排名。
+- [x] 不做晋级算法。
+- [x] 不做手机 UI。
+- [x] 不做部署脚本。
+- [x] 不新建异常结果第二写入口。
+- [x] 不修改 C/D 页面来“顺手完成联调”。
 
 这些分别属于 Day4/Day5 或 B/C/D 轨职责。
 
@@ -750,7 +754,7 @@ backend/tests/test_openapi_auth_contract.py
 5. OPERATOR 可以录分。
 6. OPERATOR 不能管理赛事授权。
 
-- [ ] 通过。
+- [x] 通过。
 
 ## 场景 2：Viewer 只读
 
@@ -768,7 +772,7 @@ backend/tests/test_openapi_auth_contract.py
 3. 原 Session 保持登录。
 4. 再访问该赛事时仍必须因为赛事授权已撤销而失败。
 
-- [ ] 通过。
+- [x] 通过。
 
 ## 场景 4：跨赛事隔离
 
@@ -776,7 +780,7 @@ backend/tests/test_openapi_auth_contract.py
 2. 尝试管理赛事 B 的协作管理员。
 3. 返回与资源不存在一致的 404 防泄漏语义。
 
-- [ ] 通过。
+- [x] 通过。
 
 ## 场景 5：异常结果权限
 
@@ -804,22 +808,22 @@ backend/tests/test_openapi_auth_contract.py
 
 D3A 只有同时满足以下条件才算完成：
 
-- [ ] D2A 已进入当前开发基线，D3A 未复制旧认证实现。
-- [ ] 协作管理员最小授权闭环完成。
-- [ ] Owner / Admin 可以管理普通赛事授权。
-- [ ] OPERATOR / VIEWER 不能管理赛事授权。
-- [ ] SYSTEM_ADMIN 不自动获得赛事业务权限。
-- [ ] grant / role change / revoke 即时影响后端权限。
-- [ ] 没有新增第二套协作管理员数据模型。
-- [ ] 没有新增第二套异常结果比分接口。
-- [ ] 异常结果继续使用现有 `ScoreRequest / ResultType`。
-- [ ] 异常结果接口有真实赛事权限保护。
-- [ ] B 轨仍是比分 / 改分业务规则 Owner。
-- [ ] D 轨仍是手机异常结果 UI Owner。
-- [ ] API 变化已同步 OpenAPI。
-- [ ] 定向测试通过。
-- [ ] 后端全量 pytest 0 failed。
-- [ ] `git diff --check` 通过。
+- [x] D2A 已进入当前开发基线，D3A 未复制旧认证实现。
+- [x] 协作管理员最小授权闭环完成。
+- [x] Owner / Admin 可以管理普通赛事授权。
+- [x] OPERATOR / VIEWER 不能管理赛事授权。
+- [x] SYSTEM_ADMIN 不自动获得赛事业务权限。
+- [x] grant / role change / revoke 即时影响后端权限。
+- [x] 没有新增第二套协作管理员数据模型。
+- [x] 没有新增第二套异常结果比分接口。
+- [x] 异常结果继续使用现有 `ScoreRequest / ResultType`。
+- [x] 异常结果接口有真实赛事权限保护。
+- [x] B 轨仍是比分 / 改分业务规则 Owner。
+- [x] D 轨仍是手机异常结果 UI Owner。
+- [x] API 变化已同步 OpenAPI。
+- [x] 定向测试通过。
+- [x] 后端全量 pytest 0 failed。
+- [x] `git diff --check` 通过。
 - [ ] E / 非作者完成必要复核。
 - [ ] 无越权、数据丢失、错误结果等 P0。
 
@@ -903,10 +907,10 @@ docs(A轨-D3)：更新协作管理员与异常结果接口契约
 
 至少明确：
 
-- [ ] 数据库迁移：预期无新增表；如实际变化必须说明。
+- [x] 数据库迁移：预期无新增表；如实际变化必须说明。
 - [x] API / Schema：如果新增管理员授权 API。
 - [x] OpenAPI：如果 API 有变化。
-- [ ] 核心比分规则：A 轨不修改。
+- [x] 核心比分规则：A 轨不修改。
 - [x] 权限边界。
 
 ## 测试
@@ -934,16 +938,16 @@ docs(A轨-D3)：更新协作管理员与异常结果接口契约
 
 必须报告：
 
-- [ ] 修改文件清单。
-- [ ] 每个文件修改原因。
-- [ ] diff 摘要。
-- [ ] 定向测试结果。
-- [ ] 全量测试结果。
-- [ ] OpenAPI check 结果。
-- [ ] 已知风险。
-- [ ] 与 B/C/D 轨的未完成联调项。
-- [ ] 当前 Git 状态。
-- [ ] 建议 commit 信息。
+- [x] 修改文件清单。
+- [x] 每个文件修改原因。
+- [x] diff 摘要。
+- [x] 定向测试结果。
+- [x] 全量测试结果。
+- [x] OpenAPI check 结果。
+- [x] 已知风险。
+- [x] 与 B/C/D 轨的未完成联调项。
+- [x] 当前 Git 状态。
+- [x] 建议 commit 信息。
 
 在收到明确：
 
@@ -971,20 +975,20 @@ commit
 
 # 23. 推荐执行顺序
 
-1. [ ] 完结并合并 D2A。
-2. [ ] 从最新 master 创建 D3A 分支。
-3. [ ] 冻结协作管理员最小 API。
-4. [ ] 先写权限反例 / contract 测试骨架。
-5. [ ] 实现 repository + service。
-6. [ ] 实现 schema + router。
-7. [ ] 跑协作管理员定向测试。
-8. [ ] 检查现有异常结果接口是否已经满足 A 轨职责。
-9. [ ] 只补缺失的 Auth / Schema / OpenAPI，不改 B 轨算法。
+1. [x] 完结并合并 D2A。
+2. [x] 从最新 master 创建 D3A 分支。
+3. [x] 冻结协作管理员最小 API。
+4. [x] 先写权限反例 / contract 测试骨架。
+5. [x] 实现 repository + service。
+6. [x] 实现 schema + router。
+7. [x] 跑协作管理员定向测试。
+8. [x] 检查现有异常结果接口是否已经满足 A 轨职责。
+9. [x] 只补缺失的 Auth / Schema / OpenAPI，不改 B 轨算法。
 10. [ ] 与 D 轨核对手机录分 Auth 接线。
-11. [ ] 导出并检查 OpenAPI。
-12. [ ] 跑后端全量 pytest。
-13. [ ] `git diff --check` + 最终 diff review。
-14. [ ] 输出人工审核材料。
+11. [x] 导出并检查 OpenAPI。
+12. [x] 跑后端全量 pytest。
+13. [x] `git diff --check` + 最终 diff review。
+14. [x] 输出人工审核材料。
 15. [ ] 等待 commit 授权。
 16. [ ] commit 后等待 push 授权。
 17. [ ] push 后等待创建 PR 授权。
