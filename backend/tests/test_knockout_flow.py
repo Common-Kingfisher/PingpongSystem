@@ -175,7 +175,7 @@ def test_generate_before_groups_finished(conn):
         assert "尚未全部结束" in str(exc)
 
 
-def test_generate_with_ambiguous_qualification(conn):
+def test_prepare_knockout_requires_missing_point_scores_before_manual_decision(conn):
     # 2 组 × 4 人；第二组制造 2/3/4 名循环并列（晋级线 2 名处歧义）
     tid = _build_tournament(conn, n_players=8, group_count=2, qualify=2)
     groups = repo.list_groups(conn, tid)
@@ -201,10 +201,10 @@ def test_generate_with_ambiguous_qualification(conn):
             repo.update_match(conn, m["id"], status="PLAYING")
             scores_service.record_score(conn, m["id"], sa, sb)
     try:
-        knockout_service.generate_knockout(conn, tid)
-        assert False, "并列歧义应拒绝生成"
+        knockout_service.prepare_knockout_generation(conn, tid)
+        assert False, "缺少相关小分时应拒绝生成"
     except knockout_service.KnockoutError as exc:
-        assert "并列" in str(exc)
+        assert "小分" in str(exc)
 
 
 def test_generate_twice_rejected(conn):
