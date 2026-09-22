@@ -74,10 +74,12 @@ A 轨只负责数据模型、迁移、API、事务、权限和验证接线，不
 - 三格式成功保存与 B 侧 semantic validator 拒绝。
 - 语义失败时 `format_code + rule_config + rule_version` 三元组完整回滚。
 
-以下联调项仍由 B 侧处理，A 不代改：
+第二轮 B #48 `34439515baf77220b07a5e93dfacdc206904c423` 已补齐 RR 生命周期同步，A 复核结果：
 
-- `ROUND_ROBIN` 全部比赛完成后，赛事 `stage` 仍停留在 `GROUP_STAGE`，
-  而 Handler 完成态已返回 `COMPLETED`；最终状态应同步为 `FINISHED`。
+- 三人 RR 全部录分后，Handler `COMPLETED` 且赛事 `stage=FINISHED`。
+- 未结束、缺小分或局分完整但仍无法判定时保持 `GROUP_STAGE`。
+- 已完成 RR 改分导致无法判定时回退 `GROUP_STAGE`。
+- RR 退赛自动判负、GK / SE no-op 与 SE 退赛完成态均无回归。
 
 ## 五、实施清单
 
@@ -105,6 +107,7 @@ A 轨只负责数据模型、迁移、API、事务、权限和验证接线，不
 - [x] 定向测试 0 failed。
 - [x] 全量 pytest 0 failed。
 - [x] 第一轮 A/B integration 组合测试 0 failed。
+- [x] 第二轮 A/B integration 组合测试 0 failed。
 - [x] `git diff --check` 通过。
 - [ ] 非作者完成赛制与 Schema 复核。
 - [ ] 无越权、数据丢失、错误赛制解析等 P0。
@@ -155,15 +158,48 @@ A 轨只负责数据模型、迁移、API、事务、权限和验证接线，不
 - `git diff --check`：通过。
 - warning：仅为既有 FastAPI / Starlette / httpx 弃用 warning。
 
-### 9.4 B 侧待处理
+### 9.4 B 侧待处理（历史，第二轮已关闭）
 
 - 临时数据库复现 RR 3 人循环赛全部录分后：
   - 赛事 `stage`：`GROUP_STAGE`。
   - Handler 完成态：`{"state":"COMPLETED","can_advance":false,"completed":true}`。
   - 与联调 Gate 要求的 `FINISHED` 不一致，归属 B 侧 `scores/rules` 生命周期同步。
+- 第二轮已由 B #48 `3443951` 修复并通过 A 侧复核，见 §10。
 
 ### 9.5 当前工作区边界
 
 - 正式 A worktree 只修改 A 测试与本文档，未改 B 实现、B 测试或算法。
 - integration worktree 只临时复制 A 测试文件用于验证，不推送、不创建 PR、不合并。
 - 本轮修改尚未执行 `git add / commit / push / GitHub comment`，等待人工审核授权。
+
+## 十、第二轮 A/B 联调记录（2026-09-22）
+
+### 10.1 联调基线
+
+- A Head：`aa5cfb558d7c76ed35a41f9aa0d2e0b5a556afdd`
+- B Head：`34439515baf77220b07a5e93dfacdc206904c423`
+- integration Head：`ba51da5`
+- integration worktree：`辅助生成文件/A轨/D4AB-integration`
+
+### 10.2 复核结果
+
+- 三人 RR 全部录分：Handler `COMPLETED`，赛事 `stage=FINISHED`。
+- 未结束与缺小分：保持 `GROUP_STAGE`。
+- 补齐小分可解：进入 `FINISHED`。
+- 已完成 RR 改分后无法判定：回退 `GROUP_STAGE`。
+- 两人 RR 退赛后自动判负：进入 `FINISHED`。
+- GK / SE lifecycle no-op、SE 决赛选手退赛完成态无回归。
+- 真实 A 持久化字段复现：`ROUND_ROBIN + {}`、3 场、`COMPLETED`、`FINISHED`。
+
+### 10.3 验证数字
+
+- D4AB 定向：`89 passed / 20 skipped / 0 failed`。
+- RR 生命周期专项：`10 passed / 0 failed`。
+- integration backend full：`942 passed / 20 skipped / 0 failed`，共收集 962 项。
+- OpenAPI：`OpenAPI snapshot is up to date`。
+- `git diff --check`：通过。
+
+### 10.4 后续边界
+
+- 本轮验证针对 A `aa5cfb5` + B `3443951` 的目标组合，不含之后更新的 `master`。
+- 正式推送或最终合并前仍需按 merge 方式同步最新 `master` 并重新执行最终 Gate。
