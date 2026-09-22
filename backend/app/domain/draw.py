@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import random
+from itertools import permutations
 from typing import Any
 
 
@@ -36,6 +37,68 @@ def _seed_slots(size: int) -> list[int]:
     return [slot for pair in zip(_seed_slots(half), [slot + half for slot in _seed_slots(half)]) for slot in pair]
 
 
+def _collision_count(slots: list[dict[str, Any] | None]) -> int:
+    return sum(
+        1
+        for index in range(0, len(slots), 2)
+        if slots[index] is not None
+        and slots[index + 1] is not None
+        and entry_affiliations(slots[index]) & entry_affiliations(slots[index + 1])
+    )
+
+
+def _optimise_affiliations(
+    slots: list[dict[str, Any] | None], locked_slots: set[int], rng: random.Random
+) -> None:
+    """在不移动种子/BYE 的前提下，降低首轮总单位碰撞数。
+
+    至多八个可动参赛位时枚举全部落位，保证找到总碰撞最小的解；更大签表
+    使用严格降碰撞的交换优化，保持可预测的有限运行时间。
+    """
+    movable = [index for index in range(len(slots)) if index not in locked_slots]
+    values = [slots[index] for index in movable]
+    if any(value is None for value in values):
+        raise ValueError("可调签位不能包含轮空")
+
+    if len(movable) <= 8:
+        best: tuple[dict[str, Any], ...] | None = None
+        best_count: int | None = None
+        ties = 0
+        for candidate in permutations(values):
+            for index, entry in zip(movable, candidate):
+                slots[index] = entry
+            count = _collision_count(slots)
+            if best_count is None or count < best_count:
+                best_count, best, ties = count, candidate, 1
+            elif count == best_count:
+                ties += 1
+                if rng.randrange(ties) == 0:
+                    best = candidate
+        assert best is not None  # movable 为有限集合，permutations 至少产生一个结果。
+        for index, entry in zip(movable, best):
+            slots[index] = entry
+        return
+
+    # 大签表使用局部交换：每一步必须严格降低全局碰撞数，因而必定终止。
+    while True:
+        current = _collision_count(slots)
+        best_count = current
+        swaps: list[tuple[int, int]] = []
+        for left, index in enumerate(movable):
+            for other in movable[left + 1:]:
+                slots[index], slots[other] = slots[other], slots[index]
+                count = _collision_count(slots)
+                slots[index], slots[other] = slots[other], slots[index]
+                if count < best_count:
+                    best_count, swaps = count, [(index, other)]
+                elif count == best_count and count < current:
+                    swaps.append((index, other))
+        if not swaps:
+            return
+        index, other = rng.choice(swaps)
+        slots[index], slots[other] = slots[other], slots[index]
+
+
 def build_single_elimination(
     entries: list[dict[str, Any]], draw_seed: int | None = None
 ) -> list[list[dict[str, int | None]]]:
@@ -58,8 +121,10 @@ def build_single_elimination(
 
     size = _bracket_size(len(entries))
     slots: list[dict[str, Any] | None] = [None] * size
+    locked_slots: set[int] = set()
     for entry, slot in zip(seeded, _seed_slots(size)):
         slots[slot] = entry
+        locked_slots.add(slot)
 
     strength = seeded + [entry for entry in entries if entry.get("seed_no") is None]
     bye_receivers = strength[: size - len(entries)]
@@ -70,9 +135,11 @@ def build_single_elimination(
         return [index for index, entry in enumerate(slots) if entry is None and index not in reserved]
 
     def place(entry: dict[str, Any], *, reserve_opponent: bool) -> None:
-        try:
-            index = slots.index(entry)
-        except ValueError:
+        index = next(
+            (slot for slot, value in enumerate(slots) if value is not None and value["id"] == entry["id"]),
+            None,
+        )
+        if index is None:
             candidates = available_slots()
             if not candidates:
                 raise ValueError("签表槽位不足")
@@ -93,12 +160,16 @@ def build_single_elimination(
             if slots[opponent] is not None:
                 raise ValueError("种子位置与轮空位置冲突")
             reserved.add(opponent)
+            locked_slots.update((index, opponent))
 
     for entry in bye_receivers:
         place(entry, reserve_opponent=True)
+    bye_receiver_ids = {entry["id"] for entry in bye_receivers}
     for entry in strength:
-        if entry not in bye_receivers:
+        if entry["id"] not in bye_receiver_ids:
             place(entry, reserve_opponent=False)
+
+    _optimise_affiliations(slots, locked_slots, rng)
 
     first_pairs = [(slots[index], slots[index + 1]) for index in range(0, size, 2)]
     rounds: list[list[dict[str, int | None]]] = []
