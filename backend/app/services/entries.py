@@ -256,5 +256,10 @@ def withdraw_from_tournament(
         for match in repo.list_matches(conn, tournament_id)
     ):
         knockout_service.sync_stage(conn, tournament_id)
+    # A4 尚未合入的 standalone 环境会因缺少 format_code 自动 no-op；组合环境中
+    # 则把退赛自动判负后的循环赛完成态与赛事阶段保持在同一事务内。
+    from . import formats as formats_service
+
+    formats_service.sync_round_robin_stage(conn, tournament_id)
     conn.commit()
     return repo.get_entry(conn, entry_id), affected, finished_before

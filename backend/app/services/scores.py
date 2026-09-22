@@ -200,6 +200,16 @@ def _require_revision_audit(operator_name: str | None, change_reason: str | None
         raise ScoreError("修改比分必须填写至少 2 个字的修改理由", 422)
 
 
+def _sync_round_robin_stage_if_applicable(conn: sqlite3.Connection, match: dict) -> None:
+    """在无分组循环赛的比分事实变更后同步赛事阶段。"""
+    if match["stage"] != MatchStage.GROUP.value or match["group_id"] is not None:
+        return
+    # formats -> matches -> scores 已存在依赖，延迟导入避免模块级循环。
+    from . import formats as formats_service
+
+    formats_service.sync_round_robin_stage(conn, match["tournament_id"])
+
+
 def record_score(
     conn: sqlite3.Connection,
     match_id: int,
@@ -282,6 +292,8 @@ def record_score(
         knockout_service.sync_stage(conn, match["tournament_id"])
     elif match["group_id"] is not None:
         repo.invalidate_qualification_decision(conn, match["group_id"], "相关比赛结果已录入")
+    else:
+        _sync_round_robin_stage_if_applicable(conn, match)
     _audit(conn, match_id, "RECORD", before, operator_name, change_reason, request_id)
     conn.commit()
     return repo.decorate_match(conn, repo.get_match(conn, match_id))
@@ -350,6 +362,8 @@ def revise_score(
                 repo.update_match(conn, match_id, result_note=note)
             if match["group_id"] is not None:
                 repo.invalidate_qualification_decision(conn, match["group_id"], "相关比赛小比分已修改")
+            else:
+                _sync_round_robin_stage_if_applicable(conn, match)
             _audit(conn, match_id, "REVISE", before, operator_name, change_reason, request_id)
             conn.commit()
             return repo.decorate_match(conn, repo.get_match(conn, match_id))
@@ -421,6 +435,8 @@ def revise_score(
         knockout_service.sync_stage(conn, match["tournament_id"])
     elif match["group_id"] is not None:
         repo.invalidate_qualification_decision(conn, match["group_id"], "相关比赛结果已修改")
+    else:
+        _sync_round_robin_stage_if_applicable(conn, match)
     _audit(conn, match_id, "REVISE", before, operator_name, change_reason, request_id)
     conn.commit()
     return repo.decorate_match(conn, repo.get_match(conn, match_id))

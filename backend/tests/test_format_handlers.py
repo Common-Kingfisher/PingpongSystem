@@ -4,6 +4,7 @@ import pytest
 
 from app import repository as repo
 from app.services import formats
+from app.services import entries as entries_service
 from app.services import groups as groups_service
 from app.services import knockout as knockout_service
 from app.services import qualification_decisions as decision_service
@@ -65,6 +66,288 @@ def test_resolver_returns_group_knockout_handler():
 
     assert isinstance(handler, formats.GroupKnockoutHandler)
     assert handler.format_code == formats.GROUP_KNOCKOUT
+
+
+@pytest.mark.parametrize("format_code", [formats.ROUND_ROBIN, formats.SINGLE_ELIMINATION])
+def test_personal_format_config_is_valid_before_roster_exists(conn, format_code):
+    tournament = repo.create_tournament(conn, "空名单赛制", "2025-06-01", 4, 1, 1)
+
+    assert formats.resolve_format_handler(format_code).validate_config(conn, tournament["id"])["id"] == tournament["id"]
+
+
+def _personal_tournament(conn, name, players):
+    tournament = repo.create_tournament(conn, name, "2025-06-01", 4, 1, 1)
+    repo.create_tables_for_tournament(conn, tournament["id"], 4)
+    for number in range(players):
+        repo.add_player(conn, tournament["id"], f"{name}{number + 1}", None)
+    entries_service.confirm_roster(conn, tournament["id"])
+    return tournament["id"]
+
+
+def _enable_persisted_format(monkeypatch, format_code=formats.ROUND_ROBIN):
+    """在 B standalone 数据库中模拟 A4 已持久化的 format_code。"""
+    original_get_tournament = repo.get_tournament
+
+    def get_tournament_with_format(conn, tournament_id):
+        tournament = original_get_tournament(conn, tournament_id)
+        return None if tournament is None else {**tournament, "format_code": format_code}
+
+    monkeypatch.setattr(repo, "get_tournament", get_tournament_with_format)
+
+
+def test_round_robin_last_score_marks_tournament_finished(conn, monkeypatch):
+    _enable_persisted_format(monkeypatch)
+    tournament_id = _personal_tournament(conn, "循环完赛", 3)
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+    handler.generate_matches(conn, tournament_id)
+
+    for match in repo.list_matches(conn, tournament_id, stage="GROUP"):
+        winner = min(match["entry_a_id"], match["entry_b_id"])
+        score = (2, 0) if winner == match["entry_a_id"] else (0, 2)
+        scores_service.record_score(conn, match["id"], *score)
+
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "COMPLETED"
+    assert repo.get_tournament(conn, tournament_id)["stage"] == "FINISHED"
+
+
+def test_round_robin_does_not_finish_while_matches_remain(conn, monkeypatch):
+    _enable_persisted_format(monkeypatch)
+    tournament_id = _personal_tournament(conn, "循环未完", 3)
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+    handler.generate_matches(conn, tournament_id)
+    match = repo.list_matches(conn, tournament_id, stage="GROUP")[0]
+
+    scores_service.record_score(conn, match["id"], 2, 0)
+
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "ROUND_ROBIN_IN_PROGRESS"
+    assert repo.get_tournament(conn, tournament_id)["stage"] == "GROUP_STAGE"
+
+
+def test_round_robin_missing_points_keeps_group_stage(conn, monkeypatch):
+    _enable_persisted_format(monkeypatch)
+    tournament_id = _personal_tournament(conn, "循环缺小分", 3)
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+    handler.generate_matches(conn, tournament_id)
+    _finish_three_player_cycle(conn, tournament_id)
+
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "RANKING_DATA_INSUFFICIENT"
+    assert repo.get_tournament(conn, tournament_id)["stage"] == "GROUP_STAGE"
+
+
+def test_round_robin_point_supplement_marks_finished_when_tie_resolves(conn, monkeypatch):
+    _enable_persisted_format(monkeypatch)
+    tournament_id = _personal_tournament(conn, "循环补小分", 3)
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+    handler.generate_matches(conn, tournament_id)
+    _finish_three_player_cycle(conn, tournament_id)
+    matches = repo.list_matches(conn, tournament_id, stage="GROUP")
+    games_by_pair = {
+        frozenset((matches[0]["entry_a_id"], matches[0]["entry_b_id"])): [(11, 5), (11, 5)],
+        frozenset((matches[1]["entry_a_id"], matches[1]["entry_b_id"])): [(11, 6), (11, 6)],
+        frozenset((matches[2]["entry_a_id"], matches[2]["entry_b_id"])): [(11, 9), (11, 9)],
+    }
+
+    for match in matches:
+        games = games_by_pair[frozenset((match["entry_a_id"], match["entry_b_id"]))]
+        if match["winner_entry_id"] != match["entry_a_id"]:
+            games = [(score_b, score_a) for score_a, score_b in games]
+        scores_service.revise_score(conn, match["id"], None, None, games=games)
+
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "COMPLETED"
+    assert repo.get_tournament(conn, tournament_id)["stage"] == "FINISHED"
+
+
+def test_round_robin_unresolved_tie_keeps_group_stage(conn, monkeypatch):
+    _enable_persisted_format(monkeypatch)
+    tournament_id = _personal_tournament(conn, "循环仍并列", 3)
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+    handler.generate_matches(conn, tournament_id)
+    _finish_three_player_cycle(conn, tournament_id)
+
+    for match in repo.list_matches(conn, tournament_id, stage="GROUP"):
+        games = [(11, 9), (11, 9)]
+        if match["winner_entry_id"] != match["entry_a_id"]:
+            games = [(score_b, score_a) for score_a, score_b in games]
+        scores_service.revise_score(conn, match["id"], None, None, games=games)
+
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "RANKING_UNRESOLVED"
+    assert repo.get_tournament(conn, tournament_id)["stage"] == "GROUP_STAGE"
+
+
+def test_round_robin_revision_reopens_finished_tournament_when_ranking_becomes_unresolved(
+    conn, monkeypatch
+):
+    _enable_persisted_format(monkeypatch)
+    tournament_id = _personal_tournament(conn, "循环改分回退", 3)
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+    handler.generate_matches(conn, tournament_id)
+    matches = repo.list_matches(conn, tournament_id, stage="GROUP")
+
+    for match in matches:
+        winner = min(match["entry_a_id"], match["entry_b_id"])
+        score = (2, 0) if winner == match["entry_a_id"] else (0, 2)
+        games = [(11, 9), (11, 9)] if score[0] > score[1] else [(9, 11), (9, 11)]
+        scores_service.record_score(conn, match["id"], *score, games=games)
+
+    assert repo.get_tournament(conn, tournament_id)["stage"] == "FINISHED"
+    entry_ids = [entry["id"] for entry in repo.list_entries(conn, tournament_id)]
+    final_match = next(
+        match
+        for match in matches
+        if frozenset((match["entry_a_id"], match["entry_b_id"]))
+        == frozenset((entry_ids[0], entry_ids[-1]))
+    )
+    reversed_score = (0, 2) if final_match["entry_a_id"] < final_match["entry_b_id"] else (2, 0)
+    reversed_games = [(9, 11), (9, 11)] if reversed_score[0] < reversed_score[1] else [(11, 9), (11, 9)]
+    scores_service.revise_score(conn, final_match["id"], *reversed_score, games=reversed_games)
+
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "RANKING_UNRESOLVED"
+    assert repo.get_tournament(conn, tournament_id)["stage"] == "GROUP_STAGE"
+
+
+def test_round_robin_withdrawal_can_finish_tournament(conn, monkeypatch):
+    _enable_persisted_format(monkeypatch)
+    tournament_id = _personal_tournament(conn, "循环退赛完赛", 2)
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+    handler.generate_matches(conn, tournament_id)
+    withdrawn_id = repo.list_entries(conn, tournament_id)[0]["id"]
+
+    entries_service.withdraw_from_tournament(conn, tournament_id, withdrawn_id, "主裁", "运动员伤病退赛")
+
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "COMPLETED"
+    assert repo.get_tournament(conn, tournament_id)["stage"] == "FINISHED"
+
+
+@pytest.mark.parametrize("format_code", [formats.GROUP_KNOCKOUT, formats.SINGLE_ELIMINATION])
+def test_round_robin_lifecycle_sync_ignores_other_formats(conn, monkeypatch, format_code):
+    _enable_persisted_format(monkeypatch, format_code)
+    tournament_id = _personal_tournament(conn, f"非循环赛-{format_code}", 2)
+    repo.update_tournament_stage(conn, tournament_id, "GROUP_STAGE")
+
+    formats.sync_round_robin_stage(conn, tournament_id)
+
+    assert repo.get_tournament(conn, tournament_id)["stage"] == "GROUP_STAGE"
+
+
+def test_round_robin_ranking_and_completion_survive_withdrawal(conn):
+    tournament_id = _personal_tournament(conn, "循环退赛", 3)
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+    handler.generate_matches(conn, tournament_id)
+    withdrawn_id = repo.list_entries(conn, tournament_id)[-1]["id"]
+
+    entries_service.withdraw_from_tournament(conn, tournament_id, withdrawn_id, "主裁", "运动员伤病退赛")
+    _finish_playable_matches(conn, tournament_id)
+
+    rankings = handler.calculate_ranking(conn, tournament_id)
+    assert {row["entry_status"] for row in rankings} == {"ACTIVE", "WITHDRAWN"}
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "COMPLETED"
+
+
+def test_single_elimination_completion_survives_finalist_withdrawal(conn):
+    tournament_id = _personal_tournament(conn, "淘汰退赛", 2)
+    handler = formats.resolve_format_handler(formats.SINGLE_ELIMINATION)
+    handler.generate_matches(conn, tournament_id)
+    withdrawn_id = repo.list_entries(conn, tournament_id)[0]["id"]
+
+    entries_service.withdraw_from_tournament(conn, tournament_id, withdrawn_id, "主裁", "运动员伤病退赛")
+
+    assert handler.get_completion_state(conn, tournament_id) == {
+        "state": "COMPLETED", "can_advance": False, "completed": True
+    }
+
+
+def _finish_three_player_cycle(conn, tournament_id, games_by_pair=None):
+    entries = repo.list_entries(conn, tournament_id)
+    first, second, third = [entry["id"] for entry in entries]
+    winner_by_pair = {
+        frozenset((first, second)): first,
+        frozenset((second, third)): second,
+        frozenset((first, third)): third,
+    }
+    for match in repo.list_matches(conn, tournament_id, stage="GROUP"):
+        winner = winner_by_pair[frozenset((match["entry_a_id"], match["entry_b_id"]))]
+        scores_service.record_score(
+            conn, match["id"], *( (2, 0) if winner == match["entry_a_id"] else (0, 2) )
+        )
+        if games_by_pair is not None:
+            games = games_by_pair[frozenset((match["entry_a_id"], match["entry_b_id"]))]
+            if winner != match["entry_a_id"]:
+                games = [(side_b, side_a) for side_a, side_b in games]
+            scores_service.revise_score(conn, match["id"], None, None, games=games)
+
+
+def test_round_robin_distinguishes_missing_points_from_unresolved_tie(conn):
+    tournament_id = _personal_tournament(conn, "循环同分", 3)
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+    handler.generate_matches(conn, tournament_id)
+    _finish_three_player_cycle(conn, tournament_id)
+
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "RANKING_DATA_INSUFFICIENT"
+
+    equal_games = {
+        frozenset((match["entry_a_id"], match["entry_b_id"])): [(11, 9), (11, 9)]
+        for match in repo.list_matches(conn, tournament_id, stage="GROUP")
+    }
+    for match in repo.list_matches(conn, tournament_id, stage="GROUP"):
+        games = equal_games[frozenset((match["entry_a_id"], match["entry_b_id"]))]
+        winner_id = match["winner_entry_id"]
+        if winner_id != match["entry_a_id"]:
+            games = [(side_b, side_a) for side_a, side_b in games]
+        scores_service.revise_score(conn, match["id"], None, None, games=games)
+
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "RANKING_UNRESOLVED"
+
+
+def test_round_robin_completes_when_point_scores_break_three_way_tie(conn):
+    tournament_id = _personal_tournament(conn, "循环小分", 3)
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+    handler.generate_matches(conn, tournament_id)
+    matches = repo.list_matches(conn, tournament_id, stage="GROUP")
+    games_by_pair = {
+        frozenset((matches[0]["entry_a_id"], matches[0]["entry_b_id"])): [(11, 5), (11, 5)],
+        frozenset((matches[1]["entry_a_id"], matches[1]["entry_b_id"])): [(11, 6), (11, 6)],
+        frozenset((matches[2]["entry_a_id"], matches[2]["entry_b_id"])): [(11, 9), (11, 9)],
+    }
+    _finish_three_player_cycle(conn, tournament_id, games_by_pair)
+
+    assert handler.get_completion_state(conn, tournament_id)["state"] == "COMPLETED"
+
+
+@pytest.mark.parametrize("players", [2, 3, 5, 8])
+def test_round_robin_handler_generates_exactly_one_match_per_pair(conn, players):
+    tournament = repo.create_tournament(conn, "循环赛", "2025-06-01", 4, 1, 1)
+    for number in range(players):
+        repo.add_player(conn, tournament["id"], f"RR{number + 1}", None)
+    entries_service.confirm_roster(conn, tournament["id"])
+    handler = formats.resolve_format_handler(formats.ROUND_ROBIN)
+
+    result = handler.generate_matches(conn, tournament["id"])
+
+    matches = repo.list_matches(conn, tournament["id"])
+    pairs = {frozenset((match["entry_a_id"], match["entry_b_id"])) for match in matches}
+    assert result == formats.MatchGenerationResult(players * (players - 1) // 2)
+    assert len(matches) == len(pairs) == players * (players - 1) // 2
+    with pytest.raises(formats.FormatHandlerError, match="循环赛已生成"):
+        handler.generate_matches(conn, tournament["id"])
+
+
+def test_single_elimination_handler_builds_byes_and_winner_chain(conn):
+    tournament = repo.create_tournament(conn, "单淘汰", "2025-06-01", 4, 1, 1)
+    for number in range(12):
+        repo.add_player(conn, tournament["id"], f"SE{number + 1}", None)
+    entries_service.confirm_roster(conn, tournament["id"])
+    handler = formats.resolve_format_handler(formats.SINGLE_ELIMINATION)
+
+    result = handler.generate_matches(conn, tournament["id"])
+
+    main = repo.list_matches(conn, tournament["id"], stage="KNOCKOUT")
+    first_round = [match for match in main if match["round"] == 1]
+    assert result == formats.MatchGenerationResult(15)
+    assert [len([m for m in main if m["round"] == round_no]) for round_no in range(1, 5)] == [8, 4, 2, 1]
+    assert len([m for m in first_round if m["result_type"] == "WALKOVER"]) == 4
+    assert all(match["prev_match_a_id"] or match["prev_match_b_id"] for match in main if match["round"] > 1)
+    with pytest.raises(formats.FormatHandlerError, match="淘汰赛已生成"):
+        handler.generate_matches(conn, tournament["id"])
 
 
 def test_unknown_format_is_explicitly_rejected():
