@@ -1,6 +1,6 @@
 # A 轨 D2：认证鉴权与契约交付详细执行计划
 
-> 状态：执行计划修订稿（A2.1-A2.5 已提交；A2.6 实现、专项验收与全量回归完成，待人工审核提交；A2.7 未开始，按 PR #42 最新 C/D 轨反馈实施）
+> 状态：执行计划修订稿（A2.1-A2.7 的 A 侧工作已完成并纳入本次提交；整体 D2 仍待 C 轨前端 build/contract 证据与跨轨收口）
 > 基线：`master@b8fe480`（PR #38 已合入）
 > A2.1 已完成提交：`564e2d2`
 > 工作分支：`feature/AuthAndPortalSkeleton`  
@@ -357,7 +357,7 @@ C 轨 D2 不实现复杂权限编辑器；前端只根据后端返回的允许�
 
 依赖：A2.3 的稳定响应模型与 A2.4 的权限语义。
 
-状态：实现、专项验收与全量回归完成，待人工审核提交；已纳入 P-01 的 A 侧配置/鉴权边界；未修改 `frontend/src/**` 或其他非 A 侧文件。
+状态：已完成并提交（`ba8e2c5`）；已纳入 P-01 的 A 侧配置/鉴权边界；未修改 `frontend/src/**` 或其他非 A 侧文件。
 
 职责边界：
 
@@ -406,6 +406,8 @@ C 轨 D2 不实现复杂权限编辑器；前端只根据后端返回的允许�
 
 依赖：A2.1-A2.6。
 
+状态：A 侧文档与验证已完成并纳入本次提交；不宣称整体 D2 已完成。
+
 实施内容：
 
 1. 更新 OpenAPI 导出文件。
@@ -415,17 +417,20 @@ C 轨 D2 不实现复杂权限编辑器；前端只根据后端返回的允许�
 5. 汇总 C 轨提供的前端 build 与 contract 检查证据。
 6. 只在当前唯一 PR 中追加修改报告，不修改初始 PR 正文。
 
-A 轨必须运行：
+A 轨已运行：
 
 ```powershell
-# backend
-C:\Users\lenovo\Desktop\乒乓球平台\辅助生成文件\.venv-v03-a\Scripts\python.exe -m pytest
+# backend（工作目录 backend）
+C:\Users\lenovo\Desktop\乒乓球平台\辅助生成文件\.venv-v03-a\Scripts\python.exe -m pytest -q
 
-# contract
-python backend/export_openapi.py
+# clean venv（工作目录 backend，按 backend/pytest.ini 收集）
+C:\Users\lenovo\Desktop\乒乓球平台\辅助生成文件\V0.3补丁验证\20260922-A2.6\clean-venv\Scripts\python.exe -m pytest -q
+
+# contract（工作目录 backend）
+C:\Users\lenovo\Desktop\乒乓球平台\辅助生成文件\.venv-v03-a\Scripts\python.exe export_openapi.py --check
 ```
 
-C 轨提供以下证据：
+C 轨需提供以下证据：
 
 ```powershell
 # frontend
@@ -433,12 +438,15 @@ pnpm build
 pnpm contract:check
 ```
 
-验收证据：
+A2.7 验收证据（2026-09-22）：
 
-- 认证专项 pytest 全通过。
-- 后端全量 pytest 全通过。
-- OpenAPI 可生成且认证契约测试通过。
-- C 轨前端 build 与 contract 检查通过。
+- A 侧主环境全量后端测试收集 `865` 项，`835 passed`、`30 skipped`，退出码 `0`。
+- clean venv 全量后端测试按 `backend/pytest.ini` 收集 `865` 项，跳过 `30` 项，其余通过，退出码 `0`。
+- 认证、Bootstrap、系统用户、赛事归属、OpenAPI 与部署配置专项合计 `62 passed`。
+- `python export_openapi.py --check` 返回 `OpenAPI snapshot is up to date`。
+- 未修改 `frontend/src/**`、`frontend/package.json` 或 `start_pingpong.ps1`。
+- 完整证据、C 轨接入边界、风险和未覆盖场景见 `docs/A2.7_AUTH_CONTRACT_DELIVERY.md`。
+- C 轨 `pnpm build` 与 `pnpm contract:check` 证据尚未提供，因此整体 D2 前端 Gate 仍未关闭。
 - 已知未冻结项没有被代码静默绕过。
 
 ## 5. 文件级执行顺序
@@ -515,14 +523,14 @@ pnpm contract:check
 
 ## 9. 当前进度
 
-当前已提交进度：`5/7（约 71%）`；A2.6 实现与验收已完成，尚未提交。
+当前已提交进度：`7/7（100%）`；A2.7 A 侧已完成并纳入本次提交。整体 D2 仍待 C 轨前端 build/contract 证据与跨轨收口。
 
 - A2.1：已完成，提交 `564e2d2`；专项测试 `7 passed`。
 - A2.2：已完成，提交 `2ac51cd`；新增迁移版本 3、持久化 bootstrap 状态、`phone/note` 字段、原子首次初始化、账号停用与会话撤销；认证专项测试 `28 passed`。
 - A2.3：已完成，提交 `eb465ac`；认证 API、Bootstrap API 与系统用户接口已落地。
 - A2.4：已完成，提交 `51bab8f`；统一鉴权依赖与赛事资源授权已落地。
 - A2.5：已完成，提交 `e6e907b`；40 条赛事管理写路由全部接入鉴权，专项测试 `7 passed`。
-- A2.6：实现、专项验收与全量回归完成，尚未提交；认证 OpenAPI contract 已冻结，契约专项测试 `9 passed`，OpenAPI 快照校验通过，后端全量回归 `864` 项收集、`28` 跳过且其余通过，未修改 `frontend/src/**`。
-- A2.7：未开始。
+- A2.6：已完成并提交（`ba8e2c5`）；认证 OpenAPI contract 已冻结，契约专项测试 `9 passed`，OpenAPI 快照校验通过，A2.6 当时记录的回归为 `864` 项收集、`28` 跳过且其余通过，未修改 `frontend/src/**`。
+- A2.7：A 侧文档与验证已完成并纳入本次提交；新增 `docs/A2.7_AUTH_CONTRACT_DELIVERY.md`，当前分支复跑全量测试 `865` 项收集、`30` 跳过且其余通过，clean venv 全量测试通过，OpenAPI 快照校验通过；C 轨前端证据仍待提供。
 
-本文件代表 A2.1-A2.5 已提交；A2.6 已实现并通过专项验收与全量回归，等待人工审核提交；A2.7 仍按修订后的执行顺序和验收边界实施。
+本文件代表 A2.1-A2.7 的 A 侧工作已完成并纳入本次提交。整体 D2 的跨轨完成仍需 C 轨前端 build/contract 证据以及 D/E 轨部署与现场验证。
