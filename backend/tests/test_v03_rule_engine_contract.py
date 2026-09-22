@@ -93,20 +93,38 @@ def test_draw_contract_scenarios(scenario, expected):
         byes = draw.build_single_elimination(entries[:3], draw_seed=11)[0]
         assert sum((match["player_a_id"] is None) != (match["player_b_id"] is None) for match in byes) == 1
     elif scenario == "seed_protection":
+        seeded = entries[:2] + [
+            {"id": index, "seed_no": None, "members": [{"college": "C"}]}
+            for index in range(3, 9)
+        ]
+        first_round = draw.build_single_elimination(seeded, draw_seed=11)[0]
         seed_matches = {
-            entry_id: match["match_index"]
-            for match in pairs for entry_id in (1, 2)
-            if entry_id in (match["player_a_id"], match["player_b_id"])
+            entry_id: next(
+                match["match_index"] for match in first_round
+                if entry_id in (match["player_a_id"], match["player_b_id"])
+            )
+            for entry_id in (1, 2)
         }
-        assert seed_matches[1] != seed_matches[2]
+        assert (seed_matches[1] < len(first_round) // 2) != (seed_matches[2] < len(first_round) // 2)
     elif scenario == "affiliation_avoidance":
+        entries = [
+            {"id": 1, "seed_no": None, "members": [{"college": "A"}]},
+            {"id": 2, "seed_no": None, "members": [{"college": "B"}]},
+            {"id": 3, "seed_no": None, "members": [{"college": "C"}]},
+            {"id": 4, "seed_no": None, "members": [{"college": "A"}]},
+        ]
         affiliations = {entry["id"]: draw.entry_affiliations(entry) for entry in entries}
+        pairs = draw.build_single_elimination(entries, draw_seed=0)[0]
         assert all(not (affiliations[a] & affiliations[b]) for a, b in (
             (match["player_a_id"], match["player_b_id"]) for match in pairs
         ))
     elif scenario == "unavoidable_collision":
         same = [{"id": index, "seed_no": None, "members": [{"college": "A"}]} for index in range(1, 5)]
-        assert len(draw.build_single_elimination(same, draw_seed=11)[0]) == 2
+        first_round = draw.build_single_elimination(same, draw_seed=11)[0]
+        assert len(first_round) == 2
+        assert sorted(entry_id for match in first_round for entry_id in (
+            match["player_a_id"], match["player_b_id"]
+        )) == [1, 2, 3, 4]
     elif scenario == "doubles_affiliations":
         assert draw.entry_affiliations({"members": [{"college": "A"}, {"college": "B"}]}) == {"A", "B"}
     elif scenario == "missing_affiliation":
