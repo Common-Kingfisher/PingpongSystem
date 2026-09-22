@@ -75,6 +75,26 @@ def _assert_not_found(response) -> None:
     assert response.json()["detail"] == RESOURCE_NOT_FOUND
 
 
+def _create_group_match(client, name: str) -> tuple[dict, dict]:
+    """创建含两名选手和一场小组赛的赛事，返回赛事与比赛。"""
+    tournament = _create_tournament(client, name)
+    for player_name in ("A 选手", "B 选手"):
+        response = client.post(
+            f"/api/tournaments/{tournament['id']}/players",
+            json={"name": player_name},
+        )
+        assert response.status_code == 201, response.text
+    assert client.post(
+        f"/api/tournaments/{tournament['id']}/auto-group"
+    ).status_code == 200
+    assert client.post(
+        f"/api/tournaments/{tournament['id']}/generate-group-matches"
+    ).status_code == 200
+    matches = client.get(f"/api/tournaments/{tournament['id']}/matches").json()
+    assert len(matches) == 1
+    return tournament, matches[0]
+
+
 def test_management_endpoints_require_login(client):
     tournament = _create_tournament(client)
     client.headers.pop("Authorization")
@@ -360,54 +380,114 @@ def test_role_change_and_revoke_immediately_affect_write_access(client, conn):
     _assert_not_found(denied_after_revoke)
 
 
-def test_forfeit_reuses_existing_score_endpoint_with_tournament_permission(client, conn):
-    tournament = _create_tournament(client, "D3A 异常结果权限赛事")
-    for name in ("A 选手", "B 选手"):
-        response = client.post(
-            f"/api/tournaments/{tournament['id']}/players",
-            json={"name": name},
-        )
-        assert response.status_code == 201, response.text
-    assert client.post(
-        f"/api/tournaments/{tournament['id']}/auto-group"
-    ).status_code == 200
-    assert client.post(
-        f"/api/tournaments/{tournament['id']}/generate-group-matches"
-    ).status_code == 200
-    match = client.get(f"/api/tournaments/{tournament['id']}/matches").json()[0]
-
-    outsider, outsider_token = _create_user(conn, "d3a-forfeit-outsider")
-    operator, operator_token = _create_user(conn, "d3a-forfeit-operator")
+@pytest.mark.parametrize(
+    "case",
+    [
+        "OWNER",
+        "ADMIN",
+        "OPERATOR",
+        "VIEWER",
+        "OUTSIDER",
+        "SYSTEM_ADMIN",
+        "UNAUTHENTICATED",
+    ],
+)
+def test_score_route_tournament_role_matrix(client, conn, case):
+    tournament, match = _create_group_match(client, f"D3A 比分权限赛事-{case}")
     payload = {
         "result_type": "FORFEIT",
         "forfeit_entry_id": match["player_a_id"],
         "note": "A 方弃权",
     }
+    allowed = case in {"OWNER", "ADMIN", "OPERATOR"}
+    headers = None
 
-    denied = client.post(
+    if case == "OWNER":
+        pass
+    elif case == "UNAUTHENTICATED":
+        client.headers.pop("Authorization")
+    else:
+        system_role = (
+            SystemRole.SYSTEM_ADMIN if case == "SYSTEM_ADMIN" else SystemRole.EVENT_ADMIN
+        )
+        actor, token = _create_user(
+            conn,
+            f"d3a-score-{case.lower()}",
+            system_role=system_role,
+        )
+        if case in {"ADMIN", "OPERATOR", "VIEWER"}:
+            _grant(conn, tournament["id"], actor["id"], TournamentRole[case])
+        headers = _headers(token)
+
+    response = client.post(
         f"/api/matches/{match['id']}/score",
         json=payload,
-        headers=_headers(outsider_token),
+        headers=headers,
     )
-    _assert_not_found(denied)
 
-    granted = client.post(
-        f"/api/tournaments/{tournament['id']}/admins",
-        json={"user_id": operator["id"], "role": "OPERATOR"},
-    )
-    assert granted.status_code == 200, granted.text
-    accepted = client.post(
+    if allowed:
+        assert response.status_code == 200, response.text
+        assert response.json()["result_type"] == "FORFEIT"
+        assert response.json()["forfeit_entry_id"] == match["player_a_id"]
+        assert response.json()["winner_id"] == match["player_b_id"]
+    elif case == "UNAUTHENTICATED":
+        assert response.status_code == 401, response.text
+        assert response.json()["detail"]["code"] == "AUTH_REQUIRED"
+    else:
+        _assert_not_found(response)
+
+
+def test_revise_score_route_accepts_granted_roles_and_rejects_viewer(client, conn):
+    tournament, match = _create_group_match(client, "D3A 改分权限赛事")
+    initial = client.post(
         f"/api/matches/{match['id']}/score",
-        json=payload,
+        json={"player_a_score": 2, "player_b_score": 0},
+    )
+    assert initial.status_code == 200, initial.text
+
+    admin, admin_token = _create_user(conn, "d3a-revise-admin")
+    operator, operator_token = _create_user(conn, "d3a-revise-operator")
+    viewer, viewer_token = _create_user(conn, "d3a-revise-viewer")
+    _grant(conn, tournament["id"], admin["id"], TournamentRole.ADMIN)
+    _grant(conn, tournament["id"], operator["id"], TournamentRole.OPERATOR)
+    _grant(conn, tournament["id"], viewer["id"], TournamentRole.VIEWER)
+
+    admin_revision = client.post(
+        f"/api/matches/{match['id']}/revise-score",
+        json={
+            "player_a_score": 2,
+            "player_b_score": 1,
+            "operator_name": "协作管理员",
+            "change_reason": "修正大比分",
+        },
+        headers=_headers(admin_token),
+    )
+    assert admin_revision.status_code == 200, admin_revision.text
+    assert admin_revision.json()["player_a_score"] == 2
+    assert admin_revision.json()["player_b_score"] == 1
+
+    operator_revision = client.post(
+        f"/api/matches/{match['id']}/revise-score",
+        json={
+            "player_a_score": 2,
+            "player_b_score": 0,
+            "operator_name": "赛事操作员",
+            "change_reason": "复核比分",
+        },
         headers=_headers(operator_token),
     )
-    assert accepted.status_code == 200, accepted.text
-    assert accepted.json()["result_type"] == "FORFEIT"
-    assert accepted.json()["forfeit_entry_id"] == match["player_a_id"]
-    assert accepted.json()["winner_id"] == match["player_b_id"]
-    assert outsider["id"] != operator["id"]
+    assert operator_revision.status_code == 200, operator_revision.text
+    assert operator_revision.json()["player_a_score"] == 2
+    assert operator_revision.json()["player_b_score"] == 0
 
-    client.headers.pop("Authorization")
-    unauthenticated = client.post(f"/api/matches/{match['id']}/score", json=payload)
-    assert unauthenticated.status_code == 401, unauthenticated.text
-    assert unauthenticated.json()["detail"]["code"] == "AUTH_REQUIRED"
+    viewer_revision = client.post(
+        f"/api/matches/{match['id']}/revise-score",
+        json={
+            "player_a_score": 2,
+            "player_b_score": 1,
+            "operator_name": "只读用户",
+            "change_reason": "不应成功",
+        },
+        headers=_headers(viewer_token),
+    )
+    _assert_not_found(viewer_revision)
