@@ -30,6 +30,9 @@ TOURNAMENTS_TABLE_SQL = """CREATE TABLE IF NOT EXISTS tournaments (
     roster_confirmed INTEGER NOT NULL DEFAULT 0 CHECK (roster_confirmed IN (0,1)),
     confirmed_at TEXT,
     operation_mode TEXT NOT NULL DEFAULT 'LIVE' CHECK (operation_mode IN ('LIVE','DEMO')),
+    format_code TEXT CHECK (format_code IS NULL OR format_code IN ('ROUND_ROBIN','SINGLE_ELIMINATION','GROUP_KNOCKOUT')),
+    rule_config TEXT,
+    rule_version INTEGER CHECK (rule_version IS NULL OR rule_version >= 1),
     stage TEXT NOT NULL DEFAULT 'REGISTRATION'
         CHECK (stage IN ('REGISTRATION','GROUP_STAGE','KNOCKOUT','FINISHED')),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))

@@ -14,6 +14,7 @@ from collections.abc import Callable
 VERSION_1_DESCRIPTION = "master baseline"
 VERSION_2_DESCRIPTION = "auth_users_and_admins"
 VERSION_3_DESCRIPTION = "bootstrap_state_and_user_profile"
+VERSION_4_DESCRIPTION = "tournament_format_config"
 
 
 MIGRATION_TABLE_SQL = """
@@ -134,10 +135,31 @@ def _migration_3(conn: sqlite3.Connection) -> None:
     _add_user_column_if_missing(conn, "note", "TEXT")
 
 
+def _migration_4(conn: sqlite3.Connection) -> None:
+    """为锦标赛补齐赛制配置列；历史数据保持 NULL。"""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(tournaments)")}
+    column_ddl = (
+        (
+            "format_code",
+            "TEXT CHECK (format_code IS NULL OR format_code IN "
+            "('ROUND_ROBIN','SINGLE_ELIMINATION','GROUP_KNOCKOUT'))",
+        ),
+        ("rule_config", "TEXT"),
+        (
+            "rule_version",
+            "INTEGER CHECK (rule_version IS NULL OR rule_version >= 1)",
+        ),
+    )
+    for column, ddl in column_ddl:
+        if column not in columns:
+            conn.execute(f"ALTER TABLE tournaments ADD COLUMN {column} {ddl}")
+
+
 MIGRATIONS: tuple[tuple[int, str, Callable[[sqlite3.Connection], None]], ...] = (
     (1, VERSION_1_DESCRIPTION, _migration_1),
     (2, VERSION_2_DESCRIPTION, _migration_2),
     (3, VERSION_3_DESCRIPTION, _migration_3),
+    (4, VERSION_4_DESCRIPTION, _migration_4),
 )
 
 

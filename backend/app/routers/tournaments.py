@@ -13,6 +13,7 @@ from ..dependencies import (
     require_tournament_write,
 )
 from ..services import order_book as order_book_service
+from ..services import formats as formats_service
 from ..services import tournament_export as tournament_export_service
 from ..services import tournaments as tournament_service
 
@@ -25,21 +26,30 @@ def create_tournament(
     conn: Connection = Depends(get_db),
     context=Depends(require_event_admin),
 ):
-    return tournament_service.create_tournament_with_tables(
-        conn,
-        payload.name,
-        payload.date,
-        payload.table_count,
-        payload.group_count,
-        payload.qualify_per_group,
-        payload.event_type.value,
-        payload.bronze_mode.value,
-        payload.placement_mode.value,
-        payload.games_to_win,
-        payload.points_to_win,
-        payload.operation_mode.value,
-        owner_user_id=int(context.user["id"]),
-    )
+    try:
+        return tournament_service.create_tournament_with_tables(
+            conn,
+            payload.name,
+            payload.date,
+            payload.table_count,
+            payload.group_count,
+            payload.qualify_per_group,
+            payload.event_type.value,
+            payload.bronze_mode.value,
+            payload.placement_mode.value,
+            payload.games_to_win,
+            payload.points_to_win,
+            payload.operation_mode.value,
+            owner_user_id=int(context.user["id"]),
+            format_code=payload.format_code.value if payload.format_code else None,
+            rule_config=payload.rule_config,
+        )
+    except tournament_service.TournamentFormatError as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc))
+    except formats_service.FormatHandlerError as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc))
+    except repo.RuleConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.get("", response_model=list[schemas.TournamentOut])
@@ -75,6 +85,30 @@ def export_tournament(
     try:
         return tournament_export_service.get_export(conn, tournament_id)
     except tournament_export_service.ExportError as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc))
+
+
+@router.put(
+    "/{tournament_id}/format",
+    response_model=schemas.TournamentOut,
+)
+def update_tournament_format(
+    tournament_id: int,
+    payload: schemas.TournamentFormatUpdateRequest,
+    conn: Connection = Depends(get_db),
+    _access=Depends(require_tournament_write),
+):
+    """更新赛制配置三元组；已产生比赛或团体对抗时拒绝静默切换。"""
+    try:
+        return tournament_service.update_format_config(
+            conn,
+            tournament_id,
+            payload.format_code.value,
+            payload.rule_config,
+        )
+    except tournament_service.TournamentFormatError as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc))
+    except formats_service.FormatHandlerError as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc))
 
 
