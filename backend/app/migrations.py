@@ -15,6 +15,7 @@ VERSION_1_DESCRIPTION = "master baseline"
 VERSION_2_DESCRIPTION = "auth_users_and_admins"
 VERSION_3_DESCRIPTION = "bootstrap_state_and_user_profile"
 VERSION_4_DESCRIPTION = "tournament_format_config"
+VERSION_5_DESCRIPTION = "registration_organization_venue"
 
 
 MIGRATION_TABLE_SQL = """
@@ -99,6 +100,69 @@ VERSION_3_SQL = (
 )
 
 
+VERSION_5_SQL = (
+    """
+    CREATE TABLE IF NOT EXISTS organizations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tournament_id INTEGER NOT NULL UNIQUE
+            REFERENCES tournaments(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        contact_name TEXT,
+        contact TEXT,
+        note TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS venues (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tournament_id INTEGER NOT NULL UNIQUE
+            REFERENCES tournaments(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        address TEXT,
+        contact_name TEXT,
+        contact TEXT,
+        note TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS registrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        affiliation TEXT,
+        contact TEXT,
+        rating_points INTEGER NOT NULL DEFAULT 1000
+            CHECK (rating_points BETWEEN 0 AND 99999),
+        status TEXT NOT NULL DEFAULT 'PENDING'
+            CHECK (status IN ('PENDING','CONFIRMED')),
+        confirmed_player_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+        confirmed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        confirmed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        CHECK (
+            (status = 'PENDING'
+                AND confirmed_player_id IS NULL
+                AND confirmed_by_user_id IS NULL
+                AND confirmed_at IS NULL)
+            OR
+            (status = 'CONFIRMED'
+                AND confirmed_player_id IS NOT NULL
+                AND confirmed_at IS NOT NULL)
+        )
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_registrations_tournament_status
+        ON registrations(tournament_id, status, id)
+    """,
+)
+
+
 def _migration_1(_: sqlite3.Connection) -> None:
     """master 基线不重复建表，只负责在旧库中登记版本。"""
 
@@ -155,11 +219,24 @@ def _migration_4(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE tournaments ADD COLUMN {column} {ddl}")
 
 
+def _migration_5(conn: sqlite3.Connection) -> None:
+    """增加报名开关、报名台账以及赛事组织方/场馆最小信息。"""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(tournaments)")}
+    if "registration_enabled" not in columns:
+        conn.execute(
+            "ALTER TABLE tournaments ADD COLUMN registration_enabled "
+            "INTEGER NOT NULL DEFAULT 0 CHECK (registration_enabled IN (0, 1))"
+        )
+    for statement in VERSION_5_SQL:
+        conn.execute(statement)
+
+
 MIGRATIONS: tuple[tuple[int, str, Callable[[sqlite3.Connection], None]], ...] = (
     (1, VERSION_1_DESCRIPTION, _migration_1),
     (2, VERSION_2_DESCRIPTION, _migration_2),
     (3, VERSION_3_DESCRIPTION, _migration_3),
     (4, VERSION_4_DESCRIPTION, _migration_4),
+    (5, VERSION_5_DESCRIPTION, _migration_5),
 )
 
 

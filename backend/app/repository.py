@@ -16,7 +16,7 @@ _TOURNAMENT_COLS = (
     "id, name, date, table_count, group_count, qualify_per_group, stage, created_at, "
     "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, "
     "roster_confirmed, confirmed_at, operation_mode, owner_user_id, "
-    "format_code, rule_config, rule_version"
+    "registration_enabled, format_code, rule_config, rule_version"
 )
 
 
@@ -140,6 +140,104 @@ def update_tournament_stage(conn: sqlite3.Connection, tournament_id: int, stage:
     conn.execute(
         "UPDATE tournaments SET stage = ? WHERE id = ?", (stage, tournament_id)
     )
+
+
+def set_tournament_registration_enabled(
+    conn: sqlite3.Connection, tournament_id: int, enabled: bool
+) -> Optional[dict]:
+    conn.execute(
+        "UPDATE tournaments SET registration_enabled = ? WHERE id = ?",
+        (int(enabled), tournament_id),
+    )
+    return get_tournament(conn, tournament_id)
+
+
+# ------------------------------------------------- organization & venue
+
+_ORGANIZATION_COLS = (
+    "id, tournament_id, name, contact_name, contact, note, created_at, updated_at"
+)
+_VENUE_COLS = (
+    "id, tournament_id, name, address, contact_name, contact, note, created_at, updated_at"
+)
+
+
+def get_organization(conn: sqlite3.Connection, tournament_id: int) -> Optional[dict]:
+    row = conn.execute(
+        f"SELECT {_ORGANIZATION_COLS} FROM organizations WHERE tournament_id = ?",
+        (tournament_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_organization(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    *,
+    name: str,
+    contact_name: str | None,
+    contact: str | None,
+    note: str | None,
+) -> dict:
+    conn.execute(
+        """
+        INSERT INTO organizations
+            (tournament_id, name, contact_name, contact, note)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(tournament_id) DO UPDATE SET
+            name = excluded.name,
+            contact_name = excluded.contact_name,
+            contact = excluded.contact,
+            note = excluded.note,
+            updated_at = datetime('now')
+        """,
+        (tournament_id, name, contact_name, contact, note),
+    )
+    row = conn.execute(
+        f"SELECT {_ORGANIZATION_COLS} FROM organizations WHERE tournament_id = ?",
+        (tournament_id,),
+    ).fetchone()
+    return dict(row)
+
+
+def get_venue(conn: sqlite3.Connection, tournament_id: int) -> Optional[dict]:
+    row = conn.execute(
+        f"SELECT {_VENUE_COLS} FROM venues WHERE tournament_id = ?",
+        (tournament_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_venue(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    *,
+    name: str,
+    address: str | None,
+    contact_name: str | None,
+    contact: str | None,
+    note: str | None,
+) -> dict:
+    conn.execute(
+        """
+        INSERT INTO venues
+            (tournament_id, name, address, contact_name, contact, note)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(tournament_id) DO UPDATE SET
+            name = excluded.name,
+            address = excluded.address,
+            contact_name = excluded.contact_name,
+            contact = excluded.contact,
+            note = excluded.note,
+            updated_at = datetime('now')
+        """,
+        (tournament_id, name, address, contact_name, contact, note),
+    )
+    row = conn.execute(
+        f"SELECT {_VENUE_COLS} FROM venues WHERE tournament_id = ?",
+        (tournament_id,),
+    ).fetchone()
+    return dict(row)
 
 
 def confirm_tournament_roster(conn: sqlite3.Connection, tournament_id: int) -> None:
@@ -283,6 +381,85 @@ def clear_tournament_seeds(conn: sqlite3.Connection, tournament_id: int) -> None
 
 def set_player_seed(conn: sqlite3.Connection, player_id: int, seed_no: int) -> None:
     conn.execute("UPDATE players SET seed_no = ? WHERE id = ?", (seed_no, player_id))
+
+
+# ---------------------------------------------------------------- registrations
+
+_REGISTRATION_COLS = (
+    "id, tournament_id, name, affiliation, contact, rating_points, status, "
+    "confirmed_player_id, confirmed_by_user_id, confirmed_at, created_at, updated_at"
+)
+
+
+def create_registration(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    *,
+    name: str,
+    affiliation: str | None,
+    contact: str | None,
+    rating_points: int,
+) -> dict:
+    cur = conn.execute(
+        """
+        INSERT INTO registrations
+            (tournament_id, name, affiliation, contact, rating_points)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (tournament_id, name, affiliation, contact, rating_points),
+    )
+    row = conn.execute(
+        f"SELECT {_REGISTRATION_COLS} FROM registrations WHERE id = ?",
+        (cur.lastrowid,),
+    ).fetchone()
+    return dict(row)
+
+
+def get_registration(conn: sqlite3.Connection, registration_id: int) -> Optional[dict]:
+    row = conn.execute(
+        f"SELECT {_REGISTRATION_COLS} FROM registrations WHERE id = ?",
+        (registration_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_registrations(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    *,
+    status: str | None = None,
+) -> list[dict]:
+    sql = f"SELECT {_REGISTRATION_COLS} FROM registrations WHERE tournament_id = ?"
+    params: list[Any] = [tournament_id]
+    if status is not None:
+        sql += " AND status = ?"
+        params.append(status)
+    sql += " ORDER BY id"
+    return [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+
+def confirm_registration(
+    conn: sqlite3.Connection,
+    registration_id: int,
+    *,
+    player_id: int,
+    confirmed_by_user_id: int,
+) -> Optional[dict]:
+    cur = conn.execute(
+        """
+        UPDATE registrations
+        SET status = 'CONFIRMED',
+            confirmed_player_id = ?,
+            confirmed_by_user_id = ?,
+            confirmed_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE id = ? AND status = 'PENDING'
+        """,
+        (player_id, confirmed_by_user_id, registration_id),
+    )
+    if cur.rowcount == 0:
+        return None
+    return get_registration(conn, registration_id)
 
 
 # ------------------------------------------------------------------ entries

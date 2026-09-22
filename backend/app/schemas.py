@@ -15,6 +15,7 @@ from .models import (
     MatchStatus,
     PlacementMode,
     PreflightLevel,
+    RegistrationStatus,
     ResultType,
     SystemRole,
     TableStatus,
@@ -41,6 +42,7 @@ class TournamentCreate(BaseModel):
     games_to_win: int = Field(default=2, ge=1, le=4)
     points_to_win: int = Field(default=11, ge=1, le=99)
     operation_mode: TournamentMode = TournamentMode.LIVE
+    registration_enabled: bool = False
     format_code: TournamentFormat | None = None
     rule_config: dict[str, Any] | None = None
 
@@ -70,6 +72,39 @@ class TournamentOut(BaseModel):
 class TournamentFormatUpdateRequest(BaseModel):
     format_code: TournamentFormat
     rule_config: dict[str, Any] = Field(default_factory=dict)
+
+
+class TournamentRegistrationUpdate(BaseModel):
+    enabled: bool
+
+
+class OrganizationUpsert(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    contact_name: str | None = Field(default=None, max_length=50)
+    contact: str | None = Field(default=None, max_length=200)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class OrganizationOut(OrganizationUpsert):
+    id: int
+    tournament_id: int
+    created_at: str
+    updated_at: str
+
+
+class VenueUpsert(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    address: str | None = Field(default=None, max_length=200)
+    contact_name: str | None = Field(default=None, max_length=50)
+    contact: str | None = Field(default=None, max_length=200)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class VenueOut(VenueUpsert):
+    id: int
+    tournament_id: int
+    created_at: str
+    updated_at: str
 
 
 class ApiErrorDetail(BaseModel):
@@ -164,6 +199,35 @@ class PlayerCreate(BaseModel):
     rating_points: int = Field(default=1000, ge=0, le=99999)
 
 
+class RegistrationCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    affiliation: str | None = Field(default=None, max_length=100)
+    contact: str | None = Field(default=None, max_length=200)
+    rating_points: int = Field(default=1000, ge=0, le=99999)
+
+
+class RegistrationPublicOut(BaseModel):
+    registration_id: int
+    status: RegistrationStatus
+    name: str
+    created_at: str
+
+
+class RegistrationAdminOut(BaseModel):
+    id: int
+    tournament_id: int
+    name: str
+    affiliation: str | None
+    contact: str | None
+    rating_points: int
+    status: RegistrationStatus
+    confirmed_player_id: int | None
+    confirmed_by_user_id: int | None
+    confirmed_at: str | None
+    created_at: str
+    updated_at: str
+
+
 class PlayerUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=50)
     college: str | None = Field(default=None, max_length=100)
@@ -178,6 +242,11 @@ class PlayerOut(BaseModel):
     group_id: int | None
     seed_no: int | None
     rating_points: int = 1000
+
+
+class RegistrationConfirmResult(BaseModel):
+    registration: RegistrationAdminOut
+    player: PlayerOut
 
 
 class EntryMemberOut(BaseModel):

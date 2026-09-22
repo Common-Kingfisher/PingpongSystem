@@ -36,9 +36,20 @@ def test_empty_database_creates_auth_schema_and_records_versions(tmp_path, monke
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
         ]
-        assert versions == [1, 2, 3, 4]
+        assert versions == [1, 2, 3, 4, 5]
         columns = {row[1] for row in conn.execute("PRAGMA table_info(tournaments)")}
-        assert {"owner_user_id", "format_code", "rule_config", "rule_version"} <= columns
+        assert {
+            "owner_user_id",
+            "format_code",
+            "rule_config",
+            "rule_version",
+            "registration_enabled",
+        } <= columns
+        assert {
+            "registrations",
+            "organizations",
+            "venues",
+        } <= _table_names(conn)
         user_columns = {
             row[1]: row for row in conn.execute("PRAGMA table_info(users)")
         }
@@ -59,7 +70,7 @@ def test_init_db_is_idempotent(tmp_path, monkeypatch):
     db_module.init_db()
     conn = db_module.connect()
     try:
-        assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 4
+        assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 5
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         conn.close()
@@ -119,7 +130,16 @@ def test_legacy_database_upgrade_preserves_existing_rows(tmp_path, monkeypatch):
     conn = db_module.connect()
     try:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(tournaments)")}
-        assert {"owner_user_id", "format_code", "rule_config", "rule_version"} <= columns
+        assert {
+            "owner_user_id",
+            "format_code",
+            "rule_config",
+            "rule_version",
+            "registration_enabled",
+        } <= columns
+        assert conn.execute(
+            "SELECT COUNT(*) FROM tournaments WHERE registration_enabled = 1"
+        ).fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM tournaments").fetchone()[0] == 2
         rows = conn.execute(
             "SELECT name, date, event_type, games_to_win, points_to_win, "
@@ -136,7 +156,7 @@ def test_legacy_database_upgrade_preserves_existing_rows(tmp_path, monkeypatch):
             for row in conn.execute(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
-        ] == [1, 2, 3, 4]
+        ] == [1, 2, 3, 4, 5]
         assert conn.execute(
             "SELECT bootstrap_completed FROM system_state WHERE id = 1"
         ).fetchone()[0] == 0
