@@ -317,3 +317,17 @@ def resolve_format_handler(format_code: str) -> FormatHandler:
         return _HANDLERS[format_code]
     except KeyError as exc:
         raise UnsupportedFormatError(format_code) from exc
+
+
+def sync_round_robin_stage(conn: sqlite3.Connection, tournament_id: int) -> None:
+    """把已持久化循环赛的完成态同步到赛事生命周期，不负责提交事务。"""
+    tournament = repo.get_tournament(conn, tournament_id)
+    if tournament is None or tournament.get("format_code") != ROUND_ROBIN:
+        return
+
+    completion = resolve_format_handler(ROUND_ROBIN).get_completion_state(conn, tournament_id)
+    if completion["state"] == "COMPLETED":
+        if tournament["stage"] != TournamentStage.FINISHED.value:
+            repo.update_tournament_stage(conn, tournament_id, TournamentStage.FINISHED.value)
+    elif tournament["stage"] == TournamentStage.FINISHED.value:
+        repo.update_tournament_stage(conn, tournament_id, TournamentStage.GROUP_STAGE.value)
