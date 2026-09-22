@@ -21,6 +21,7 @@ from .routers import (
     players,
     preflight,
     qualification_decisions,
+    registrations,
     scheduling,
     scores,
     seeds,
@@ -84,6 +85,7 @@ app.include_router(system.router)
 app.include_router(tournaments.router)
 app.include_router(tournament_admins.router)
 app.include_router(players.router)
+app.include_router(registrations.router)
 app.include_router(entries.router)
 app.include_router(groups.router)
 app.include_router(seeds.router)

@@ -78,6 +78,7 @@ def create_tournament(
     format_code: str | None = None,
     rule_config: dict[str, Any] | None = None,
     rule_version: int | None = None,
+    registration_enabled: bool = False,
 ) -> dict:
     if format_code is None:
         if rule_config is not None or rule_version is not None:
@@ -90,11 +91,12 @@ def create_tournament(
     cur = conn.execute(
         "INSERT INTO tournaments (name, date, table_count, group_count, qualify_per_group, "
         "event_type, bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode, "
-        "owner_user_id, format_code, rule_config, rule_version) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "owner_user_id, registration_enabled, format_code, rule_config, rule_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (name, date, table_count, group_count, qualify_per_group, event_type,
          bronze_mode, placement_mode, games_to_win, points_to_win, operation_mode,
-         owner_user_id, format_code, encoded_rule_config, rule_version),
+         owner_user_id, int(registration_enabled), format_code, encoded_rule_config,
+         rule_version),
     )
     row = conn.execute(
         f"SELECT {_TOURNAMENT_COLS} FROM tournaments WHERE id = ?", (cur.lastrowid,)
@@ -372,6 +374,18 @@ def replace_player_values(
 def delete_player(conn: sqlite3.Connection, player_id: int) -> bool:
     cur = conn.execute("DELETE FROM players WHERE id = ?", (player_id,))
     return cur.rowcount > 0
+
+
+def count_confirmed_registrations_for_player(
+    conn: sqlite3.Connection, player_id: int
+) -> int:
+    """统计仍引用该正式选手的已确认报名，供删除保护使用。"""
+    row = conn.execute(
+        "SELECT COUNT(*) AS count FROM registrations "
+        "WHERE confirmed_player_id = ? AND status = 'CONFIRMED'",
+        (player_id,),
+    ).fetchone()
+    return int(row["count"])
 
 
 def clear_tournament_seeds(conn: sqlite3.Connection, tournament_id: int) -> None:

@@ -64,6 +64,7 @@ class TournamentOut(BaseModel):
     roster_confirmed: bool = False
     confirmed_at: str | None = None
     operation_mode: TournamentMode = TournamentMode.LIVE
+    registration_enabled: bool = False
     format_code: TournamentFormat | None = None
     rule_config: dict[str, Any] = Field(default_factory=dict)
     rule_version: int | None = None

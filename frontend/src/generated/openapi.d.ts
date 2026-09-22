@@ -4,6 +4,128 @@
  */
 
 export interface paths {
+    "/api/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_api_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout
+         * @description 撤销当前凭据对应的 Session；无凭据或重复退出均保持幂等。
+         */
+        post: operations["logout_api_v1_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_api_v1_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change Password */
+        post: operations["change_password_api_v1_auth_change_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/bootstrap/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bootstrap Status */
+        get: operations["bootstrap_status_api_v1_system_bootstrap_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bootstrap */
+        post: operations["bootstrap_api_v1_system_bootstrap_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Event Admin */
+        post: operations["create_event_admin_api_v1_system_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments": {
         parameters: {
             query?: never;
@@ -61,6 +183,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/format": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Tournament Format
+         * @description 更新赛制配置三元组；已产生比赛或团体对抗时拒绝静默切换。
+         */
+        put: operations["update_tournament_format_api_tournaments__tournament_id__format_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}": {
         parameters: {
             query?: never;
@@ -79,6 +221,41 @@ export interface paths {
          *     不可恢复：删除前建议先调用 `GET /api/tournaments/{id}/export` 留存结构化备份。
          */
         delete: operations["delete_tournament_api_tournaments__tournament_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/admins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tournament Admins */
+        get: operations["list_tournament_admins_api_tournaments__tournament_id__admins_get"];
+        put?: never;
+        /** Grant Tournament Admin */
+        post: operations["grant_tournament_admin_api_tournaments__tournament_id__admins_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/admins/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Tournament Admin */
+        delete: operations["revoke_tournament_admin_api_tournaments__tournament_id__admins__user_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -152,6 +329,94 @@ export interface paths {
         head?: never;
         /** Update Player */
         patch: operations["update_player_api_tournaments__tournament_id__players__player_id__patch"];
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Registration Setting */
+        put: operations["update_registration_setting_api_tournaments__tournament_id__registration_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Registrations */
+        get: operations["list_registrations_api_tournaments__tournament_id__registrations_get"];
+        put?: never;
+        /** Submit Registration */
+        post: operations["submit_registration_api_tournaments__tournament_id__registrations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/registrations/{registration_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Registration */
+        post: operations["confirm_registration_api_tournaments__tournament_id__registrations__registration_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Organization */
+        get: operations["get_organization_api_tournaments__tournament_id__organization_get"];
+        /** Upsert Organization */
+        put: operations["upsert_organization_api_tournaments__tournament_id__organization_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/venue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Venue */
+        get: operations["get_venue_api_tournaments__tournament_id__venue_get"];
+        /** Upsert Venue */
+        put: operations["upsert_venue_api_tournaments__tournament_id__venue_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/tournaments/{tournament_id}/entries": {
@@ -1019,10 +1284,67 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ApiErrorDetail */
+        ApiErrorDetail: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+        };
+        /** ApiErrorResponse */
+        ApiErrorResponse: {
+            detail: components["schemas"]["ApiErrorDetail"];
+        };
         /** AssignTableRequest */
         AssignTableRequest: {
             /** Table Id */
             table_id: number;
+        };
+        /** AuthChangePasswordRequest */
+        AuthChangePasswordRequest: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
+        };
+        /** AuthLoginRequest */
+        AuthLoginRequest: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+            /**
+             * Mode
+             * @default browser
+             * @enum {string}
+             */
+            mode: "browser" | "bearer";
+        };
+        /** AuthLoginResponse */
+        AuthLoginResponse: {
+            /** Access Token */
+            access_token?: string | null;
+            /** Token Type */
+            token_type?: "Bearer" | null;
+            /** Expires At */
+            expires_at: string;
+            user: components["schemas"]["AuthUserOut"];
+        };
+        /** AuthMeResponse */
+        AuthMeResponse: {
+            user: components["schemas"]["AuthUserOut"];
+            /** Tournament Access Count */
+            tournament_access_count: number;
+        };
+        /** AuthUserOut */
+        AuthUserOut: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string;
+            system_role: components["schemas"]["SystemRole"];
         };
         /** Body_import_players_api_tournaments__tournament_id__players_import_post */
         Body_import_players_api_tournaments__tournament_id__players_import_post: {
@@ -1033,6 +1355,39 @@ export interface components {
         Body_preview_import_players_api_tournaments__tournament_id__players_import_preview_post: {
             /** File */
             file: string;
+        };
+        /** BootstrapRequest */
+        BootstrapRequest: {
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string;
+            /** Password */
+            password: string;
+            /** Phone */
+            phone?: string | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** BootstrapResponse */
+        BootstrapResponse: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string;
+            system_role: components["schemas"]["SystemRole"];
+        };
+        /**
+         * BootstrapStatus
+         * @description Web 初始化入口状态。
+         * @enum {string}
+         */
+        BootstrapStatus: "NEEDS_INITIALIZATION" | "READY" | "RECOVERY_REQUIRED";
+        /** BootstrapStatusResponse */
+        BootstrapStatusResponse: {
+            status: components["schemas"]["BootstrapStatus"];
         };
         /**
          * BronzeMode
@@ -1140,6 +1495,33 @@ export interface components {
             affected_match_ids: number[];
             /** Preserved Finished Matches */
             preserved_finished_matches: number;
+        };
+        /** EventAdminCreateRequest */
+        EventAdminCreateRequest: {
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string;
+            /** Password */
+            password: string;
+            /** Phone */
+            phone?: string | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** EventAdminOut */
+        EventAdminOut: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string;
+            system_role: components["schemas"]["SystemRole"];
+            /** Phone */
+            phone?: string | null;
+            /** Note */
+            note?: string | null;
         };
         /**
          * EventType
@@ -1539,6 +1921,36 @@ export interface components {
             matches: components["schemas"]["MatchOut"][];
             dashboard: components["schemas"]["Dashboard"];
         };
+        /** OrganizationOut */
+        OrganizationOut: {
+            /** Name */
+            name: string;
+            /** Contact Name */
+            contact_name?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** OrganizationUpsert */
+        OrganizationUpsert: {
+            /** Name */
+            name: string;
+            /** Contact Name */
+            contact_name?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /** Note */
+            note?: string | null;
+        };
         /** PairingRequest */
         PairingRequest: {
             /** Pairing Seed */
@@ -1780,6 +2192,67 @@ export interface components {
             /** Rankings */
             rankings: components["schemas"]["GroupRankingOut"][];
         };
+        /** RegistrationAdminOut */
+        RegistrationAdminOut: {
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            /** Name */
+            name: string;
+            /** Affiliation */
+            affiliation: string | null;
+            /** Contact */
+            contact: string | null;
+            /** Rating Points */
+            rating_points: number;
+            status: components["schemas"]["RegistrationStatus"];
+            /** Confirmed Player Id */
+            confirmed_player_id: number | null;
+            /** Confirmed By User Id */
+            confirmed_by_user_id: number | null;
+            /** Confirmed At */
+            confirmed_at: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** RegistrationConfirmResult */
+        RegistrationConfirmResult: {
+            registration: components["schemas"]["RegistrationAdminOut"];
+            player: components["schemas"]["PlayerOut"];
+        };
+        /** RegistrationCreate */
+        RegistrationCreate: {
+            /** Name */
+            name: string;
+            /** Affiliation */
+            affiliation?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /**
+             * Rating Points
+             * @default 1000
+             */
+            rating_points: number;
+        };
+        /** RegistrationPublicOut */
+        RegistrationPublicOut: {
+            /** Registration Id */
+            registration_id: number;
+            status: components["schemas"]["RegistrationStatus"];
+            /** Name */
+            name: string;
+            /** Created At */
+            created_at: string;
+        };
+        /**
+         * RegistrationStatus
+         * @description 公开报名的最小状态机：仅允许待确认到已确认。
+         * @enum {string}
+         */
+        RegistrationStatus: "PENDING" | "CONFIRMED";
         /**
          * ResultType
          * @enum {string}
@@ -1954,6 +2427,12 @@ export interface components {
             /** Player Ids */
             player_ids: number[];
         };
+        /**
+         * SystemRole
+         * @description 系统级账号角色。
+         * @enum {string}
+         */
+        SystemRole: "SYSTEM_ADMIN" | "EVENT_ADMIN";
         /** TableOut */
         TableOut: {
             /** Id */
@@ -2659,6 +3138,34 @@ export interface components {
          * @enum {string}
          */
         TeamTieStatus: "WAITING" | "PLAYING" | "FINISHED";
+        /** TournamentAdminGrantRequest */
+        TournamentAdminGrantRequest: {
+            /** User Id */
+            user_id: number;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "ADMIN" | "OPERATOR" | "VIEWER";
+        };
+        /** TournamentAdminOut */
+        TournamentAdminOut: {
+            /** User Id */
+            user_id: number;
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string;
+            role: components["schemas"]["TournamentRole"];
+            /** Active */
+            active: boolean;
+            /** Is Owner */
+            is_owner: boolean;
+            /** Created At */
+            created_at: string;
+            /** Created By User Id */
+            created_by_user_id?: number | null;
+        };
         /** TournamentCreate */
         TournamentCreate: {
             /** Name */
@@ -2692,6 +3199,16 @@ export interface components {
             points_to_win: number;
             /** @default LIVE */
             operation_mode: components["schemas"]["TournamentMode"];
+            /**
+             * Registration Enabled
+             * @default false
+             */
+            registration_enabled: boolean;
+            format_code?: components["schemas"]["TournamentFormat"] | null;
+            /** Rule Config */
+            rule_config?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * TournamentExport
@@ -2745,6 +3262,20 @@ export interface components {
             }[];
         };
         /**
+         * TournamentFormat
+         * @description 个人赛 Tournament 的稳定赛制代码。
+         * @enum {string}
+         */
+        TournamentFormat: "ROUND_ROBIN" | "SINGLE_ELIMINATION" | "GROUP_KNOCKOUT";
+        /** TournamentFormatUpdateRequest */
+        TournamentFormatUpdateRequest: {
+            format_code: components["schemas"]["TournamentFormat"];
+            /** Rule Config */
+            rule_config?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
          * TournamentMode
          * @description 赛事运行模式。正式赛事禁止调用演示数据接口。
          * @enum {string}
@@ -2795,7 +3326,30 @@ export interface components {
             confirmed_at?: string | null;
             /** @default LIVE */
             operation_mode: components["schemas"]["TournamentMode"];
+            /**
+             * Registration Enabled
+             * @default false
+             */
+            registration_enabled: boolean;
+            format_code?: components["schemas"]["TournamentFormat"] | null;
+            /** Rule Config */
+            rule_config?: {
+                [key: string]: unknown;
+            };
+            /** Rule Version */
+            rule_version?: number | null;
         };
+        /** TournamentRegistrationUpdate */
+        TournamentRegistrationUpdate: {
+            /** Enabled */
+            enabled: boolean;
+        };
+        /**
+         * TournamentRole
+         * @description 赛事级授权角色。
+         * @enum {string}
+         */
+        TournamentRole: "OWNER" | "ADMIN" | "OPERATOR" | "VIEWER";
         /**
          * TournamentStage
          * @description 赛事阶段。
@@ -2815,6 +3369,40 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** VenueOut */
+        VenueOut: {
+            /** Name */
+            name: string;
+            /** Address */
+            address?: string | null;
+            /** Contact Name */
+            contact_name?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** VenueUpsert */
+        VenueUpsert: {
+            /** Name */
+            name: string;
+            /** Address */
+            address?: string | null;
+            /** Contact Name */
+            contact_name?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /** Note */
+            note?: string | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -2824,6 +3412,370 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    login_api_v1_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description 登录成功；browser 设置 Cookie，bearer 返回 access_token。 */
+            200: {
+                headers: {
+                    /** @description 仅 browser 登录成功时设置。Cookie 名为 pp_session，属性为 HttpOnly、SameSite=Lax、Path=/；HTTPS 追加 Secure。 */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginResponse"];
+                };
+            };
+            /** @description 用户名、密码或账号状态错误。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "AUTH_INVALID_CREDENTIALS",
+                     *         "message": "用户名或密码错误"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_v1_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 退出成功或幂等成功；成功时删除 pp_session Cookie。 */
+            204: {
+                headers: {
+                    /** @description 成功响应中删除 pp_session Cookie。 */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Cookie 与 Bearer 指向不同会话，或 Authorization 格式无效。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "AUTH_REQUIRED",
+                     *         "message": "请求携带了冲突的登录凭据"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    me_api_v1_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthMeResponse"];
+                };
+            };
+            /** @description 未登录、凭据冲突、会话过期、撤销或账号停用。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "AUTH_REQUIRED",
+                     *         "message": "请先登录"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    change_password_api_v1_auth_change_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description 改密成功并撤销该用户全部旧会话，同时删除当前 Cookie。 */
+            204: {
+                headers: {
+                    /** @description 成功响应中删除 pp_session Cookie。 */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 未登录、会话失效或当前密码错误。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "AUTH_INVALID_CREDENTIALS",
+                     *         "message": "当前密码错误"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bootstrap_status_api_v1_system_bootstrap_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BootstrapStatusResponse"];
+                };
+            };
+            /** @description 数据库初始化状态异常。 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "SYSTEM_STATE_MISSING",
+                     *         "message": "系统初始化状态缺失"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    bootstrap_api_v1_system_bootstrap_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BootstrapRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BootstrapResponse"];
+                };
+            };
+            /** @description 非服务器本机访问 Web bootstrap，统一伪装为资源不存在。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "RESOURCE_NOT_FOUND",
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 系统已完成初始化或需要本机恢复，或用户名冲突。 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "BOOTSTRAP_ALREADY_COMPLETED",
+                     *         "message": "系统已经完成初始化"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_event_admin_api_v1_system_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventAdminCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventAdminOut"];
+                };
+            };
+            /** @description 未登录、凭据冲突或会话失效。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "AUTH_REQUIRED",
+                     *         "message": "请先登录"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 当前系统角色不是 SYSTEM_ADMIN。 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "FORBIDDEN",
+                     *         "message": "需要系统管理员权限"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 用户名已存在，用户名比较大小写不敏感。 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "USERNAME_ALREADY_EXISTS",
+                     *         "message": "用户名已存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tournaments_api_tournaments_get: {
         parameters: {
             query?: never;
@@ -2939,6 +3891,41 @@ export interface operations {
             };
         };
     };
+    update_tournament_format_api_tournaments__tournament_id__format_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TournamentFormatUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TournamentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_tournament_api_tournaments__tournament_id__get: {
         parameters: {
             query?: never;
@@ -2989,6 +3976,238 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tournament_admins_api_tournaments__tournament_id__admins_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TournamentAdminOut"][];
+                };
+            };
+            /** @description 未登录、凭据冲突或会话失效。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "AUTH_REQUIRED",
+                     *         "message": "请先登录"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 赛事不存在，或当前用户没有该赛事授权管理权限。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "RESOURCE_NOT_FOUND",
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    grant_tournament_admin_api_tournaments__tournament_id__admins_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TournamentAdminGrantRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TournamentAdminOut"];
+                };
+            };
+            /** @description 未登录、凭据冲突或会话失效。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "AUTH_REQUIRED",
+                     *         "message": "请先登录"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 赛事不存在，或当前用户没有该赛事授权管理权限。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "RESOURCE_NOT_FOUND",
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 赛事 Owner 只能由 tournaments.owner_user_id 表示，不能通过普通授权接口变更。 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "OWNER_PROTECTED",
+                     *         "message": "赛事 Owner 不能通过此接口变更"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_tournament_admin_api_tournaments__tournament_id__admins__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 未登录、凭据冲突或会话失效。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "AUTH_REQUIRED",
+                     *         "message": "请先登录"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 赛事不存在，或当前用户没有该赛事授权管理权限。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "RESOURCE_NOT_FOUND",
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 赛事 Owner 不能通过普通授权接口撤销。 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "code": "OWNER_PROTECTED",
+                     *         "message": "赛事 Owner 不能通过此接口变更"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -3190,6 +4409,273 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlayerOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_registration_setting_api_tournaments__tournament_id__registration_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TournamentRegistrationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TournamentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_registrations_api_tournaments__tournament_id__registrations_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["RegistrationStatus"] | null;
+            };
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationAdminOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_registration_api_tournaments__tournament_id__registrations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationPublicOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_registration_api_tournaments__tournament_id__registrations__registration_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                registration_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationConfirmResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_organization_api_tournaments__tournament_id__organization_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_organization_api_tournaments__tournament_id__organization_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationUpsert"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_venue_api_tournaments__tournament_id__venue_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_venue_api_tournaments__tournament_id__venue_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VenueUpsert"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueOut"];
                 };
             };
             /** @description Validation Error */

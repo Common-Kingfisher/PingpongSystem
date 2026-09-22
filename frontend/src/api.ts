@@ -82,10 +82,15 @@ export type PreflightResult = Schemas['PreflightResult']
 
 // Client request helper（非 transport contract）：
 // generated TournamentCreate 将带非 null 默认值的字段标为 required，
-// 但客户端可省略 games_to_win / points_to_win（由服务端填充默认值）。
-type TournamentCreateRequest = Omit<Schemas['TournamentCreate'], 'games_to_win' | 'points_to_win'> & {
+// 但客户端可省略 games_to_win / points_to_win / registration_enabled
+//（由服务端填充默认值）。
+type TournamentCreateRequest = Omit<
+  Schemas['TournamentCreate'],
+  'games_to_win' | 'points_to_win' | 'registration_enabled'
+> & {
   games_to_win?: number
   points_to_win?: number
+  registration_enabled?: boolean
 }
 
 // ------------------------------------------------------------------ client-only

@@ -69,6 +69,7 @@ def create_tournament_with_tables(
     owner_user_id: int | None = None,
     format_code: str | None = None,
     rule_config: dict[str, Any] | None = None,
+    registration_enabled: bool = False,
 ) -> dict:
     """在同一个事务中创建赛事、赛事 Owner 授权和球台。"""
     handler = formats.resolve_format_handler(format_code) if format_code else None
@@ -99,6 +100,7 @@ def create_tournament_with_tables(
             format_code=format_code,
             rule_config=normalized_rule_config,
             rule_version=rule_version,
+            registration_enabled=registration_enabled,
         )
         if handler is not None:
             handler.validate_config(conn, tournament["id"])
