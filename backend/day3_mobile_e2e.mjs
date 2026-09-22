@@ -1,8 +1,11 @@
 /**
- * D 轨 Day 3 真机尺寸端到端验收（真实 Chrome + 真实后端）。
+ * D 轨 Day 3 真机尺寸端到端验收（真实 Chrome + 真实后端 + **真实认证会话**）。
  *
  * 用 CDP 在 390×844 的手机视口里**真的用键盘输入 + 点击**，然后回到服务端核对事实：
  *
+ *   0. 真实浏览器登录：先匿名打开录分页提交一次（必须被后端 401 拒绝并显示「请先登录」），
+ *      再由**浏览器自己**调用 `POST /api/v1/auth/login {mode:"browser"}` 建立 `pp_session`
+ *      HttpOnly Cookie（不往 localStorage 塞 token、不关鉴权）
  *   1. 只录大比分提交 → 服务端该场比赛 FINISHED、比分正确、games 为空（无伪造逐局）
  *   2. 连点提交按钮 3 次 → 服务端只留下 1 条 RECORD 审计（前端重复点击保护 + 后端幂等）
  *   3. 非法小比分（汇总与大比分不一致）→ 页面显示服务端业务文案，服务端状态不变
@@ -10,17 +13,27 @@
  *   5. 异常结果（弃权）→ 服务端 result_type/forfeit_entry_id 落库、无逐局小分；
  *      页面显示「XX弃权」而不是正常比分
  *
- * 配套脚本与运行前置见 `scripts_mobile_viewport_check.mjs` 文件头（Day 3 验收四件套）。
+ * 配套脚本与运行前置见 `scripts_mobile_viewport_check.mjs` 文件头（Day 3 验收五件套）。
  *
  * 用法：
- *   node day3_mobile_e2e.mjs <baseUrl> <tid> <matchIdForA> <matchIdForC> <matchIdForD> <matchIdForB>
- * 前置：后端已启动；`day3_e2e_fixture.py` 已输出上面四个 matchId（每次跑用新 fixture，
- *      因为这些比赛在验收过程中会被真的写成 FINISHED）。
+ *   node day3_mobile_e2e.mjs <baseUrl> <tid> <matchIdForA> <matchIdForC> <matchIdForD> <matchIdForB> \
+ *        <loginUsername> <loginPassword>
+ * 前置：后端已启动；`day3_e2e_fixture.py` 已输出上面四个 matchId 与登录凭据
+ *      （每次跑用新 fixture，因为这些比赛在验收过程中会被真的写成 FINISHED）。
  */
 
+import {
+  clearCookies,
+  connectCdp,
+  loginInBrowser,
+  preparePage,
+  sleep,
+} from './day3_cdp_auth.mjs'
+
 const base = process.argv[2] ?? 'http://127.0.0.1:8099'
-const [tid, matchA, matchC, matchD, matchB] = process.argv.slice(3).map(Number)
-const CDP = 'http://127.0.0.1:9333'
+const [tid, matchA, matchC, matchD, matchB] = process.argv.slice(3, 8).map(Number)
+const loginUsername = process.argv[8] ?? 'd3-e2e-admin'
+const loginPassword = process.argv[9] ?? 'd3-e2e-admin-pass1'
 
 const failures = []
 const lines = []
@@ -28,46 +41,41 @@ function check(name, ok, detail) {
   lines.push(`[${ok ? 'PASS' : 'FAIL'}] ${name} :: ${detail}`)
   if (!ok) failures.push(name)
 }
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * 服务端事实核对。
+ *
+ * 比赛列表（`/api/tournaments/{tid}/matches`）在 master 上是 Public 匿名只读，
+ * 但**审计**（`/api/matches/{id}/score-audits`）等管理端读取需要赛事授权，
+ * 因此这里用同一个测试账号再登录一次拿 Bearer token 做核对 ——
+ * 这同时证明了“审计账本不是匿名可读的”。
+ */
+let serverToken = null
 
 async function api(path) {
-  const resp = await fetch(`${base}${path}`)
+  const resp = await fetch(`${base}${path}`, {
+    headers: serverToken ? { Authorization: `Bearer ${serverToken}` } : {},
+  })
   return resp.json()
 }
 
-const version = await (await fetch(`${CDP}/json/version`)).json()
-const ws = new WebSocket(version.webSocketDebuggerUrl)
-let msgId = 0
-const pending = new Map()
-ws.addEventListener('message', (event) => {
-  const msg = JSON.parse(event.data)
-  if (msg.id && pending.has(msg.id)) {
-    pending.get(msg.id)(msg)
-    pending.delete(msg.id)
-  }
-})
-await new Promise((resolve) => ws.addEventListener('open', resolve))
-
-function rawSend(method, params = {}, sessionId) {
-  return new Promise((resolve) => {
-    const id = ++msgId
-    pending.set(id, resolve)
-    ws.send(JSON.stringify({ id, method, params, sessionId }))
+async function loginServerSide(username, password) {
+  const resp = await fetch(`${base}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, mode: 'bearer' }),
   })
-}
-
-const target = await rawSend('Target.createTarget', { url: 'about:blank' })
-const attached = await rawSend('Target.attachToTarget', { targetId: target.result.targetId, flatten: true })
-const sid = attached.result.sessionId
-const send = (method, params = {}) => rawSend(method, params, sid)
-
-async function evaluate(expression) {
-  const out = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
-  if (out.result.exceptionDetails) {
-    throw new Error(`eval error: ${out.result.exceptionDetails.text} ${JSON.stringify(out.result.exceptionDetails.exception ?? {})}`)
+  const body = await resp.json()
+  if (resp.status !== 200 || !body.access_token) {
+    throw new Error(`服务端核对用的 bearer 登录失败: HTTP ${resp.status} ${JSON.stringify(body)}`)
   }
-  return out.result.result.value
+  serverToken = body.access_token
+  return resp.status
 }
+
+const cdp = await connectCdp()
+const { send, evaluate } = cdp
+await preparePage(cdp, { width: 390, height: 844 })
 
 async function openMatch(matchId) {
   await send('Page.navigate', { url: `${base}/admin/t/${tid}/matches/${matchId}/score` })
@@ -124,8 +132,68 @@ await send('Network.enable')
 await send('Network.setCacheDisabled', { cacheDisabled: true })
 await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
 
+// ---------------------------------------------------------------- 0：匿名必须被后端拒绝
+lines.push('### scenario 0: anonymous browser must be rejected by the backend')
+await send('Page.navigate', { url: `${base}/` })
+await sleep(500)
+const cookiesAfterClear = await clearCookies(cdp, base)
+check('0 浏览器处于未登录状态（无 Cookie）', cookiesAfterClear === 0, `cookies=${cookiesAfterClear}`)
+
+await openMatch(matchB)
+await setInputByLabel('大比分', 0, '2')
+await setInputByLabel('大比分', 1, '0')
+await evaluate(`(() => { document.querySelector('.ms-submit').click(); return true })()`)
+let anonError = null
+for (let i = 0; i < 30; i += 1) {
+  await sleep(200)
+  anonError = await evaluate(`document.querySelector('.ms-error')?.textContent ?? null`)
+  if (anonError) break
+}
+check(
+  '0 匿名提交显示服务端真实登录提示（不是“请求失败 (401)”）',
+  typeof anonError === 'string' && anonError.includes('请先登录') && !anonError.includes('请求失败 (401)'),
+  `text=${anonError}`,
+)
+const anonState = (await api(`/api/tournaments/${tid}/matches`)).find((m) => m.id === matchB)
+check(
+  '0 匿名提交后比赛状态未变',
+  anonState.status !== 'FINISHED' && anonState.player_a_score === null,
+  `status=${anonState.status}`,
+)
+
+// ---------------------------------------------------------------- 0b：真实浏览器登录
+lines.push('')
+lines.push('### scenario 0b: real browser session via POST /api/v1/auth/login (mode=browser)')
+const login = await loginInBrowser(cdp, base, loginUsername, loginPassword)
+check('0b 登录成功', login.status === 200 && login.user === loginUsername, `HTTP ${login.status} user=${login.user}`)
+check('0b 建立 pp_session Cookie', login.sessionCookiePresent === true, `present=${login.sessionCookiePresent}`)
+check('0b Cookie 为 HttpOnly', login.sessionHttpOnly === true, `httpOnly=${login.sessionHttpOnly}`)
+check(
+  '0b 不在响应体返回 access_token（browser 模式）',
+  login.hasAccessTokenInBody === false,
+  `hasAccessToken=${login.hasAccessTokenInBody}`,
+)
+check(
+  '0b token 不在页面脚本可见的 cookie 里',
+  typeof login.documentCookieVisible === 'string' && !login.documentCookieVisible.includes('pp_session'),
+  `document.cookie=${JSON.stringify(login.documentCookieVisible)}`,
+)
+
+// 服务端核对需要管理端读取权限（审计等），用同一账号的 bearer 会话完成
+const serverLoginStatus = await loginServerSide(loginUsername, loginPassword)
+check('0c 服务端核对会话（bearer）建立成功', serverLoginStatus === 200, `HTTP ${serverLoginStatus}`)
+
+// 匿名读取审计必须被拒绝（审计不是 Public 只读面）
+const anonymousAudits = await fetch(`${base}/api/matches/${matchA}/score-audits`)
+check(
+  '0d 匿名读取比分审计被拒绝（401 AUTH_REQUIRED）',
+  anonymousAudits.status === 401,
+  `HTTP ${anonymousAudits.status}`,
+)
+
 // ---------------------------------------------------------------- 1 + 2：只录大比分 + 连点
-lines.push('### scenario A: big score only, with triple-click on submit')
+lines.push('')
+lines.push('### scenario A: big score only, with triple-click on submit (authenticated session)')
 await openMatch(matchA)
 const before = await api(`/api/tournaments/${tid}/matches`)
 const targetBefore = before.find((m) => m.id === matchA)
@@ -257,5 +325,5 @@ lines.push('')
 lines.push(`=== summary: FAIL=${failures.length} ===`)
 if (failures.length > 0) lines.push(`failed: ${failures.join(' | ')}`)
 console.log(lines.join('\n'))
-await send('Target.closeTarget', { targetId: target.result.targetId }).catch(() => {})
+await cdp.close()
 process.exit(failures.length > 0 ? 1 : 0)

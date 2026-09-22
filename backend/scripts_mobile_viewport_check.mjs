@@ -42,11 +42,19 @@
  *   4. .ms-side-name 的 scrollWidth <= clientWidth -> 长名字不破版
  *   5. 点击「+ 录入逐局小比分（可选）」后再次测量 -> 扩展区域也不溢出
  *   6. 点击提交后 .ms-error 可见 -> 错误文字不会被布局吞掉
+ *
+ * ⚠️ 测量前必须先建立**真实登录会话**（`POST /api/v1/auth/login {mode:"browser"}` →
+ * `pp_session` HttpOnly Cookie）。否则测到的只是未登录状态下的页面尺寸，
+ * 无法代表真实现场使用。本脚本不关闭鉴权、不往 localStorage 塞 token。
  */
+
+import { loginInBrowser, sleep } from './day3_cdp_auth.mjs'
 
 const CDP_PORT = process.env.CDP_PORT ?? '9333'
 const baseUrl = process.argv[2] ?? 'http://127.0.0.1:8099'
 const pagePath = process.argv[3] ?? '/admin/t/1/matches/3/score'
+const loginUsername = process.argv[4] ?? 'd3-longname-admin'
+const loginPassword = process.argv[5] ?? 'd3-longname-pass1'
 const viewports = [360, 375, 390, 430]
 
 const failures = []
@@ -107,8 +115,6 @@ function connect(url) {
     ws.addEventListener('error', (err) => reject(err))
   })
 }
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** 页面侧测量脚本（在浏览器里执行，返回可序列化事实）。 */
 const MEASURE = `(() => {
@@ -200,6 +206,25 @@ async function main() {
   // 让“修复后仍失败”的假象进入验收结论（实测踩过一次）。
   await send('Network.enable')
   await send('Network.setCacheDisabled', { cacheDisabled: true })
+
+  // ⚠️ 必须先建立**真实登录会话**再测量。
+  // A 轨认证契约合入 master 后，录分页在未登录时虽然仍能渲染表单，
+  // 但提交会被后端 401 拒绝；如果只测“401 页面尺寸”，小屏验收就失去意义。
+  // 因此这里由浏览器自己调用 POST /api/v1/auth/login {mode:"browser"} 建立 pp_session。
+  const login = await loginInBrowser({ send, evaluate }, baseUrl, loginUsername, loginPassword, {
+    // 必须用本 session 绑定的 send 查询 Cookie（见 day3_cdp_auth.mjs 的说明）
+    getCookies: (urls) => send('Network.getCookies', { urls }),
+  })
+  check(
+    '真实登录会话已建立（pp_session, HttpOnly）',
+    login.status === 200 && login.sessionCookiePresent === true && login.sessionHttpOnly === true,
+    `HTTP ${login.status} cookie=${login.sessionCookiePresent} httpOnly=${login.sessionHttpOnly} user=${login.user}`,
+  )
+  check(
+    'token 不在页面脚本可见的 cookie 里',
+    typeof login.documentCookieVisible === 'string' && !login.documentCookieVisible.includes('pp_session'),
+    `document.cookie=${JSON.stringify(login.documentCookieVisible)}`,
+  )
 
   for (const width of viewports) {
     const height = width === 360 ? 740 : width === 375 ? 812 : width === 390 ? 844 : 932
