@@ -2423,3 +2423,314 @@ getPublicMatchStageLabel(formatCode, matchStage)
 未触碰 `backend/app/services/formats.py`、`backend/app/domain/draw.py`、
 `backend/app/services/knockout.py` 及 ranking / seed / BYE / qualification 逻辑；
 未做 Day5（报名 / 二维码 / Organization / Venue）；未引入新依赖。
+
+---
+
+# D 轨 Day5D 实施结果：Public 报名正式接线 + 报名开关 + 联系方式隐私 + 二维码入口
+
+> 本轮对应任务书「D 轨 Day5：Public 报名正式接线 + 报名开关 + 联系方式隐私 + 二维码入口」。
+> 目标不是新增第二套报名系统，而是把 V0.2 legacy 的
+> `公开报名 → api.addPlayer() → 直接成为正式 Player`
+> 换成 V0.3 冻结链路
+> `公开报名 → Registration(PENDING) → EVENT_ADMIN 确认 → Player`。
+
+## 53. 硬 Gate 与真实基线（先读这一节）
+
+```text
+master 基线 SHA         14577ee9d34f054658867de30059c9f00b080b03
+PR #51 merge commit     14577ee9d34f054658867de30059c9f00b080b03
+  （Merge pull request #51 from Common-Kingfisher/feature/D5A报名与场地组织API）
+  parents               4c80adc6 + c2cc57fe   → base = master，merged = true
+Day5D 分支              feat/d-day5-public-registration（从上述 master 新建）
+```
+
+Gate 校验（在**最新 master** 上真实执行）：
+
+| 校验 | 结果 |
+| --- | --- |
+| `git fetch origin && git checkout master && git pull --ff-only && git status` | 工作区干净，`c900e71..14577ee` 快进 |
+| master 存在 `registration_enabled` | ✅ `schemas.TournamentOut.registration_enabled` |
+| master 存在 `RegistrationCreate` / `RegistrationPublicOut` / `RegistrationAdminOut` / `RegistrationConfirmResult` | ✅ `backend/app/schemas.py` + `openapi.d.ts` |
+| master 存在 `PUT /registration`、`POST/GET /registrations`、`POST /registrations/{id}/confirm` | ✅ `backend/app/routers/registrations.py` |
+| `backend: python export_openapi.py --check` | `OpenAPI snapshot is up to date` |
+| `frontend: pnpm contract:check` | 退出码 0（generated 契约无漂移） |
+
+Gate 通过，因此本轮**没有**发生任务书 §0 中禁止的任何一件事：没有 cherry-pick #51、
+没有从 #51 分支开发、没有自造 Registration DTO、没有继续把 `addPlayer` 当公开报名入口。
+
+## 54. 本轮实际交付范围
+
+| 交付项 | 状态 |
+| --- | --- |
+| Public 报名改走正式 Registration（PENDING） | ✅ |
+| `registration_enabled` 报名开关接线（含只读关闭态） | ✅ |
+| 联系方式隐私（可选字段 + 隐私说明 + 全程不回显） | ✅ |
+| 提交成功后的正确语义（待确认，而非已参赛） | ✅ |
+| 防重复提交（同步 ref 锁） | ✅ |
+| 移动端 360 / 375 / 390 / 430 | ✅ 真机视口实测 |
+| 报名二维码 + 文本地址 + 复制链接 | ✅（新增 1 个轻量依赖） |
+| 前端自动化测试 + legacy 防回退静态测试 | ✅ 24 例 |
+| 后端契约层 smoke（真实认证 + 真实 HTTP） | ✅ 16/16 |
+| 浏览器端 UI / 深链接 smoke（真实 Chrome CDP） | ✅ 56/56 |
+
+## 55. 修改文件
+
+### 55.1 新增
+
+| 文件 | 作用 |
+| --- | --- |
+| `frontend/src/publicUrls.ts` | Public 报名地址的**唯一**构造点（相对路径 + `window.location.origin` 派生绝对地址） |
+| `frontend/src/components/RegistrationQr.tsx` | 可复用二维码组件（二维码 + 文本地址 + 复制链接） |
+| `frontend/src/components/RegistrationQr.css` | 二维码组件样式（窄屏二维码独占一行，长 URL 换行） |
+| `frontend/src/pages/RegisterPage.css` | 报名页样式（表单 / 关闭态 / 回执 / 错误），触摸目标 ≥44px |
+| `frontend/src/__tests__/PublicRegistrationFlow.test.tsx` | 报名链路集成测试 13 例（渲染真实 `App`，只替换网络层） |
+| `frontend/src/__tests__/PublicRegistrationPolicy.test.ts` | legacy 防回退 + 地址策略静态测试 11 例 |
+| `backend/day5d_registration_smoke.py` | 契约层 smoke（真实 bootstrap / 建号 / 登录） |
+| `backend/day5d_registration_ui_check.mjs` | 浏览器层验收（Chrome CDP 视口测量 + 深链接） |
+
+### 55.2 修改
+
+| 文件 | 改动 |
+| --- | --- |
+| `frontend/src/api.ts` | 新增 `RegistrationStatus` / `RegistrationSubmitRequest` / `RegistrationPublicResult` 类型别名（全部从 generated contract 派生）与 `submitRegistration()`；**`addPlayer` 保留**（管理端手工添加选手仍在使用） |
+| `frontend/src/pages/RegisterPage.tsx` | 从 legacy `api.addPlayer` 改写为正式 Registration 提交；新增加载/404/关闭态、隐私说明、回执态、ref 防重锁 |
+| `frontend/src/PublicRoutes.tsx` | 删除 legacy 提示条，`PublicRegisterAdapter` 直接复用 `RegisterPage` |
+| `frontend/package.json` / `pnpm-lock.yaml` | 新增依赖 `qrcode.react@4.2.0`（精确版本） |
+| `docs/WORKSTREAM_D.md` | 本章节 |
+
+### 55.3 本轮明确未改（避免范围扩张）
+
+未改 `backend/**` 任何业务代码（router / service / schema / migration / models 全部零改动），
+因此排名 / 晋级 / Format Handler / BYE / 种子 / 单位规避 / 比分校验 / 改分影响 / 认证模型 /
+赛事权限模型 / 数据库 migration / Registration service / Organization backend / Venue backend
+均未触碰；也未改 `RankingsPage` / `KnockoutPage` / `BigScreenPage` / `SchedulePage` /
+`TournamentSettingsPage`（C 轨页面）与 `generated/openapi.d.ts`。
+
+## 56. Legacy 问题与替换方式
+
+改造前（V0.2 Demo 行为）：
+
+```ts
+// frontend/src/pages/RegisterPage.tsx（改造前）
+await api.addPlayer(tid, { name, college, rating_points })   // → POST /players → 正式 Player
+```
+
+这代表 `PUBLIC 用户报名 → 直接创建正式 Player`，Public 页面因此事实持有
+「创建正式 Player / 进入正式名单」的能力。
+
+改造后：
+
+```ts
+// frontend/src/pages/RegisterPage.tsx（现在）
+await api.submitRegistration(tid, {
+  name, affiliation, contact, rating_points,
+})   // → POST /api/tournaments/{tid}/registrations → Registration = PENDING
+```
+
+Public 报名路径中 `api.addPlayer()` 已**归零**：
+
+- 运行期：`PublicRegistrationFlow.test.tsx` 断言 `POST /players` 在开启态、关闭态、
+  提交态下**一律 0 次**（关闭态为 `POST /registrations = 0` 且两者皆 0）；
+- 静态：`PublicRegistrationPolicy.test.ts` 对全仓源码（去注释）做白名单断言，
+  含 `addPlayer` 的文件必须**恰好**是 `api.ts`（定义）与 `PlayersPage.tsx`（管理端手工添加）。
+
+## 57. 正式数据流与 Registration contract（全部来自 master）
+
+```text
+Public RegisterPage
+  → POST /api/tournaments/{tid}/registrations   （匿名可用，无需认证）
+  → Registration = PENDING
+  → 等待 C5 EVENT_ADMIN 在管理端 confirm
+  → 后端在同一个 BEGIN IMMEDIATE 事务内创建正式 Player
+```
+
+| 项 | master 实际契约 |
+| --- | --- |
+| 报名开关写入 | `PUT /api/tournaments/{tid}/registration`，body `TournamentRegistrationUpdate {enabled}`，需赛事写权限 |
+| 开关读取 | `GET /api/tournaments/{tid}` 的 `TournamentOut.registration_enabled`（匿名 `require_public_tournament_read`，Public 页唯一来源） |
+| 公开提交 | `POST /api/tournaments/{tid}/registrations` → 201 |
+| 请求体 | `RegistrationCreate {name(1..50), affiliation?(≤100), contact?(≤200), rating_points(默认 1000, 0..99999)}` |
+| 公开回执 | `RegistrationPublicOut {registration_id, status, name, created_at}` —— **不含 contact** |
+| 状态枚举 | `RegistrationStatus = PENDING | CONFIRMED`（前端不做第二套状态机，只做穷尽文案映射） |
+| 关闭后提交 | 409 `REGISTRATION_CLOSED`（结构化 `detail.code/message`），前端原样展示 message |
+
+管理端接口（`GET /registrations`、`POST /registrations/{id}/confirm`）**未**被 Public 页面调用，
+它们属于 C5；`Organization` / `Venue` 的读写也未涉及。
+
+前端消费方式：`Schemas['RegistrationCreate']` / `Schemas['RegistrationPublicOut']` 派生，
+无手写第二套 interface、无 `as any` / `as unknown as` / `@ts-ignore`、无重复 enum。
+
+## 58. 报名开关：三种情况
+
+| 情况 | 行为 |
+| --- | --- |
+| A `registration_enabled = true` | 显示报名表单（姓名必填 / 单位选填 / 联系方式可选 / 积分） |
+| B `registration_enabled = false` | 只渲染**只读空态**「当前赛事暂未开放报名／请等待赛事组织者开放报名，或联系赛事组织者了解参赛方式。」——不保留可编辑表单，也不是「只 disable 按钮」；输入框数量为 0，`POST /registrations` 为 0 次 |
+| C 赛事不存在（404） | 复用既有 Public 错误态（PublicLayout 的「赛事不可用」/ 页面自身的 404 态）；`tid` 只来自 URL path，**不**回退到 `localStorage` / 默认赛事 / 第一个赛事 |
+
+关闭时**不展示**二维码入口：避免组织者把已经关闭的报名地址分发出去。
+
+`stage` / `roster_confirmed` 等其它后端字段**没有**被前端用来发明第二套开闭规则 ——
+若后端因开赛 / 名单锁定拒绝，返回的 409 message 会原样展示（见 §61 场景 5）。
+
+## 59. 内部语义：`registration_enabled` 之外的“不要做”
+
+- 不实现 Rating 换算 / Eligibility / 自动种子 / 外部平台同步；
+- 不实现 Affiliation ID 映射（`affiliation` 是字符串，按正式 contract 提交）；
+- 不实现离线队列 / 重试 worker / 本地同步库；
+- 后端 Registration 未提供 `request_id` 幂等，因此前端**不伪造**幂等保证，
+  只保证「一次 UI 提交动作不会因快速连续点击主动产生多次请求」（同步 ref 锁）。
+
+## 60. 二维码与地址策略
+
+**唯一构造点**：`frontend/src/publicUrls.ts`
+
+```ts
+buildPublicRegistrationUrl(tid, origin = window.location.origin)
+  → `${origin}/public/t/${tid}/register`
+```
+
+- 二维码与同屏文本地址使用**同一个变量**，不存在两套地址；
+- 复制链接走 `navigator.clipboard.writeText`，失败（含局域网 HTTP 非 secure context 下
+  `navigator.clipboard` 不存在）时只提示「复制失败，请长按上方地址手动复制」，不白屏；
+- 放置位置：**Public 报名入口页**（D 轨自有 `/public/t/:tid/register`，
+  同时被旧管理端 `/register?tid=` 复用，因此组织者在桌面端也能直接看到二维码）。
+  该组件不依赖 PublicLayout 与路由，只吃 `tournamentId`，C5 若要在「赛事设置 / 赛事总览」
+  展示二维码可直接 `import`，**本轮未修改任何 C 轨页面**；
+- 未引入扫码器 / 摄像头权限 / PWA / 短链服务。
+
+**为什么必须新增依赖**：仓库原本没有任何二维码实现，本项目也不需要整套 UI 框架。
+选择 `qrcode.react@4.2.0`（**精确锁定版本**，零运行时依赖，仅 peer `react`，
+提供 SSR 安全的 SVG 版本，无需 canvas）。`pnpm-lock.yaml` 已同步，
+`pnpm install --frozen-lockfile` 通过。
+
+**无硬编码证明**：`backend/tests/test_deployment_address_policy.py`
+（既有策略测试，扫描 `frontend/src/**/*.{ts,tsx,css}` 含注释）在本轮**通过**；
+新增的 `PublicRegistrationPolicy.test.ts` 再做一次同口径断言。实测证据：
+
+```text
+360/375/390/430px 四个断点下 报名地址 = http://127.0.0.1:8099/public/t/1/register
+                              （即 当前访问 origin + /public/t/:tid/register）
+二维码编码字符串 = 同一个地址
+```
+
+换环境（现场局域网 → 未来公网域名）不需要改任何业务代码。
+
+## 61. Public 隐私边界
+
+| 检查 | 结果 |
+| --- | --- |
+| Public 页面提交后回显 contact | ❌ 不回显（回执只渲染 `name/registration_id/status/created_at`） |
+| 通过其他接口把 contact 查回来 | ❌ 无任何 `GET /registrations` 调用；无 `/confirm` 调用 |
+| Public 赛事 DTO 泄露联系方式 | ❌ 匿名 `GET /tournaments/{tid}` 响应无 `contact` / `contact_name` 字段 |
+| 匿名读取报名列表 | ❌ 401 `AUTH_REQUIRED` |
+| 匿名 / 跨赛事确认报名 | ❌ 401 / 404 `RESOURCE_NOT_FOUND` |
+| Public 展示位（live / rankings / schedule / bigscreen / bracket / champion）出现 contact | ❌ 本轮未新增任何展示位；这些页面未改动 |
+| 表单内隐私说明 | ✅「联系方式仅供赛事组织者用于赛务联系，不会在公开赛事页面展示。」 |
+
+## 62. 新增自动化测试与真实结果
+
+### 62.1 `PublicRegistrationFlow.test.tsx`（13 例，渲染真实 `App` + 网络层录制器）
+
+| 场景 | 断言要点 |
+| --- | --- |
+| 1 报名开启 | 表单可见；加载阶段 `POST /registrations` = 0、`POST /players` = 0 |
+| 1 隐私说明 | 页面出现指定隐私文案 |
+| 2 报名关闭 | 无提交按钮、无输入框、无表单；`POST /registrations` = 0、`POST /players` = 0 |
+| 3 正式提交 | `POST /registrations` = 1 且 body 精确等于 `{name, affiliation, contact, rating_points}`；`POST /players` = 0；回执显示「等待赛事组织者确认」；不出现「已正式参赛 / 已加入 / 报名成功，管理员可直接分组」 |
+| 3 空选填 | 空串提交为 `null`，不发送空字符串 |
+| 4 快速连点 | 同事件循环连点 3 次 → 实际请求 = 1，按钮 disabled 且显示「提交中…」 |
+| 5 服务端 409 | 展示服务端真实 message，姓名/单位保留，锁释放可再次提交 |
+| 5 网络失败 | 展示可读提示，输入保留 |
+| 5 赛事 404 | 复用 Public 错误态，且**零**请求指向 `localStorage` 里的其他赛事 |
+| 6 隐私 | 成功后 body 文本不含联系方式；无 `GET /registrations`、无 `/confirm` |
+| 6 回执字段 | 回执严格等于 contract 的四个字段 |
+| 7 二维码 | 文本地址与二维码 title 均为 `当前 origin + /public/t/:tid/register` |
+| 7 关闭态 | 不展示二维码入口 |
+
+### 62.2 `PublicRegistrationPolicy.test.ts`（11 例，静态 + 纯函数）
+
+`RegisterPage` / `PublicRoutes` 不得出现 `addPlayer`；全仓（去注释）含 `addPlayer` 的文件
+必须恰为 `{api.ts, PlayersPage.tsx}`；`RegisterPage` 必须消费 `api.submitRegistration` 与
+`registration_enabled`；地址构造函数在局域网 / 公网 origin 下产出各自地址、结尾斜杠不产生双斜杠、
+默认取 `window.location.origin`、源码无回环 / RFC1918 硬编码、无绝对 URL 字面量。
+
+### 62.3 测试非空洞校准（真实执行过）
+
+把 `RegisterPage` 的提交临时改回 `api.addPlayer(...)` 后重跑：
+**8 例失败**（场景 3 ×2、场景 4、场景 5 ×2、静态 3 例），随后还原。
+证明这组测试确实锁住 legacy 路径，而不是“永远通过”。
+
+### 62.4 本轮真实数量
+
+| 命令 | 结果 |
+| --- | --- |
+| `backend: pytest` | **995 passed**（退出码 0） |
+| `backend: python export_openapi.py --check` | `OpenAPI snapshot is up to date` |
+| `frontend: pnpm install --frozen-lockfile` | PASS |
+| `frontend: pnpm contract:check` | 退出码 0（无漂移） |
+| `frontend: pnpm exec tsc --noEmit` | 退出码 0 |
+| `frontend: pnpm test` | **12 files / 174 passed**（上一轮 10/150 → 本轮新增 2 文件 / 24 例） |
+| `frontend: pnpm build` | 退出码 0 |
+
+## 63. E2E / smoke（真实执行，不虚报）
+
+### 63.1 契约层：`backend/day5d_registration_smoke.py` → **16/16 PASS**
+
+独立验收库（`PINGPONG_DB_PATH=data\d5d_acceptance.db`）+ 真实 bootstrap / 建号 / 登录：
+
+```text
+A  管理员开报名 PUT /registration {enabled:true} → 200, registration_enabled=true
+A2 匿名 GET /tournaments/{tid} → 200, 可读 registration_enabled, 且不含 contact 字段
+B  匿名 POST /registrations → 201, status=PENDING,
+   回执 keys 恰为 {registration_id, status, name, created_at}
+B2 **Player / Entry / Match 数量 before=(0,0,0) → after=(0,0,0)（核心不变量）**
+B3 管理员 GET /registrations?status=PENDING → 1 条，含 contact（管理端可见）
+D  匿名 GET /registrations → 401 AUTH_REQUIRED
+E  匿名 POST /registrations/{id}/confirm → 401
+F  他赛事管理员 confirm → 404 RESOURCE_NOT_FOUND，台账仍 PENDING、Player 仍 0
+C  PUT {enabled:false} → 200; 匿名提交 → 409 REGISTRATION_CLOSED（message: 赛事报名未开启）
+C  关闭后台账不增加，Player 仍 0
+```
+
+结论：**Public 提交报名 ≠ 直接成为参赛选手**，已由真实 HTTP 证明。
+
+### 63.2 浏览器层：`backend/day5d_registration_ui_check.mjs` → **56/56 PASS**
+
+真实 Chrome 153 headless（CDP，`Network.setCacheDisabled`）+ 真实后端 + `frontend/dist` 生产构建：
+
+```text
+4 × 手机断点（360/375/390/430）：
+  无横向滚动（docScrollWidth == viewport）、.reg-card 内无元素溢出右边界
+  姓名 / 单位 / 联系方式输入框、提交按钮、复制链接按钮 实测高度均 44px
+  二维码已渲染且不超出视口；报名地址 == http://127.0.0.1:8099/public/t/1/register
+  二维码编码同一地址；超长赛事名不撑破标题
+4 × 超长赛事名（96 字符，中文 + ASCII）断点：无横向滚动、无溢出
+D  用二维码/文本地址重新打开 → 落到同一个 Public 报名页且表单可提交
+C  关闭报名后刷新 → 「当前赛事暂未开放报名」、无表单、无二维码入口
+```
+
+## 64. 已知限制（只列真实未完成项）
+
+1. **软键盘下的可达性未验证**：headless Chrome 无法模拟移动端软键盘弹起。
+   已做的是「提交按钮处于正常文档流、无 fixed 遮挡」这一可判定事实，其余留待真机。
+2. **真机扫码未验证**：本轮验证的是“地址字符串正确 + 该地址在浏览器里打开的是同一报名页”，
+   没有用实体手机摄像头扫码。
+3. **未做公网部署验证**：地址策略支持域名 origin（有单元断言），但本轮没有真实公网环境。
+4. **C5 管理端未接入**：待确认列表 / 确认按钮 / 拒绝 / 组织方与场馆后台均由 C5 承接，
+   本轮 D 侧只做 Public 提交与展示。
+5. **E5 全链未执行**：`Public submit → PENDING → C5 confirm → Player → Entry → Match → 比赛`
+   的独立端到端验收尚未运行。
+6. 浏览器验收脚本结束时会把验收赛事的 `registration_enabled` 置为 `false`（即场景 C 的终态），
+   重跑脚本会先重新开启，不影响结论。
+
+## 65. 剩余 Gate（不得宣称 Day5 已完成）
+
+```text
+C5：管理端报名待确认列表 UI、管理员确认 / 拒绝、Organization / Venue 最小设置后台 —— 未完成
+E5：报名 → 确认 → Player → Entry → Match → 比赛 的全链独立 E2E —— 未执行
+发布侧：无可用 GitHub Actions / status check 作为独立复验结果
+```
+
+本轮只能声明：**D 轨负责的 Public 侧交付完成并通过本地证据验证**，
+Day5 总 Gate 仍需 C5 + E5 独立复验。
