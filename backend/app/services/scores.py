@@ -15,6 +15,7 @@ import sqlite3
 from .. import repository as repo
 from ..models import MatchStage, MatchStatus, ResultType, TableStatus
 from . import knockout as knockout_service
+from .transaction import TransactionBusyError, write_transaction
 
 
 class ScoreError(Exception):
@@ -216,7 +217,7 @@ def _sync_round_robin_stage_if_applicable(conn: sqlite3.Connection, match: dict)
     formats_service.sync_round_robin_stage(conn, match["tournament_id"])
 
 
-def record_score(
+def _record_score_locked(
     conn: sqlite3.Connection,
     match_id: int,
     score_a: int | None,
@@ -302,11 +303,10 @@ def record_score(
     else:
         _sync_round_robin_stage_if_applicable(conn, match)
     _audit(conn, match_id, "RECORD", before, operator_name, change_reason, request_id)
-    conn.commit()
     return repo.decorate_match(conn, repo.get_match(conn, match_id))
 
 
-def revise_score(
+def _revise_score_locked(
     conn: sqlite3.Connection,
     match_id: int,
     score_a: int | None,
@@ -373,7 +373,6 @@ def revise_score(
             else:
                 _sync_round_robin_stage_if_applicable(conn, match)
             _audit(conn, match_id, "REVISE", before, operator_name, change_reason, request_id)
-            conn.commit()
             return repo.decorate_match(conn, repo.get_match(conn, match_id))
 
     if result_type == ResultType.NORMAL.value:
@@ -446,5 +445,71 @@ def revise_score(
     else:
         _sync_round_robin_stage_if_applicable(conn, match)
     _audit(conn, match_id, "REVISE", before, operator_name, change_reason, request_id)
-    conn.commit()
     return repo.decorate_match(conn, repo.get_match(conn, match_id))
+
+def record_score(
+    conn: sqlite3.Connection,
+    match_id: int,
+    score_a: int | None,
+    score_b: int | None,
+    games: list[tuple[int, int]] | None = None,
+    result_type: str = ResultType.NORMAL.value,
+    forfeit_entry_id: int | None = None,
+    note: str | None = None,
+    request_id: str | None = None,
+    operator_name: str | None = None,
+    change_reason: str | None = None,
+) -> dict:
+    """在写锁内完成比分、逐局、球台、晋级与审计的全部更新。"""
+    try:
+        with write_transaction(conn, busy_message="比分录入繁忙，请稍后重试"):
+            return _record_score_locked(
+                conn,
+                match_id,
+                score_a,
+                score_b,
+                games,
+                result_type,
+                forfeit_entry_id,
+                note,
+                request_id,
+                operator_name,
+                change_reason,
+            )
+    except TransactionBusyError as exc:
+        raise ScoreError(str(exc), exc.code) from None
+
+
+def revise_score(
+    conn: sqlite3.Connection,
+    match_id: int,
+    score_a: int | None,
+    score_b: int | None,
+    games: list[tuple[int, int]] | None = None,
+    result_type: str = ResultType.NORMAL.value,
+    forfeit_entry_id: int | None = None,
+    note: str | None = None,
+    request_id: str | None = None,
+    operator_name: str | None = None,
+    change_reason: str | None = None,
+    require_audit: bool = False,
+) -> dict:
+    """在写锁内完成改分、下游重置、资格失效与审计的全部更新。"""
+    try:
+        with write_transaction(conn, busy_message="比分修改繁忙，请稍后重试"):
+            return _revise_score_locked(
+                conn,
+                match_id,
+                score_a,
+                score_b,
+                games,
+                result_type,
+                forfeit_entry_id,
+                note,
+                request_id,
+                operator_name,
+                change_reason,
+                require_audit,
+            )
+    except TransactionBusyError as exc:
+        raise ScoreError(str(exc), exc.code) from None

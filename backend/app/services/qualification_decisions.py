@@ -5,6 +5,7 @@ import sqlite3
 
 from .. import repository as repo
 from . import rankings as rankings_service
+from .transaction import TransactionBusyError, write_transaction
 
 
 class QualificationDecisionError(Exception):
@@ -36,7 +37,7 @@ def _out(row: dict) -> dict:
     }
 
 
-def create_decision(
+def _create_decision_locked(
     conn: sqlite3.Connection,
     tournament_id: int,
     group_id: int,
@@ -81,11 +82,10 @@ def create_decision(
         reason,
         operator_name,
     )
-    conn.commit()
     return _out(row)
 
 
-def revoke_decision(
+def _revoke_decision_locked(
     conn: sqlite3.Connection,
     tournament_id: int,
     group_id: int,
@@ -107,7 +107,6 @@ def revoke_decision(
     repo.invalidate_qualification_decision(
         conn, group_id, f"由 {operator_name} 撤销：{reason}"
     )
-    conn.commit()
     return _out(repo.get_qualification_decision(conn, active["id"]))
 
 
@@ -116,3 +115,42 @@ def list_decisions(
 ) -> list[dict]:
     _ensure_group(conn, tournament_id, group_id)
     return [_out(row) for row in repo.list_qualification_decisions(conn, group_id)]
+
+def create_decision(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    group_id: int,
+    selected_entry_ids: list[int],
+    reason: str,
+    operator_name: str,
+) -> dict:
+    """排名快照、旧裁定失效与新裁定写入使用同一写锁。"""
+    try:
+        with write_transaction(conn, busy_message="晋级裁定繁忙，请稍后重试"):
+            return _create_decision_locked(
+                conn,
+                tournament_id,
+                group_id,
+                selected_entry_ids,
+                reason,
+                operator_name,
+            )
+    except TransactionBusyError as exc:
+        raise QualificationDecisionError(str(exc), exc.code) from None
+
+
+def revoke_decision(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    group_id: int,
+    reason: str,
+    operator_name: str,
+) -> dict:
+    """重读生效裁定后原子撤销，避免重复撤销或覆盖新裁定。"""
+    try:
+        with write_transaction(conn, busy_message="撤销裁定繁忙，请稍后重试"):
+            return _revoke_decision_locked(
+                conn, tournament_id, group_id, reason, operator_name
+            )
+    except TransactionBusyError as exc:
+        raise QualificationDecisionError(str(exc), exc.code) from None

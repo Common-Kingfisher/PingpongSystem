@@ -6,6 +6,7 @@ from typing import Any
 from .. import repository as repo
 from ..models import TournamentRole
 from . import formats
+from .transaction import TransactionBusyError, write_transaction
 
 
 INITIAL_RULE_VERSION = 1
@@ -53,7 +54,7 @@ def _rollback_format_transaction(conn: sqlite3.Connection, owns_transaction: boo
         conn.execute("RELEASE SAVEPOINT tournament_format_update")
 
 
-def create_tournament_with_tables(
+def _create_tournament_with_tables_locked(
     conn: sqlite3.Connection,
     name: str,
     date,
@@ -82,42 +83,37 @@ def create_tournament_with_tables(
         normalized_rule_config = _validate_rule_config(rule_config or {})
         rule_version = INITIAL_RULE_VERSION
 
-    try:
-        tournament = repo.create_tournament(
+    tournament = repo.create_tournament(
+        conn,
+        name,
+        date.isoformat(),
+        table_count,
+        group_count,
+        qualify_per_group,
+        event_type,
+        bronze_mode,
+        placement_mode,
+        games_to_win,
+        points_to_win,
+        operation_mode,
+        owner_user_id=owner_user_id,
+        format_code=format_code,
+        rule_config=normalized_rule_config,
+        rule_version=rule_version,
+        registration_enabled=registration_enabled,
+    )
+    if handler is not None:
+        handler.validate_config(conn, tournament["id"])
+    if owner_user_id is not None:
+        repo.upsert_tournament_admin(
             conn,
-            name,
-            date.isoformat(),
-            table_count,
-            group_count,
-            qualify_per_group,
-            event_type,
-            bronze_mode,
-            placement_mode,
-            games_to_win,
-            points_to_win,
-            operation_mode,
-            owner_user_id=owner_user_id,
-            format_code=format_code,
-            rule_config=normalized_rule_config,
-            rule_version=rule_version,
-            registration_enabled=registration_enabled,
+            tournament["id"],
+            owner_user_id,
+            TournamentRole.OWNER.value,
+            created_by_user_id=owner_user_id,
         )
-        if handler is not None:
-            handler.validate_config(conn, tournament["id"])
-        if owner_user_id is not None:
-            repo.upsert_tournament_admin(
-                conn,
-                tournament["id"],
-                owner_user_id,
-                TournamentRole.OWNER.value,
-                created_by_user_id=owner_user_id,
-            )
-        repo.create_tables_for_tournament(conn, tournament["id"], table_count)
-        conn.commit()
-        return tournament
-    except Exception:
-        conn.rollback()
-        raise
+    repo.create_tables_for_tournament(conn, tournament["id"], table_count)
+    return tournament
 
 
 def update_format_config(
@@ -161,3 +157,45 @@ def update_format_config(
     except Exception:
         _rollback_format_transaction(conn, owns_transaction)
         raise
+
+def create_tournament_with_tables(
+    conn: sqlite3.Connection,
+    name: str,
+    date,
+    table_count: int,
+    group_count: int,
+    qualify_per_group: int,
+    event_type: str = "SINGLES",
+    bronze_mode: str = "JOINT_BRONZE",
+    placement_mode: str = "OFF",
+    games_to_win: int = 2,
+    points_to_win: int = 11,
+    operation_mode: str = "LIVE",
+    owner_user_id: int | None = None,
+    format_code: str | None = None,
+    rule_config: dict[str, Any] | None = None,
+    registration_enabled: bool = False,
+) -> dict:
+    """赛事、Owner 授权和球台在同一写事务内创建。"""
+    try:
+        with write_transaction(conn, busy_message="赛事创建繁忙，请稍后重试"):
+            return _create_tournament_with_tables_locked(
+                conn,
+                name,
+                date,
+                table_count,
+                group_count,
+                qualify_per_group,
+                event_type,
+                bronze_mode,
+                placement_mode,
+                games_to_win,
+                points_to_win,
+                operation_mode,
+                owner_user_id,
+                format_code,
+                rule_config,
+                registration_enabled,
+            )
+    except TransactionBusyError as exc:
+        raise TournamentFormatError(str(exc), exc.code) from None

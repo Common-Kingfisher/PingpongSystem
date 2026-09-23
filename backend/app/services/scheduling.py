@@ -17,6 +17,7 @@ import sqlite3
 from .. import repository as repo
 from ..domain import scheduler
 from ..models import MatchStatus, TableStatus
+from .transaction import TransactionBusyError, write_transaction
 
 
 class SchedulingError(Exception):
@@ -330,7 +331,7 @@ def _plan_assignments(
     return assignments, recommendations
 
 
-def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict:
+def _assign_table_locked(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict:
     """把一场 WAITING 比赛安排到指定空闲球台 → PLAYING。"""
     match = _ensure_match(conn, match_id)
     table = repo.get_table(conn, table_id)
@@ -352,11 +353,10 @@ def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict
     # 上台即写 called_at / started_at（UTC），手工排台与自动排台走同一 helper。
     repo.mark_match_playing(conn, match_id, table_id)
     repo.update_table_status(conn, table_id, TableStatus.OCCUPIED.value)
-    conn.commit()
     return repo.get_match(conn, match_id)
 
 
-def schedule_next(conn: sqlite3.Connection, tournament_id: int) -> list[tuple[int, int]]:
+def _schedule_next_locked(conn: sqlite3.Connection, tournament_id: int) -> list[tuple[int, int]]:
     """贪心批量调度：每张空闲球台按"亲和 + 公平"安排一场比赛。
 
     优先级见 `_plan_assignments`：硬约束 → 组台亲和 → 组间进度公平 →
@@ -368,11 +368,10 @@ def schedule_next(conn: sqlite3.Connection, tournament_id: int) -> list[tuple[in
         # 自动排台与手工排台共用同一 helper，保证 called_at / started_at 不会一边有一边没有。
         repo.mark_match_playing(conn, match_id, table_id)
         repo.update_table_status(conn, table_id, TableStatus.OCCUPIED.value)
-    conn.commit()
     return assignments
 
 
-def release_match(conn: sqlite3.Connection, match_id: int) -> dict:
+def _release_match_locked(conn: sqlite3.Connection, match_id: int) -> dict:
     """把一场 PLAYING 比赛下球台（回到 WAITING，释放球台）。
 
     时间语义：本次上台不构成有效的进行中比赛，started_at 置空；
@@ -384,7 +383,6 @@ def release_match(conn: sqlite3.Connection, match_id: int) -> dict:
     if match["table_id"] is not None:
         repo.update_table_status(conn, match["table_id"], TableStatus.FREE.value)
     repo.mark_match_waiting(conn, match_id)
-    conn.commit()
     return repo.get_match(conn, match_id)
 
 
@@ -437,3 +435,29 @@ def get_dashboard(conn: sqlite3.Connection, tournament_id: int) -> dict:
         "tables": tables,
         "next_playable": [repo.decorate_match(conn, m) for m in next_playable],
     }
+
+def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict:
+    """锁定后重新校验比赛与球台，再同时写入比赛和球台状态。"""
+    try:
+        with write_transaction(conn, busy_message="球台安排繁忙，请稍后重试"):
+            return _assign_table_locked(conn, match_id, table_id)
+    except TransactionBusyError as exc:
+        raise SchedulingError(str(exc), exc.code) from None
+
+
+def schedule_next(conn: sqlite3.Connection, tournament_id: int) -> list[tuple[int, int]]:
+    """规划与批量落库共用同一写锁，避免基于过期快照重复排台。"""
+    try:
+        with write_transaction(conn, busy_message="自动排台繁忙，请稍后重试"):
+            return _schedule_next_locked(conn, tournament_id)
+    except TransactionBusyError as exc:
+        raise SchedulingError(str(exc), exc.code) from None
+
+
+def release_match(conn: sqlite3.Connection, match_id: int) -> dict:
+    """比赛回等待态与球台释放保持同一事务。"""
+    try:
+        with write_transaction(conn, busy_message="比赛下台繁忙，请稍后重试"):
+            return _release_match_locked(conn, match_id)
+    except TransactionBusyError as exc:
+        raise SchedulingError(str(exc), exc.code) from None
