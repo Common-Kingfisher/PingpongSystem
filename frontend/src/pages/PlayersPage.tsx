@@ -1,832 +1,183 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError, Entry, GenerateMatchesResult, GroupingResult, ImportPlayersResult, ImportPreviewResult, Player, Tournament } from '../api'
+import {
+  api,
+  ApiError,
+  ImportPlayersResult,
+  ImportPreviewResult,
+  Player,
+  Registration,
+  Tournament,
+} from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import RosterLaunch from '../components/RosterLaunch'
 
+type RosterTab = 'official' | 'pending'
+
 export default function PlayersPage() {
   const [params] = useSearchParams()
-  const tidParam = params.get('tid')
-  const tid = tidParam ? Number(tidParam) : getActiveTournamentId()
-
+  const fromUrl = params.get('tid')
+  const tid = fromUrl && /^\d+$/.test(fromUrl) ? Number(fromUrl) : getActiveTournamentId()
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
-  const [groups, setGroups] = useState<GroupingResult>({ groups: [] })
-
+  const [registrations, setRegistrations] = useState<Registration[]>([])
+  const [tab, setTab] = useState<RosterTab>('official')
   const [name, setName] = useState('')
   const [college, setCollege] = useState('')
   const [ratingPoints, setRatingPoints] = useState(1000)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
   const [editCollege, setEditCollege] = useState('')
-  const [editRatingPoints, setEditRatingPoints] = useState(1000)
-  const [error, setError] = useState<string | null>(null)
+  const [editRating, setEditRating] = useState(1000)
   const [busy, setBusy] = useState(false)
-  const [matchSummary, setMatchSummary] = useState<GenerateMatchesResult | null>(null)
-  const [matchCount, setMatchCount] = useState<number | null>(null)
-  const [demoModal, setDemoModal] = useState<{ count: number; withSeeds: boolean } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
-  const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<ImportPlayersResult | null>(null)
   const [importPreview, setImportPreview] = useState<ImportPreviewResult | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
-  const [withdrawTarget, setWithdrawTarget] = useState<Entry | null>(null)
-  const [withdrawOperator, setWithdrawOperator] = useState(() => localStorage.getItem('pingpong_referee_name') ?? '')
-  const [withdrawReason, setWithdrawReason] = useState('')
+  const [importResult, setImportResult] = useState<ImportPlayersResult | null>(null)
 
   const load = useCallback(async () => {
     if (tid === null) return
-    setError(null)
-    const [t, ps, gs] = await Promise.all([
+    const [nextTournament, nextPlayers, nextRegistrations] = await Promise.all([
       api.getTournament(tid),
       api.listPlayers(tid),
-      api.getGroups(tid),
+      api.listRegistrations(tid),
     ])
-    setTournament(t)
-    setPlayers(ps)
-    setGroups(gs)
-    if (t.stage === 'GROUP_STAGE' || t.stage === 'KNOCKOUT' || t.stage === 'FINISHED') {
-      // 已生成场数仅用于展示，失败不阻断整页（避免本页因该非关键请求报 500）
-      try {
-        const ms = await api.listMatches(tid, { stage: 'GROUP' })
-        setMatchCount(ms.length)
-      } catch {
-        setMatchCount(null)
-      }
-    }
+    setTournament(nextTournament)
+    setPlayers(nextPlayers)
+    setRegistrations(nextRegistrations)
   }, [tid])
 
   useEffect(() => {
-    if (tid !== null) {
-      load().catch((e: unknown) =>
-        setError(e instanceof ApiError ? e.message : '加载数据失败'),
-      )
-    }
-  }, [tid, load])
+    load().catch((err: unknown) => setError(err instanceof ApiError ? err.message : '参赛名单加载失败'))
+  }, [load])
 
-  // 在线报名轻量轮询：REGISTRATION 阶段每 5s 静默刷新选手列表；编辑/操作/弹窗中暂停
   useEffect(() => {
-    if (tid === null) return
-    const interval = setInterval(() => {
-      if (editingId !== null || busy || demoModal !== null || importOpen) return
-      api
-        .listPlayers(tid)
-        .then(setPlayers)
-        .catch(() => {
-          /* 忽略瞬时失败，下轮恢复 */
-        })
+    if (tid === null || tournament?.stage !== 'REGISTRATION') return
+    const timer = window.setInterval(() => {
+      if (busy || editingId !== null || importOpen) return
+      Promise.all([api.listPlayers(tid), api.listRegistrations(tid)]).then(([ps, rs]) => {
+        setPlayers(ps); setRegistrations(rs)
+      }).catch(() => undefined)
     }, 5000)
-    return () => clearInterval(interval)
-  }, [tid, editingId, busy, demoModal, importOpen])
+    return () => window.clearInterval(timer)
+  }, [tid, tournament?.stage, busy, editingId, importOpen])
 
-  if (tid === null) {
-    return (
-      <div className="card">
-        <h2>选手与分组</h2>
-        <p className="muted">
-          请先在<Link to="/">赛事首页</Link>创建并选择一场赛事。
-        </p>
-      </div>
-    )
+  if (tid === null) return <div className="card"><h2>参赛名单</h2><p className="muted">请先在<Link to="/">赛事首页</Link>选择赛事。</p></div>
+
+  const locked = tournament?.stage !== 'REGISTRATION'
+  const pending = registrations.filter((item) => item.status === 'PENDING')
+
+  const run = async (work: () => Promise<void>, fallback: string) => {
+    setBusy(true); setError(null); setNotice(null)
+    try { await work(); await load() }
+    catch (err) { setError(err instanceof ApiError ? err.message : fallback) }
+    finally { setBusy(false) }
   }
 
-  const refresh = async () => {
-    setError(null)
-    try {
-      await load()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : '刷新失败')
-    }
+  const addPlayer = (event: FormEvent) => {
+    event.preventDefault()
+    void run(async () => {
+      await api.addPlayer(tid, { name: name.trim(), college: college.trim() || null, rating_points: ratingPoints })
+      setName(''); setCollege(''); setRatingPoints(1000); setNotice('运动员已加入正式名单。')
+    }, '添加运动员失败')
   }
 
-  const addPlayer = async (e: FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    setBusy(true)
-    try {
-      await api.addPlayer(tid, { name, college: college || null, rating_points: ratingPoints })
-      setName('')
-      setCollege('')
-      setRatingPoints(1000)
-      await refresh()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '添加选手失败')
-    } finally {
-      setBusy(false)
-    }
+  const startEdit = (player: Player) => {
+    setEditingId(player.id); setEditName(player.name); setEditCollege(player.college ?? ''); setEditRating(player.rating_points)
   }
 
-  const startEdit = (p: Player) => {
-    setEditingId(p.id)
-    setEditName(p.name)
-    setEditCollege(p.college ?? '')
-    setEditRatingPoints(p.rating_points)
+  const saveEdit = (player: Player) => void run(async () => {
+    await api.updatePlayer(tid, player.id, { name: editName.trim(), college: editCollege.trim() || null, rating_points: editRating })
+    setEditingId(null); setNotice('名单信息已保存。')
+  }, '保存运动员失败')
+
+  const removePlayer = (player: Player) => {
+    if (!window.confirm(`确定从正式名单删除「${player.name}」吗？`)) return
+    void run(async () => { await api.deletePlayer(tid, player.id); setNotice('运动员已删除。') }, '删除运动员失败')
   }
 
-  const saveEdit = async (p: Player) => {
-    setError(null)
-    try {
-      await api.updatePlayer(tid, p.id, {
-        name: editName,
-        college: editCollege || null,
-        rating_points: editRatingPoints,
-      })
-      setEditingId(null)
-      await refresh()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '保存失败')
-    }
-  }
-
-  const removePlayer = async (p: Player) => {
-    setError(null)
-    if (!window.confirm(`确定删除选手「${p.name}」吗？`)) return
-    try {
-      await api.deletePlayer(tid, p.id)
-      await refresh()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '删除失败')
-    }
-  }
-
-  const doAutoGroup = async () => {
-    setError(null)
-    setBusy(true)
-    try {
-      setGroups(await api.autoGroup(tid))
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '自动分组失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const setGroupQualification = async (groupId: number, count: number) => {
-    setError(null)
-    try {
-      await api.setGroupQualification(tid, groupId, count)
-      setGroups(await api.getGroups(tid))
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '修改出线人数失败')
-    }
-  }
-
-  // ---------------- 种子选手 ----------------
-  const persistSeeds = async (orderedIds: number[]) => {
-    setError(null)
-    setBusy(true)
-    try {
-      setPlayers(await api.setSeeds(tid, orderedIds))
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '设置种子失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const addSeed = async (p: Player) => {
-    if (tournament && seeds.length >= tournament.group_count) {
-      setError(`当前赛事有 ${tournament.group_count} 个小组，最多可设置 ${tournament.group_count} 名种子选手。`)
-      return
-    }
-    await persistSeeds([...seeds.map((s) => s.id), p.id])
-  }
-
-  const removeSeed = async (p: Player) => {
-    await persistSeeds(seeds.filter((s) => s.id !== p.id).map((s) => s.id))
-  }
-
-  const moveSeed = async (p: Player, dir: -1 | 1) => {
-    const idx = seeds.findIndex((s) => s.id === p.id)
-    const j = idx + dir
-    if (j < 0 || j >= seeds.length) return
-    const arr = seeds.map((s) => s.id)
-    ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
-    await persistSeeds(arr)
-  }
-
-  const autoSeeds = async () => {
-    setError(null)
-    setBusy(true)
-    try {
-      setPlayers(await api.autoSeeds(tid))
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '按积分生成种子失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const confirmDemoPlayers = async () => {
-    if (!demoModal) return
-    setError(null)
-    setBusy(true)
-    try {
-      await api.generateDemoPlayers(tid, demoModal.count, demoModal.withSeeds)
-      setDemoModal(null)
-      await refresh()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '生成演示选手失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // ---------------- Excel / CSV 批量导入 ----------------
-  const openImport = () => {
-    setImportFile(null)
-    setImportResult(null)
-    setImportPreview(null)
-    setImportError(null)
-    setImportOpen(true)
-  }
-
-  const closeImport = () => {
-    setImportOpen(false)
-    setImportFile(null)
-    setImportResult(null)
-    setImportPreview(null)
-    setImportError(null)
-  }
+  const confirmRegistration = (registration: Registration) => void run(async () => {
+    await api.confirmRegistration(tid, registration.id)
+    setNotice(`已确认 ${registration.name}，并写入正式名单。`)
+  }, '确认报名失败')
 
   const downloadTemplate = () => {
-    const csv =
-      '\uFEFF姓名,学院/单位,运动员积分,种子序号\n张三,计算机学院,1450,1\n李四,自动化学院,1420,2\n王五,机械学院,1380,\n'
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = '选手导入模板.csv'
-    a.click()
-    URL.revokeObjectURL(url)
+    const csv = '\uFEFF姓名,所属单位,运动员积分\n张三,信息学院,1200\n李四,,\n'
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a'); link.href = url; link.download = '参赛名单模板.csv'; link.click(); URL.revokeObjectURL(url)
   }
 
-  const doImport = async () => {
+  const previewImport = () => {
     if (!importFile) return
-    setImportError(null)
-    setImporting(true)
-    try {
-      const result = await api.importPlayers(tid, importFile)
-      setImportResult(result)
-      await refresh()
-    } catch (err) {
-      setImportError(err instanceof ApiError ? err.message : '导入失败')
-    } finally {
-      setImporting(false)
-    }
+    void run(async () => { setImportPreview(await api.previewPlayersImport(tid, importFile)) }, '导入文件校验失败')
   }
 
-  const previewImport = async () => {
+  const importPlayers = () => {
     if (!importFile) return
-    setImportError(null)
-    setImporting(true)
-    try {
-      setImportPreview(await api.previewPlayersImport(tid, importFile))
-    } catch (err) {
-      setImportError(err instanceof ApiError ? err.message : '预览失败')
-    } finally {
-      setImporting(false)
-    }
+    void run(async () => { setImportResult(await api.importPlayers(tid, importFile)); setImportPreview(null) }, '导入名单失败')
   }
 
-  const doUngroup = async () => {
-    setError(null)
-    if (!window.confirm('确定清空当前分组吗？')) return
-    setBusy(true)
-    try {
-      await api.ungroup(tid)
-      setGroups({ groups: [] })
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '清空分组失败')
-    } finally {
-      setBusy(false)
-    }
+  const generateDemo = () => {
+    if (!window.confirm('将追加 16 名演示运动员，仅用于 DEMO 赛事。继续吗？')) return
+    void run(async () => { await api.generateDemoPlayers(tid, 16, false); setNotice('演示名单已生成。') }, '生成演示名单失败')
   }
 
-  const doGenerateMatches = async () => {
-    setError(null)
-    setBusy(true)
-    try {
-      const result = await api.generateGroupMatches(tid)
-      setMatchSummary(result)
-      setTournament(result.tournament)
-      setMatchCount(result.matches_generated)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '生成小组比赛失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const confirmWithdrawal = async () => {
-    if (!withdrawTarget || !withdrawOperator.trim() || withdrawReason.trim().length < 2) return
-    setBusy(true)
-    setError(null)
-    try {
-      await api.withdrawEntry(tid, withdrawTarget.id, {
-        operator_name: withdrawOperator.trim(),
-        reason: withdrawReason.trim(),
-      })
-      localStorage.setItem('pingpong_referee_name', withdrawOperator.trim())
-      setWithdrawTarget(null)
-      setWithdrawReason('')
-      await refresh()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '办理退赛失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const groupedCount = players.filter((p) => p.group_id !== null).length
-  const locked = tournament !== null && tournament.stage !== 'REGISTRATION'
-  const seeds = players
-    .filter((p) => p.seed_no !== null)
-    .sort((a, b) => (a.seed_no ?? 0) - (b.seed_no ?? 0))
-
-  return (
-    <div className="page">
-      <div className="card">
-        <h2>
-          {tournament ? tournament.name : '赛事'} · 选手与分组
-          <Link className="btn small float-right" to="/">
-            ← 返回首页
-          </Link>
-        </h2>
-        {tournament && (
-          <p className="muted">
-            日期 {tournament.date} · 球台 {tournament.table_count} 张 · 小组{' '}
-            {tournament.group_count} 个 · 每组晋级 {tournament.qualify_per_group} 人 · 选手{' '}
-            {players.length} 人（已分组 {groupedCount} 人） · 阶段{' '}
-            <span className="badge">{tournament.stage}</span>
-            {' '}· <span className={`badge mode-badge ${tournament.operation_mode === 'LIVE' ? 'live' : 'demo'}`}>
-              {tournament.operation_mode === 'LIVE' ? '正式赛事' : '演示赛事'}
-            </span>
-          </p>
-        )}
-        {error && <p className="status-error">{error}</p>}
-        {locked && (
-          <p className="muted">⚠️ 赛事已进入比赛阶段，选手名单已锁定（不可增删改）。</p>
-        )}
-      </div>
-
-      {tournament && (
-        <RosterLaunch tournament={tournament} players={players} onComplete={refresh} />
-      )}
-
-      <div className="card">
-        <h3>添加选手</h3>
-        <form className="form-inline" onSubmit={addPlayer}>
-          <input
-            type="text"
-            placeholder="姓名（必填）"
-            value={name}
-            required
-            disabled={locked}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <input
-            type="text"
-            placeholder="学院/单位（选填）"
-            value={college}
-            disabled={locked}
-            onChange={(e) => setCollege(e.target.value)}
-          />
-          <input
-            type="number"
-            min={0}
-            max={99999}
-            placeholder="运动员积分"
-            value={ratingPoints}
-            disabled={locked}
-            onChange={(e) => setRatingPoints(Number(e.target.value))}
-          />
-          <button type="submit" className="btn primary" disabled={locked || busy}>
-            {busy ? '添加中…' : '添加'}
-          </button>
-        </form>
-        {!locked && (
-          <div className="button-row" style={{ marginTop: 14 }}>
-            {/* 名单导入是正式能力：LIVE 与 DEMO 赛事都显示 */}
-            <button className="btn" onClick={openImport}>
-              Excel / CSV 导入
-            </button>
-            {/* 演示数据生成只属于 DEMO 赛事 */}
-            {tournament?.operation_mode === 'DEMO' && (
-              <button className="btn" onClick={() => setDemoModal({ count: 16, withSeeds: true })}>
-                <span className="demo-tag">Demo</span> 生成演示选手
-              </button>
-            )}
-          </div>
-        )}
-
-        <h3>选手列表</h3>
-        {players.length === 0 && <p className="muted">暂无选手，请先添加。</p>}
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>姓名</th>
-              <th>学院/单位</th>
-              <th>积分</th>
-              <th>种子</th>
-              <th>分组</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {players.map((p) => (
-              <tr key={p.id}>
-                <td>{p.id}</td>
-                {editingId === p.id ? (
-                  <>
-                    <td>
-                      <input
-                        type="text"
-                        value={editName}
-                        required
-                        onChange={(e) => setEditName(e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={editCollege}
-                        onChange={(e) => setEditCollege(e.target.value)}
-                      />
-                    </td>
-                    <td><input type="number" min={0} value={editRatingPoints} onChange={(e) => setEditRatingPoints(Number(e.target.value))} /></td>
-                    <td>{p.seed_no !== null ? `⭐ ${p.seed_no}号` : '—'}</td>
-                    <td>{p.group_id !== null ? '已分组' : '—'}</td>
-                    <td>
-                      <button className="btn small primary" onClick={() => saveEdit(p)}>
-                        保存
-                      </button>{' '}
-                      <button className="btn small" onClick={() => setEditingId(null)}>
-                        取消
-                      </button>
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td>{p.name}</td>
-                    <td>{p.college || '—'}</td>
-                    <td className="rating-cell">{p.rating_points}</td>
-                    <td>
-                      {p.seed_no !== null ? (
-                        <span className="seed-badge">⭐ {p.seed_no}号</span>
-                      ) : (
-                        <button className="btn small" onClick={() => addSeed(p)} disabled={locked || busy}>
-                          设为种子
-                        </button>
-                      )}
-                    </td>
-                    <td>{p.group_id !== null ? '已分组' : '—'}</td>
-                    <td>
-                      <button className="btn small" onClick={() => startEdit(p)} disabled={locked}>
-                        修改
-                      </button>{' '}
-                      <button
-                        className="btn small danger"
-                        onClick={() => removePlayer(p)}
-                        disabled={locked}
-                      >
-                        删除
-                      </button>
-                    </td>
-                  </>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="card">
-        <h3>种子选手</h3>
-        <p className="muted">
-          种子按积分高低划分：点击「按积分生成种子」会取积分最高的前 {tournament?.group_count ?? 0} 名
-          （同分按选手编号），生成后仍可手工调整顺序。
-        </p>
-        <div className="button-row">
-          <button
-            className="btn"
-            onClick={autoSeeds}
-            disabled={locked || busy || players.length === 0 || tournament?.event_type !== 'SINGLES'}
-          >
-            按积分生成种子
-          </button>
-          {tournament?.event_type !== 'SINGLES' && (
-            <span className="muted">当前仅支持单打按积分自动生成种子；双打与团体赛的种子规则尚未冻结。</span>
-          )}
-          {locked && <span className="muted">赛事已进入比赛阶段，种子已锁定。</span>}
-        </div>
-        {seeds.length === 0 ? (
-          <p className="muted">尚未设置种子选手。种子选手将在自动分组时被分散到不同小组。</p>
-        ) : (
-          <>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>种子</th>
-                  <th>姓名</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {seeds.map((p, i) => (
-                  <tr key={p.id}>
-                    <td>⭐ {p.seed_no}号</td>
-                    <td>{p.name}</td>
-                    <td>
-                      <button className="btn small" onClick={() => moveSeed(p, -1)} disabled={i === 0 || locked || busy}>
-                        ↑
-                      </button>{' '}
-                      <button
-                        className="btn small"
-                        onClick={() => moveSeed(p, 1)}
-                        disabled={i === seeds.length - 1 || locked || busy}
-                      >
-                        ↓
-                      </button>{' '}
-                      <button className="btn small danger" onClick={() => removeSeed(p)} disabled={locked || busy}>
-                        取消
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="muted">
-              已设置 {seeds.length} / {tournament?.group_count ?? 0} 名种子（自动分组时分散到不同小组）
-            </p>
-          </>
-        )}
-      </div>
-
-      <div className="card">
-        <h3>抽签与分组</h3>
-        <p className="muted">
-          {tournament?.roster_confirmed
-            ? `名单已确认，可将参赛位重新抽入 ${tournament.group_count} 个小组。`
-            : '请先在上方确认参赛名单；确认后会播放抽签过场并自动生成分组。'}
-        </p>
-        <div className="button-row">
-          <button
-            className="btn primary"
-            onClick={doAutoGroup}
-            disabled={busy || players.length === 0 || locked || !tournament?.roster_confirmed}
-          >
-            {busy ? '处理中…' : groups.groups.length ? '重新抽签分组' : '抽签分组'}
-          </button>
-          {groups.groups.length > 0 && (
-            <button className="btn" onClick={doUngroup} disabled={busy || locked}>
-              清空分组
-            </button>
-          )}
-          {groups.groups.length > 0 && <Link className="btn" to={`/orderbook?tid=${tid}`}>打印秩序册</Link>}
-        </div>
-
-        {groups.groups.length > 0 && (
-          <div className="group-grid">
-            {groups.groups.map((g) => (
-              <div className="group-card" key={g.id}>
-                <div className="group-card-head">
-                  <h4>{g.name}</h4>
-                  <label className="qualification-control">
-                    出线
-                    <select
-                      value={g.qualify_count ?? tournament?.qualify_per_group ?? 2}
-                      disabled={locked}
-                      onChange={(e) => setGroupQualification(g.id, Number(e.target.value))}
-                    >
-                      {Array.from(
-                        { length: Math.max(1, (g.entries.length || g.players.length) - 1) },
-                        (_, i) => i + 1,
-                      ).map((n) => <option key={n} value={n}>{n} 名</option>)}
-                    </select>
-                  </label>
-                </div>
-                <ul>
-                  {(g.entries.length > 0 ? g.entries : g.players).map((p) => {
-                    const sp = players.find((x) => x.id === p.id)
-                    // Entry 与 Player 是两套独立实体，删除并重新添加选手后两者 ID
-                    // 不再必然相同。分组使用 Entry 展示时应直接读取 Entry.seed_no。
-                    const seedNo = 'seed_no' in p ? p.seed_no : sp?.seed_no
-                    const isEntry = 'display_name' in p
-                    const withdrawn = isEntry && p.status === 'WITHDRAWN'
-                    return (
-                      <li key={p.id} className={withdrawn ? 'entry-withdrawn' : ''}>
-                        <span>
-                          {seedNo != null && <span className="seed-badge">⭐{seedNo}</span>}{' '}
-                          {isEntry ? p.display_name : p.name}
-                          {'college' in p && p.college ? <span className="muted">（{p.college}）</span> : null}
-                          {withdrawn && <span className="withdrawn-badge">已退赛</span>}
-                        </span>
-                        {locked && isEntry && !withdrawn && tournament?.stage !== 'FINISHED' && (
-                          <button className="btn small danger" onClick={() => { setWithdrawTarget(p); setWithdrawReason('') }} disabled={busy}>
-                            退出赛事
-                          </button>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-                <p className="muted">{g.entries.length || g.players.length} 个参赛位</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {withdrawTarget && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="确认退出赛事">
-          <div className="withdrawal-dialog">
-            <button className="modal-close" onClick={() => setWithdrawTarget(null)} aria-label="关闭">×</button>
-            <span className="eyebrow">WITHDRAWAL · ENTRY #{withdrawTarget.id}</span>
-            <h2>确认退出整个赛事</h2>
-            <div className="withdrawal-warning">
-              <strong>{withdrawTarget.display_name}</strong>
-              <p>已结束赛果将保留；正在进行和后续可确定的比赛将判该参赛位负。双打将退出整个组合。</p>
-            </div>
-            <label>主裁判
-              <input value={withdrawOperator} onChange={(event) => setWithdrawOperator(event.target.value)} placeholder="必填：操作人姓名" />
-            </label>
-            <label>退赛原因
-              <textarea value={withdrawReason} onChange={(event) => setWithdrawReason(event.target.value)} placeholder="必填：伤病、主动退出或现场裁定说明" />
-            </label>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setWithdrawTarget(null)}>取消</button>
-              <button className="btn danger" onClick={confirmWithdrawal} disabled={busy || !withdrawOperator.trim() || withdrawReason.trim().length < 2}>
-                确认退出赛事
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="card">
-        <h3>小组循环赛</h3>
-        {tournament?.stage === 'REGISTRATION' ? (
-          <>
-            <p className="muted">
-              为每个小组自动生成单循环比赛（同组每两人交手一次）。生成后赛事将进入小组赛阶段。
-            </p>
-            <div className="button-row">
-              <button
-                className="btn primary"
-                onClick={doGenerateMatches}
-                disabled={busy || groups.groups.length === 0 || !tournament?.roster_confirmed}
-              >
-                {busy ? '处理中…' : '生成小组比赛'}
-              </button>
-            </div>
-          </>
-        ) : (
-          <p className="muted">
-            小组赛已生成，共{' '}
-            <strong>{matchSummary ? matchSummary.matches_generated : matchCount ?? '—'}</strong>{' '}
-            场
-            {matchSummary && (
-              <>
-                （{Object.entries(matchSummary.per_group).map(([g, n]) => `${g} ${n} 场`).join('，')}）
-              </>
-            )}
-            。比赛控制台见「比赛控制台」页（任务 7）。
-          </p>
-        )}
-      </div>
-
-      {demoModal && tournament?.operation_mode === 'DEMO' && (
-        <div className="modal-overlay" onClick={() => setDemoModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>生成演示选手</h3>
-            {players.length > 0 && (
-              <p className="status-warn">
-                当前已有 {players.length} 名选手。继续生成将在现有选手之后追加演示选手。
-              </p>
-            )}
-            <div className="modal-pair">
-              <div className="modal-label">数量</div>
-              <div className="demo-count-row">
-                {[8, 16, 24].map((n) => (
-                  <button
-                    key={n}
-                    className={`btn ${demoModal.count === n ? 'primary' : ''}`}
-                    onClick={() => setDemoModal({ ...demoModal, count: n })}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <label className="demo-check">
-              <input
-                type="checkbox"
-                checked={demoModal.withSeeds}
-                onChange={(e) => setDemoModal({ ...demoModal, withSeeds: e.target.checked })}
-              />
-              自动设置前 {Math.min(4, tournament?.group_count ?? 4)} 名为种子
-            </label>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setDemoModal(null)}>
-                取消
-              </button>
-              <button className="btn primary" onClick={confirmDemoPlayers} disabled={busy}>
-                {busy ? '生成中…' : '生成'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {importOpen && (
-        <div className="modal-overlay" onClick={closeImport}>
-          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-            <h3>批量导入选手</h3>
-            <p className="muted">
-              支持：Excel (.xlsx) / CSV (.csv)
-              <br />• 第一行为表头，“姓名”为必填列
-              <br />• “学院/单位”“种子序号”为可选列
-            </p>
-            <div className="button-row">
-              <button className="btn small" onClick={downloadTemplate}>
-                下载 CSV 模板
-              </button>
-            </div>
-            {!importResult ? (
-              <>
-                <div className="import-file-row">
-                  <input
-                    type="file"
-                    accept=".xlsx,.csv"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] ?? null
-                      if (f && f.size > 5 * 1024 * 1024) {
-                        setImportError('文件过大，当前 Demo 仅支持 5MB 以内的名单文件')
-                        setImportFile(null)
-                        return
-                      }
-                      setImportFile(f)
-                      setImportPreview(null)
-                      setImportError(null)
-                    }}
-                  />
-                </div>
-                {importFile && <p className="muted">已选择：{importFile.name}</p>}
-                {importError && <p className="status-error">{importError}</p>}
-                <div className="modal-actions">
-                  <button className="btn" onClick={closeImport}>
-                    取消
-                  </button>
-                  <button
-                    className="btn primary"
-                    onClick={importPreview ? doImport : previewImport}
-                    disabled={!importFile || importing}
-                  >
-                    {importing ? '正在处理…' : importPreview ? `确认导入 ${importPreview.valid_rows} 人` : '预览并校验'}
-                  </button>
-                </div>
-                {importPreview && <div className="import-preview">
-                  <div className="import-preview-summary"><strong>{importPreview.valid_rows}</strong> 行可导入 <span>· {importPreview.skipped} 行跳过 · 请确认后再写入</span></div>
-                  <div className="import-preview-table"><table className="data-table"><thead><tr><th>行</th><th>姓名</th><th>单位</th><th>积分</th><th>种子</th><th>校验</th></tr></thead><tbody>
-                    {importPreview.rows.map((row) => <tr key={row.row}><td>{row.row}</td><td>{row.name || '—'}</td><td>{row.college || '—'}</td><td>{row.rating_points}</td><td>{row.seed_no ?? '—'}</td><td className={`preview-${row.status}`}>{row.message ?? '可导入'}</td></tr>)}
-                  </tbody></table></div>
-                  <p className="muted">已显示全部 {importPreview.total_rows} 行。</p>
-                </div>}
-              </>
-            ) : (
-              <>
-                <div className="import-result">
-                  <p className="status-ok">导入完成</p>
-                  <p className="muted">
-                    读取：{importResult.total_rows} 行 · 成功：{importResult.imported} 人 ·
-                    跳过：{importResult.skipped} 行
-                  </p>
-                  {importResult.errors.length > 0 && (
-                    <ul className="import-errors">
-                      {importResult.errors.slice(0, 10).map((e, i) => (
-                        <li key={i}>
-                          第{e.row}行：{e.message}
-                        </li>
-                      ))}
-                      {importResult.errors.length > 10 && (
-                        <li className="muted">…共 {importResult.errors.length} 条问题</li>
-                      )}
-                    </ul>
-                  )}
-                </div>
-                <div className="modal-actions">
-                  <button className="btn primary" onClick={closeImport}>
-                    完成
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+  return <div className="players-page">
+    <div className="page-title-row">
+      <div><span className="eyebrow">ROSTER</span><h2>参赛名单</h2><p className="muted">只管理谁参赛；种子、抽签和赛程生成已移至“抽签与编排”。</p></div>
+      <Link className="btn primary" to={`/draw?tid=${tid}`}>下一步：抽签与编排 →</Link>
     </div>
-  )
+    {error && <p className="status-error" role="alert">{error}</p>}
+    {notice && <p className="status-ok" role="status">{notice}</p>}
+
+    <div className="settings-tabs roster-tabs" role="tablist" aria-label="名单分类">
+      <button role="tab" aria-selected={tab === 'official'} className={tab === 'official' ? 'is-active' : ''} onClick={() => setTab('official')} type="button">正式名单 <b>{players.length}</b></button>
+      <button role="tab" aria-selected={tab === 'pending'} className={tab === 'pending' ? 'is-active' : ''} onClick={() => setTab('pending')} type="button">待确认报名 <b>{pending.length}</b></button>
+    </div>
+
+    {tab === 'official' ? <>
+      <section className="card roster-entry-card">
+        <div className="section-heading"><div><span className="eyebrow">DIRECT ENTRY</span><h3>录入运动员</h3></div><span className={`readiness ${locked ? '' : 'ready'}`}>{locked ? '名单已锁定' : '可编辑'}</span></div>
+        <form className="inline-form" onSubmit={addPlayer}>
+          <input required value={name} disabled={locked || busy} onChange={(e) => setName(e.target.value)} placeholder="姓名（必填）" />
+          <input value={college} disabled={locked || busy} onChange={(e) => setCollege(e.target.value)} placeholder="所属单位（选填）" />
+          <input type="number" min={0} value={ratingPoints} disabled={locked || busy} onChange={(e) => setRatingPoints(Number(e.target.value))} aria-label="运动员积分" />
+          <button className="btn primary" disabled={locked || busy || !name.trim()} type="submit">添加到名单</button>
+        </form>
+        <p className="muted">运动员积分是可选参考数据。后端会为未填写值使用兼容默认值 1000，它不代表真实水平。</p>
+        {!locked && <div className="button-row"><button className="btn" type="button" onClick={() => setImportOpen(true)}>Excel / CSV 导入</button>{tournament?.operation_mode === 'DEMO' && <button className="btn" type="button" onClick={generateDemo}>生成演示名单</button>}</div>}
+      </section>
+
+      <section className="card">
+        <div className="section-heading"><div><span className="eyebrow">OFFICIAL ROSTER</span><h3>正式参赛名单</h3></div><span>{players.length} 人</span></div>
+        {players.length === 0 ? <p className="muted">暂无正式运动员。可以手工录入、导入文件或确认线上报名。</p> : <table className="data-table"><thead><tr><th>姓名</th><th>所属单位</th><th>运动员积分</th><th>状态</th><th>操作</th></tr></thead><tbody>{players.map((player) => <tr key={player.id}>{editingId === player.id ? <>
+          <td><input value={editName} onChange={(e) => setEditName(e.target.value)} /></td>
+          <td><input value={editCollege} onChange={(e) => setEditCollege(e.target.value)} /></td>
+          <td><input type="number" min={0} value={editRating} onChange={(e) => setEditRating(Number(e.target.value))} /></td>
+          <td><span className="roster-status">正式名单</span></td>
+          <td><button className="btn small primary" onClick={() => saveEdit(player)} disabled={busy}>保存</button> <button className="btn small" onClick={() => setEditingId(null)}>取消</button></td>
+        </> : <>
+          <td><strong>{player.name}</strong></td><td>{player.college || <span className="missing-value">未填写</span>}</td><td>{player.rating_points}</td><td><span className="roster-status">正式名单</span></td>
+          <td><button className="btn small" onClick={() => startEdit(player)} disabled={locked || busy}>修改</button> <button className="btn small danger" onClick={() => removePlayer(player)} disabled={locked || busy}>删除</button></td>
+        </>}</tr>)}</tbody></table>}
+      </section>
+      {tournament && <RosterLaunch tournament={tournament} players={players} onComplete={load} />}
+    </> : <section className="card">
+      <div className="section-heading"><div><span className="eyebrow">ONLINE REGISTRATION</span><h3>待确认报名</h3></div><span>{pending.length} 条</span></div>
+      <p className="muted">线上提交只会进入 PENDING。主裁确认后，系统才创建正式运动员记录；当前契约没有“拒绝报名”状态。</p>
+      {pending.length === 0 ? <p className="empty-invite">暂无待确认报名。</p> : <table className="data-table"><thead><tr><th>姓名</th><th>所属单位</th><th>联系方式</th><th>积分</th><th>提交时间</th><th>操作</th></tr></thead><tbody>{pending.map((item) => <tr key={item.id}><td><strong>{item.name}</strong></td><td>{item.affiliation || <span className="missing-value">未填写</span>}</td><td>{item.contact || '—'}</td><td>{item.rating_points}</td><td>{new Date(item.created_at).toLocaleString()}</td><td><button className="btn small primary" disabled={busy || locked} onClick={() => confirmRegistration(item)}>确认并加入名单</button></td></tr>)}</tbody></table>}
+    </section>}
+
+    {importOpen && <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="批量导入名单"><div className="modal modal-wide">
+      <button className="modal-close" onClick={() => { setImportOpen(false); setImportPreview(null); setImportResult(null); setImportFile(null) }} aria-label="关闭">×</button>
+      <h3>批量导入参赛名单</h3><p className="muted">推荐表头：姓名、所属单位、运动员积分。姓名必填，其他列可选。旧版解析器仍兼容“种子序号”，但本页面不推荐在名单阶段设置种子。</p>
+      <button className="btn small" onClick={downloadTemplate}>下载推荐 CSV 模板</button>
+      <input className="import-file-input" type="file" accept=".xlsx,.csv" onChange={(e) => { setImportFile(e.target.files?.[0] ?? null); setImportPreview(null); setImportResult(null) }} />
+      {importPreview && <><p><strong>{importPreview.valid_rows}</strong> 行可导入，{importPreview.skipped} 行跳过。</p><div className="import-preview-table"><table className="data-table"><thead><tr><th>行</th><th>姓名</th><th>单位</th><th>积分</th><th>校验</th></tr></thead><tbody>{importPreview.rows.map((row) => <tr key={row.row}><td>{row.row}</td><td>{row.name || '—'}</td><td>{row.college || '未填写'}</td><td>{row.rating_points}</td><td>{row.message || '可导入'}</td></tr>)}</tbody></table></div></>}
+      {importResult && <p className="status-ok">导入完成：成功 {importResult.imported} 人，跳过 {importResult.skipped} 行。</p>}
+      <div className="modal-actions"><button className="btn" onClick={() => setImportOpen(false)}>关闭</button>{!importPreview && !importResult && <button className="btn primary" disabled={!importFile || busy} onClick={previewImport}>预览并校验</button>}{importPreview && <button className="btn primary" disabled={busy} onClick={importPlayers}>确认导入 {importPreview.valid_rows} 人</button>}</div>
+    </div></div>}
+  </div>
 }

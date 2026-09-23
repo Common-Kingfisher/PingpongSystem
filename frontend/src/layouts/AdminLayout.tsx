@@ -12,6 +12,11 @@ export type AdminNavKey =
   | 'rankings'
   | 'knockout'
   | 'settings'
+  | 'teamRoster'
+  | 'teamTies'
+  | 'teamRankings'
+  | 'teamQualification'
+  | 'teamKnockout'
 
 export interface AdminNavAccess {
   disabled: boolean
@@ -27,6 +32,7 @@ export interface AdminLayoutProps {
   navAccess?: Partial<Record<AdminNavKey, AdminNavAccess>>
   onChangePassword?: () => void
   onLogout?: () => void
+  eventType?: 'SINGLES' | 'DOUBLES' | 'TEAM' | null
 }
 
 export interface AdminEventOption {
@@ -44,11 +50,20 @@ interface AdminNavItem {
 const primaryItems: AdminNavItem[] = [
   { key: 'overview', label: '赛事总览', to: '/', note: '进度与下一步' },
   { key: 'participants', label: '参赛名单', to: '/players', note: '确认谁参赛' },
-  { key: 'draw', label: '分组抽签', to: '/draw', note: '建立比赛结构' },
+  { key: 'draw', label: '抽签与编排', to: '/draw', note: '建立比赛结构' },
   { key: 'orderbook', label: '秩序册', to: '/orderbook', note: '赛前与赛中输出' },
   { key: 'console', label: '比赛控制', to: '/console', note: '排台与录分' },
   { key: 'rankings', label: '排名', to: '/rankings', note: '小组与名次' },
   { key: 'knockout', label: '淘汰赛', to: '/knockout', note: '签表与晋级' },
+]
+
+const teamItems: AdminNavItem[] = [
+  { key: 'overview', label: '赛事总览', to: '/', note: '进度与下一步' },
+  { key: 'teamRoster', label: '队伍与名单', to: '/team-roster', note: '确认参赛队伍' },
+  { key: 'teamTies', label: '团体对抗', to: '/team-ties', note: '排阵与单盘' },
+  { key: 'teamRankings', label: '团体排名', to: '/team-rankings', note: '小组名次' },
+  { key: 'teamQualification', label: '晋级确认', to: '/team-qualification', note: '确认出线队伍' },
+  { key: 'teamKnockout', label: '团体淘汰签', to: '/team-knockout', note: '淘汰签位与晋级' },
 ]
 
 const settingsItem: AdminNavItem = {
@@ -67,6 +82,7 @@ export default function AdminLayout({
   navAccess = {},
   onChangePassword,
   onLogout,
+  eventType = null,
 }: AdminLayoutProps) {
   const location = useLocation()
   const [params] = useSearchParams()
@@ -145,7 +161,7 @@ export default function AdminLayout({
           </div>
         )}
         <nav className="admin-nav" aria-label="赛事管理">
-          {primaryItems.map(renderItem)}
+          {(eventType === 'TEAM' ? teamItems : primaryItems).map(renderItem)}
         </nav>
         <div className="admin-nav admin-nav--settings">
           {renderItem(settingsItem)}

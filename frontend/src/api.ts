@@ -28,11 +28,20 @@ export type ResultType = Schemas['ResultType']
 // 赛事级赛制（A 轨 D4 冻结）：ROUND_ROBIN / SINGLE_ELIMINATION / GROUP_KNOCKOUT。
 // 历史赛事的 TournamentOut.format_code 允许为 null，D4A 明确禁止默认成 GROUP_KNOCKOUT。
 export type TournamentFormat = Schemas['TournamentFormat']
+export type TournamentFormatUpdate = Schemas['TournamentFormatUpdateRequest']
+export type TournamentRegistrationUpdate = Schemas['TournamentRegistrationUpdate']
 
 // ------------------------------------------------------------------ 响应 / 请求 DTO（来自 OpenAPI schema）
 
 export type Tournament = Schemas['TournamentOut']
 export type Player = Schemas['PlayerOut']
+export type Registration = Schemas['RegistrationAdminOut']
+export type RegistrationConfirmResult = Schemas['RegistrationConfirmResult']
+export type Organization = Schemas['OrganizationOut']
+export type OrganizationUpsert = Schemas['OrganizationUpsert']
+export type Venue = Schemas['VenueOut']
+export type VenueUpsert = Schemas['VenueUpsert']
+export type TournamentExport = Schemas['TournamentExport']
 export type EntryMember = Schemas['EntryMemberOut']
 export type Entry = Schemas['EntryOut']
 export type EntryWithdrawalResult = Schemas['EntryWithdrawalResult']
@@ -228,6 +237,29 @@ export const api = {
   getTournament: (id: number) => request<Tournament>(`/api/tournaments/${id}`),
   deleteTournament: (id: number, confirmName?: string) =>
     request<void>(`/api/tournaments/${id}${confirmName ? `?confirm_name=${encodeURIComponent(confirmName)}` : ''}`, { method: 'DELETE' }),
+  updateTournamentFormat: (id: number, body: TournamentFormatUpdate) =>
+    request<Tournament>(`/api/tournaments/${id}/format`, {
+      method: 'PUT', body: JSON.stringify(body),
+    }),
+  updateTournamentRegistration: (id: number, enabled: boolean) =>
+    request<Tournament>(`/api/tournaments/${id}/registration`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled } satisfies TournamentRegistrationUpdate),
+    }),
+  listRegistrations: (id: number, status?: Registration['status']) =>
+    request<Registration[]>(`/api/tournaments/${id}/registrations${status ? `?status=${status}` : ''}`),
+  confirmRegistration: (id: number, registrationId: number) =>
+    request<RegistrationConfirmResult>(`/api/tournaments/${id}/registrations/${registrationId}/confirm`, { method: 'POST' }),
+  getOrganization: (id: number) => request<Organization>(`/api/tournaments/${id}/organization`),
+  upsertOrganization: (id: number, body: OrganizationUpsert) =>
+    request<Organization>(`/api/tournaments/${id}/organization`, {
+      method: 'PUT', body: JSON.stringify(body),
+    }),
+  getVenue: (id: number) => request<Venue>(`/api/tournaments/${id}/venue`),
+  upsertVenue: (id: number, body: VenueUpsert) =>
+    request<Venue>(`/api/tournaments/${id}/venue`, {
+      method: 'PUT', body: JSON.stringify(body),
+    }),
 
   listPlayers: (tournamentId: number) =>
     request<Player[]>(`/api/tournaments/${tournamentId}/players`),
