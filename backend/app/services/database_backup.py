@@ -50,6 +50,8 @@ REQUIRED_TABLES = CORE_TABLES + (
     "team_rubbers",
 )
 
+_VERSION_5_ADDED_TABLES = ("registrations", "organizations", "venues")
+
 
 class DatabaseBackupError(RuntimeError):
     """备份或备份校验失败。"""
@@ -124,11 +126,37 @@ def _connect(path: Path, *, mode: str = "rw") -> sqlite3.Connection:
     )
 
 
+def _required_tables_for_backup(schema_version: int | None) -> tuple[str, ...]:
+    """按源库 migration 版本选择备份快照必须包含的表。"""
+    if schema_version is None:
+        raise DatabaseBackupError("数据库未记录 migration 版本，拒绝生成不可验证的备份")
+    if schema_version > SCHEMA_VERSION:
+        raise DatabaseBackupError(
+            f"数据库 migration 版本高于当前程序支持版本: {schema_version} > {SCHEMA_VERSION}"
+        )
+    if schema_version < 2:
+        raise DatabaseBackupError(
+            f"数据库 migration 版本过旧: {schema_version}；当前只支持 v2-v{SCHEMA_VERSION} 备份"
+        )
+    if schema_version == SCHEMA_VERSION:
+        return REQUIRED_TABLES
+
+    legacy_required = tuple(
+        table for table in REQUIRED_TABLES if table not in _VERSION_5_ADDED_TABLES
+    )
+    if schema_version < 3:
+        legacy_required = tuple(
+            table for table in legacy_required if table != "system_state"
+        )
+    return legacy_required
+
+
 def _verify_database(
     path: Path,
     *,
     required_tables: tuple[str, ...] = CORE_TABLES,
     require_current_version: bool = False,
+    allow_legacy_schema: bool = False,
 ) -> DatabaseVerification:
     if not path.is_file():
         raise DatabaseBackupError(f"数据库文件不存在: {path}")
@@ -151,20 +179,26 @@ def _verify_database(
                 f"{len(foreign_key_rows)} 条违规"
             )
 
+        version_row = connection.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ).fetchone()
+        schema_version = int(version_row[0]) if version_row and version_row[0] is not None else None
+
+        effective_required_tables = (
+            _required_tables_for_backup(schema_version)
+            if allow_legacy_schema
+            else required_tables
+        )
         table_rows = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         ).fetchall()
         table_names = {str(row[0]) for row in table_rows}
-        missing = sorted(set(required_tables) - table_names)
+        missing = sorted(set(effective_required_tables) - table_names)
         if missing:
             raise DatabaseBackupError(
                 f"数据库缺少关键表: {path} -> {', '.join(missing)}"
             )
 
-        version_row = connection.execute(
-            "SELECT MAX(version) FROM schema_migrations"
-        ).fetchone()
-        schema_version = int(version_row[0]) if version_row and version_row[0] is not None else None
         if require_current_version and schema_version != SCHEMA_VERSION:
             raise DatabaseBackupError(
                 f"数据库 migration 版本不正确: {path} -> "
@@ -234,11 +268,10 @@ def backup_database(
 
     try:
         _copy_with_sqlite_backup(source_path, temporary_path)
-        # 备份命令只接受当前恢复流程能够完整落地的快照，避免“备份成功、
-        # 恢复时才因关键表缺失而失败”产生不可验证的备份承诺。
+        # legacy 库按自身 migration 版本校验；恢复时先迁移再按当前版本全表校验。
         verification = _verify_database(
             temporary_path,
-            required_tables=REQUIRED_TABLES,
+            allow_legacy_schema=True,
         )
         os.replace(temporary_path, final_path)
     except DatabaseBackupError:

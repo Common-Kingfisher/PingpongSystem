@@ -7,8 +7,10 @@ from pathlib import Path
 import json
 import sqlite3
 
+import backup_db
 from fastapi.testclient import TestClient
 import pytest
+import restore_db
 
 from app import repository as repo
 from app.main import app
@@ -42,6 +44,34 @@ def _database(path: Path):
 def _initialize(path: Path) -> None:
     database_backup._initialize_database_path(path)
     assert path.is_file()
+
+
+def _downgrade_to_schema_version(path: Path, version: int) -> None:
+    """把测试库降为真实 v2/v3/v4 结构，用于验证升级前备份。"""
+    assert 2 <= version < database_backup.SCHEMA_VERSION
+    with _database(path) as connection:
+        connection.execute("PRAGMA foreign_keys = OFF")
+        for table in ("registrations", "organizations", "venues"):
+            connection.execute(f"DROP TABLE IF EXISTS {table}")
+        if version < 5:
+            connection.execute(
+                "ALTER TABLE tournaments DROP COLUMN registration_enabled"
+            )
+        if version < 4:
+            for column in ("format_code", "rule_config", "rule_version"):
+                connection.execute(
+                    f"ALTER TABLE tournaments DROP COLUMN {column}"
+                )
+        if version < 3:
+            connection.execute("DROP TABLE IF EXISTS system_state")
+            for column in ("phone", "note"):
+                connection.execute(f"ALTER TABLE users DROP COLUMN {column}")
+        connection.execute(
+            "DELETE FROM schema_migrations WHERE version > ?",
+            (version,),
+        )
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys = ON")
 
 
 def _snapshot(
@@ -487,12 +517,15 @@ def test_restore_requires_explicit_service_stopped_confirmation(tmp_path):
         )
 
 
-def test_old_migration_backup_is_upgraded_without_data_loss(tmp_path):
-    old_backup = tmp_path / "old-v4.db"
-    restored_path = tmp_path / "restored-v5.db"
+@pytest.mark.parametrize("legacy_version", (2, 3, 4))
+def test_legacy_backup_cli_upgrades_without_data_loss(
+    tmp_path, legacy_version, capsys
+):
+    legacy_path = tmp_path / f"legacy-v{legacy_version}.db"
+    restored_path = tmp_path / f"restored-v{legacy_version}.db"
     backup_dir = tmp_path / "backups"
-    _initialize(old_backup)
-    with _database(old_backup) as connection:
+    _initialize(legacy_path)
+    with _database(legacy_path) as connection:
         tournament = repo.create_tournament(
             connection, "旧版本保留赛事", "2026-09-20", 2, 1, 1
         )
@@ -509,23 +542,58 @@ def test_old_migration_backup_is_upgraded_without_data_loss(tmp_path):
         )
         connection.commit()
 
-    with _database(old_backup) as connection:
-        connection.execute("PRAGMA foreign_keys = OFF")
-        connection.execute("DROP TABLE registrations")
-        connection.execute("DROP TABLE organizations")
-        connection.execute("DROP TABLE venues")
-        connection.execute("DELETE FROM schema_migrations WHERE version = 5")
-        connection.commit()
+    _downgrade_to_schema_version(legacy_path, legacy_version)
 
-    result = database_backup.restore_database(
-        old_backup,
-        restored_path,
-        backup_dir,
-        service_stopped=True,
-    )
+    assert backup_db.main(
+        [
+            "--database",
+            str(legacy_path),
+            "--backup-dir",
+            str(backup_dir),
+        ]
+    ) == 0
+    backup_output = capsys.readouterr().out
+    assert f"schema_migrations：{legacy_version}" in backup_output
 
-    assert result.schema_version == database_backup.SCHEMA_VERSION
+    backup_files = list(backup_dir.glob("pingpong-backup-*.db"))
+    assert len(backup_files) == 1
+    backup_path = backup_files[0]
+    with _database(backup_path) as connection:
+        assert connection.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ).fetchone()[0] == legacy_version
+        missing_v5_tables = {
+            table
+            for table in ("registrations", "organizations", "venues")
+            if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
+            ).fetchone()
+            is None
+        }
+        assert missing_v5_tables == {
+            "registrations",
+            "organizations",
+            "venues",
+        }
+
+    assert restore_db.main(
+        [
+            str(backup_path),
+            "--database",
+            str(restored_path),
+            "--backup-dir",
+            str(backup_dir),
+            "--service-stopped",
+        ]
+    ) == 0
+    restore_output = capsys.readouterr().out
+    assert f"schema_migrations：{database_backup.SCHEMA_VERSION}" in restore_output
+
     with _database(restored_path) as connection:
+        assert connection.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ).fetchone()[0] == database_backup.SCHEMA_VERSION
         restored_tournament = repo.get_tournament(connection, tournament["id"])
         restored_player = repo.get_player(connection, player["id"])
         restored_entry = repo.get_entry(connection, entry["id"])
