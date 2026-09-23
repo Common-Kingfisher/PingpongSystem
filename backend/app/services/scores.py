@@ -104,6 +104,12 @@ def _validate_normal_score_payload(
     return score_a, score_b
 
 
+def _validate_result_payload(result_type: str, games: list[tuple[int, int]] | None) -> None:
+    """异常赛果不接受逐局比分，避免调用方提交的数据被静默丢弃。"""
+    if result_type != ResultType.NORMAL.value and games is not None:
+        raise ScoreError("异常赛果不能携带逐局小比分", 422)
+
+
 def _side_ids(match: dict) -> tuple[int | None, int | None]:
     return (
         match.get("entry_a_id") or match.get("player_a_id"),
@@ -229,6 +235,7 @@ def record_score(
     比赛也可直接出结果；若已分配球台（PLAYING）则释放球台。
     """
     match = _ensure_match(conn, match_id)
+    _validate_result_payload(result_type, games)
     before = _snapshot(conn, match_id)
     if _claim_request(
         conn, request_id, match_id, "RECORD", score_a, score_b, games,
@@ -320,6 +327,7 @@ def revise_score(
     时允许重置并重新同步签位。
     """
     match = _ensure_match(conn, match_id)
+    _validate_result_payload(result_type, games)
     before = _snapshot(conn, match_id)
     if _claim_request(
         conn, request_id, match_id, "REVISE", score_a, score_b, games,

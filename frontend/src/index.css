@@ -411,6 +411,23 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
 .score-audit-fields input, .score-audit-fields textarea { width: 100%; padding: 9px 11px; border: 1px solid #cbd5e1; background: #fff; font: inherit; }
 .score-audit-fields textarea { min-height: 62px; resize: vertical; }
 .score-audit-fields p { margin: 0; color: #667085; font-size: 12px; }
+.console-feedback { position: sticky; top: 10px; z-index: 40; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin: 0; padding: 12px 14px; border-left: 4px solid #667085; background: #f4f7fb; box-shadow: 0 10px 28px rgba(16,42,67,.14); }
+.console-feedback > div { display: grid; gap: 3px; }
+.console-feedback strong { color: #102a43; font-size: 13px; }
+.console-feedback span { color: #526579; font-size: 12px; line-height: 1.5; }
+.console-feedback button { flex: 0 0 auto; padding: 0 3px; color: #667085; border: 0; background: transparent; font-size: 20px; line-height: 1; cursor: pointer; }
+.console-feedback.is-success { border-left-color: #168451; background: #edf8f2; }
+.console-feedback.is-warning { border-left-color: #c87912; background: #fff8ec; }
+.console-feedback.is-danger { border-left-color: #c62828; background: #fff1f0; }
+.score-submit-error { display: grid; gap: 4px; margin: 14px 0 18px; padding: 12px 14px; border-left: 4px solid #c62828; background: #fff1f0; }
+.score-submit-error strong { color: #9f1d1d; font-size: 13px; }
+.score-submit-error span { color: #5d2b2b; font-size: 12px; line-height: 1.5; }
+.score-submit-error small { color: #7b4a4a; font-size: 11px; }
+.score-revision-confirm { margin-top: 18px; padding: 16px; color: #fff; border-left: 5px solid #f0b429; background: #102a43; }
+.score-revision-confirm > span { color: #f0b429; font: 800 9px Bahnschrift, "DIN Alternate", sans-serif; letter-spacing: .18em; }
+.score-revision-confirm > strong { display: block; margin-top: 5px; font-size: 16px; }
+.score-revision-confirm p { margin: 9px 0 14px; color: #ced9e3; font-size: 12px; line-height: 1.65; }
+.score-revision-confirm > div { display: flex; justify-content: flex-end; gap: 8px; }
 .match-time-cell { min-width: 164px; }
 .match-time-cell span { display: block; color: #475467; font-size: 12px; line-height: 1.7; }
 .score-audit-panel { position: relative; width: min(650px, 96vw); max-height: 86vh; overflow: auto; padding: 28px; border-top: 5px solid #e5294f; background: #fff; box-shadow: 0 30px 80px rgba(0,0,0,.38); }
@@ -430,6 +447,10 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
 .forfeit-panel { padding: 16px; background: #fff4ed; border-left: 4px solid #f04438; }
 .forfeit-panel label, .score-note { display: flex; flex-direction: column; gap: 6px; margin: 13px 0; }
 .forfeit-actions { display: flex; gap: 8px; }
+@media (max-width: 560px) {
+  .score-revision-confirm > div { flex-direction: column-reverse; }
+  .score-revision-confirm .btn { width: 100%; }
+}
 
 /* Champion Journey — the signature presentation surface */
 .journey-page { min-height: calc(100vh - 65px); margin: -22px; padding: 32px; color: #fff; background: var(--arena); }
@@ -1403,6 +1424,8 @@ body {
 .waiting-match-card > span { color: #98a2b3; font: 700 9px Bahnschrift, sans-serif; }
 .waiting-match-card > strong { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .waiting-match-card > i { color: var(--magenta); font-size: 8px; font-style: normal; font-weight: 800; }
+/* D 轨 Day 3：手机录分入口。独占一行，不挤压 4 列对阵网格。 */
+.waiting-match-card > .waiting-match-mobile { grid-column: 1 / -1; justify-self: start; margin-top: 2px; }
 .data-table td:last-child .btn + .btn { margin-left: 7px; }
 
 /* ---------------- Demo 标识 & 演示 Modal ---------------- */

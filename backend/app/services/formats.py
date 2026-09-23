@@ -243,7 +243,7 @@ class RoundRobinHandler(FormatHandler):
         if any(row["tied"] for row in rankings):
             decorated = [repo.decorate_match(conn, match) for match in matches]
             missing = ranking_domain.missing_point_score_match_ids(
-                decorated, rankings, len(rankings)
+                decorated, rankings, len(rankings), resolve_all_ties=True
             )
             if missing:
                 return {"state": "RANKING_DATA_INSUFFICIENT", "can_advance": False, "completed": False}

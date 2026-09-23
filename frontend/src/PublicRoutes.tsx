@@ -31,9 +31,14 @@
  * 本文件独立于 `App.tsx`，把 Public 路由接线收在一个地方，减少与 A/C 轨的冲突面。
  */
 
+import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import PublicLayout from './layouts/PublicLayout'
 import { useTidFromPath } from './publicTournament'
+import { api, ApiError } from './api'
+import type { Tournament } from './api'
+import PublicEmptyState from './components/PublicEmptyState'
+import { getPublicCapabilities } from './publicFormat'
 import BigScreenPage from './pages/BigScreenPage'
 import SchedulePage from './pages/SchedulePage'
 import RankingsPage from './pages/RankingsPage'
@@ -107,9 +112,80 @@ function PublicBracketAdapter() {
   return <PublicTidBoundary>{(tid) => <KnockoutPage readOnly tid={tid} />}</PublicTidBoundary>
 }
 
-/** 冠军之路（复用 ChampionJourneyPage） */
+/**
+ * 冠军之路（复用 ChampionJourneyPage）。
+ *
+ * ⚠️ Day4D 收口：`ChampionJourneyPage` 会**无条件**请求 `/knockout`，
+ * 因此纯循环赛赛事如果直接访问 `/public/t/:tid/champion`，会进入一套并不存在的淘汰赛 /
+ * 冠军逻辑（既误导观众、也发出无意义请求）。
+ *
+ * 这里在 adapter 层加一个 format-aware guard（**不重构** `ChampionJourneyPage`）：
+ *
+ * - `ROUND_ROBIN`：不渲染 ChampionJourneyPage、不请求 `/knockout`，
+ *   改为只读空态 + 回到本赛事排名的 CTA；
+ * - `SINGLE_ELIMINATION` / `GROUP_KNOCKOUT`：正常复用；
+ * - `null`（legacy 历史赛事）：同样正常复用，**不**默认成 GROUP_KNOCKOUT 之外的任何推断。
+ *
+ * `backTo` 让「返回签表」留在 Public shell（默认值仍是管理端 `/knockout?tid=`）。
+ */
+function PublicChampionView({ tid }: { tid: number }) {
+  const [state, setState] = useState<
+    { status: 'loading' } | { status: 'ready'; tournament: Tournament } | { status: 'failed'; message: string }
+  >({ status: 'loading' })
+
+  useEffect(() => {
+    let active = true
+    setState({ status: 'loading' })
+    api
+      .getTournament(tid)
+      .then((data) => {
+        if (active) setState({ status: 'ready', tournament: data })
+      })
+      .catch((err: unknown) => {
+        if (!active) return
+        setState({
+          status: 'failed',
+          message: err instanceof ApiError ? err.message : '无法连接服务器',
+        })
+      })
+    return () => {
+      active = false
+    }
+  }, [tid])
+
+  if (state.status === 'loading') {
+    return (
+      <div className="pub-message" role="status">
+        <p>正在加载赛事数据…</p>
+      </div>
+    )
+  }
+
+  if (state.status === 'failed') {
+    return (
+      <div className="pub-message" role="alert">
+        <h1>加载失败</h1>
+        <p>{state.message}</p>
+      </div>
+    )
+  }
+
+  if (!getPublicCapabilities(state.tournament.format_code).showChampion) {
+    return (
+      <PublicEmptyState
+        title="本赛事不设冠军之路"
+        actions={[{ label: '查看排名', to: `/public/t/${tid}/rankings` }]}
+      >
+        <p>本赛事采用循环赛制，最终名次以赛事排名为准。</p>
+      </PublicEmptyState>
+    )
+  }
+
+  return <ChampionJourneyPage backTo={`/public/t/${tid}/bracket`} tid={tid} />
+}
+
 function PublicChampionAdapter() {
-  return <PublicTidBoundary>{(tid) => <ChampionJourneyPage tid={tid} />}</PublicTidBoundary>
+  return <PublicTidBoundary>{(tid) => <PublicChampionView tid={tid} />}</PublicTidBoundary>
 }
 
 /**

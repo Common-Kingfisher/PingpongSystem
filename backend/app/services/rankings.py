@@ -14,24 +14,6 @@ class RankingError(Exception):
         self.code = code
 
 
-def _cutoff_candidates(entries: list[dict], qualify: int) -> tuple[list[int], int]:
-    """返回第一个跨越晋级线的并列组及该组剩余席位。"""
-    groups: dict[int, list[int]] = {}
-    for entry in sorted(entries, key=lambda item: (item["rank"], item["player_id"])):
-        groups.setdefault(entry["rank"], []).append(entry["player_id"])
-    accepted = 0
-    for rank in sorted(groups):
-        ids = groups[rank]
-        remaining = qualify - accepted
-        if remaining <= 0:
-            break
-        if len(ids) <= remaining:
-            accepted += len(ids)
-        else:
-            return ids, remaining
-    return [], 0
-
-
 def qualification_snapshot(group: dict) -> str:
     """生成裁定依据快照；相关排名发生变化后旧裁定不得继续生效。"""
     data = {
@@ -130,11 +112,11 @@ def get_rankings(
                 "manual_slots_remaining": 0,
                 "qualification_decision": None,
                 "entries": ranked_entries,
-            }
+        }
         if ambiguous:
-            candidates, remaining = _cutoff_candidates(eligible_entries, qualify)
+            candidates = ranking.qualification_cutoff_candidates(eligible_entries, qualify)
             group_result["manual_candidate_entry_ids"] = candidates
-            group_result["manual_slots_remaining"] = remaining
+            group_result["manual_slots_remaining"] = qualify - len(qualified)
         if include_decisions and ambiguous:
             decision = repo.get_active_qualification_decision(conn, group["id"])
             if decision and decision["ranking_snapshot"] == qualification_snapshot(group_result):

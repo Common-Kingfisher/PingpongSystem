@@ -135,6 +135,10 @@ def prepare_knockout_generation(conn: sqlite3.Connection, tournament_id: int) ->
                 f"{group['group_name']} 小组赛尚未全部结束（{group['finished_matches']}/{group['total_matches']}）"
             )
         if group["ambiguous_qualification"]:
+            if group["needs_point_scores"]:
+                raise KnockoutError(
+                    f"{group['group_name']} 晋级判定数据不足，请先补录相关场次逐局小分"
+                )
             raise KnockoutError(f"{group['group_name']} 存在无法判定的并列晋级，请先人工裁决")
 
     qualifiers_by_group = [

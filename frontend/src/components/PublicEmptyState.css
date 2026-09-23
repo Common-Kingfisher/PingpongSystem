@@ -1,0 +1,78 @@
+/* ---------------------------------------------------------------------------
+ * Public 只读「空态 / 暂不适用」提示卡（D 轨 Day 4D）
+ *
+ * 手机优先：360 / 375 / 390 / 430px 不允许横向溢出；
+ * CTA 触摸目标 >= 44px（与 PublicLayout.css 的 .pub-nav-item 同一标准）。
+ * --------------------------------------------------------------------------- */
+
+.pub-empty {
+  max-width: 640px;
+  margin: 0 auto 16px;
+  padding: 22px 20px;
+  text-align: center;
+  background: #fff;
+  border: 1px solid #e0e6ee;
+  border-left: 3px solid #b9c6d6;
+  border-radius: 10px;
+}
+
+.pub-empty-title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  color: #101828;
+}
+
+.pub-empty-hint {
+  margin: 0 0 10px;
+  color: #475467;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.pub-empty-body {
+  margin: 0 0 4px;
+  color: #475467;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.pub-empty-body p {
+  margin: 0 0 8px;
+}
+
+.pub-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.pub-empty-action {
+  display: inline-grid;
+  place-items: center;
+  min-height: 44px;
+  padding: 0 20px;
+  color: #fff;
+  background: #1769e0;
+  border: 1px solid #1769e0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.pub-empty-action:hover {
+  background: #1358bd;
+  border-color: #1358bd;
+}
+
+@media (max-width: 430px) {
+  .pub-empty {
+    padding: 18px 14px;
+  }
+
+  .pub-empty-action {
+    width: 100%;
+  }
+}

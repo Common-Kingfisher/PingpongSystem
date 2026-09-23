@@ -2,14 +2,33 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, GroupRanking, Match, RankingsResult, ScorePayload, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
+import PublicEmptyState from '../components/PublicEmptyState'
+import { getPublicCapabilities, getRankingsTitle } from '../publicFormat'
 import ScoreSheet from '../components/ScoreSheet'
 
 /**
- * 小组排名页。
+ * 排名页。
  *
  * D 轨 Day 2：新增可选 `readOnly`。Public 路由（`/public/t/:tid/rankings`）以只读方式复用本页，
  * 只屏蔽**写操作控件**（Demo 模拟完成、补录小分、人工裁定 / 撤销裁定），
  * 排名展示完全沿用后端结果，不复制任何排名算法。
+ *
+ * D 轨 Day 4D：
+ *
+ * - Public 视图下标题由 `getRankingsTitle(format_code)` 给出：
+ *   `GROUP_KNOCKOUT` → 小组排名；`ROUND_ROBIN` / `null`(legacy) → 赛事排名。
+ *   管理端（非 readOnly）保持「小组排名」不变；
+ * - 后端没有返回任何排名行时给出**可理解的空态 + CTA**，而不是一片空白；
+ * - 仍然**不**在前端计算任何排名：本页只渲染 `RankingsResult` 里后端已排序的行。
+ *
+ * D 轨 Day4D 接线轮（PR #50 review）：
+ *
+ * - Public 端先取 `getTournament(tid)` 拿到**后端权威的** `format_code`，
+ *   再决定是否请求排名数据：`SINGLE_ELIMINATION` 下根本没有循环赛排名，
+ *   因此**不发** `/rankings` 与 GROUP 完赛查询，直接显示只读「不适用」状态；
+ * - 赛制判断只来自 `getPublicCapabilities`，不看 stage、不看有没有小组，
+ *   也不复制任何排名 / 晋级算法；
+ * - 管理端（`readOnly=false`）行为与请求序列完全不变。
  */
 export default function RankingsPage({
   tid: tidProp,
@@ -34,16 +53,39 @@ export default function RankingsPage({
 
   const load = useCallback(async () => {
     if (tid === null) return
-    const [t, r, ms] = await Promise.all([
-      api.getTournament(tid),
+
+    // 管理端：请求序列与既有实现完全一致（先并行拉全部），不因赛制变化而改动
+    if (!readOnly) {
+      const [t, r, ms] = await Promise.all([
+        api.getTournament(tid),
+        api.getRankings(tid),
+        api.listMatches(tid, { stage: 'GROUP', status: 'FINISHED' }),
+      ])
+      setTournament(t)
+      setRankings(r)
+      setMatches(ms)
+      setLoaded(true)
+      return
+    }
+
+    // Public 只读：先用赛事本身拿到权威 format_code，再决定要不要请求排名数据
+    const t = await api.getTournament(tid)
+    setTournament(t)
+    if (!getPublicCapabilities(t.format_code).showRankings) {
+      // 不适用：不请求不适用的 group ranking / GROUP 完赛数据（避免无意义的 200 与误导性空表）
+      setRankings({ rankings: [] })
+      setMatches([])
+      setLoaded(true)
+      return
+    }
+    const [r, ms] = await Promise.all([
       api.getRankings(tid),
       api.listMatches(tid, { stage: 'GROUP', status: 'FINISHED' }),
     ])
-    setTournament(t)
     setRankings(r)
     setMatches(ms)
     setLoaded(true)
-  }, [tid])
+  }, [tid, readOnly])
 
   useEffect(() => {
     if (tid !== null) {
@@ -157,10 +199,17 @@ export default function RankingsPage({
     }
   }
 
+  // Public 只读视图：标题与是否展示排名都由后端权威的 format_code 决定（见 publicFormat.ts）。
+  // 管理端保持「小组排名」，不改动 C 轨既有界面。
+  const capabilities = getPublicCapabilities(tournament?.format_code)
+  const pageTitle = readOnly ? getRankingsTitle(tournament?.format_code) : '小组排名'
+  // 单淘汰赛制没有循环赛排名：这是「不适用」，不是「还没有数据」。
+  const rankingsNotApplicable = readOnly && tournament !== null && !capabilities.showRankings
+
   if (tid === null) {
     return (
       <div className="card">
-        <h2>小组排名</h2>
+        <h2>{pageTitle}</h2>
         <p className="muted">
           请先在<Link to="/">赛事首页</Link>创建并选择一场赛事。
         </p>
@@ -172,9 +221,32 @@ export default function RankingsPage({
     return (
       <div className="page">
         <div className="card">
-          <h2>小组排名</h2>
+          <h2>{pageTitle}</h2>
           <p className="muted">正在加载赛事数据…</p>
         </div>
+      </div>
+    )
+  }
+
+  if (rankingsNotApplicable) {
+    return (
+      <div className="page">
+        <div className="card">
+          <h2>
+            {tournament ? tournament.name : '赛事'} · {pageTitle}
+            <Link className="btn small float-right" to={`/public/t/${tid}/live`}>
+              ← 返回实况
+            </Link>
+          </h2>
+        </div>
+        {/* 明确说明「本赛事不设循环赛排名」，而不是显示空白小组或伪造排名。
+            文案只陈述后端契约事实，不推断任何比赛结果。 */}
+        <PublicEmptyState
+          title="本赛事采用单淘汰赛制，不设置循环赛排名。"
+          actions={[{ label: '查看签表', to: `/public/t/${tid}/bracket` }]}
+        >
+          <p>请查看淘汰赛签表了解晋级情况。</p>
+        </PublicEmptyState>
       </div>
     )
   }
@@ -183,9 +255,14 @@ export default function RankingsPage({
     <div className="page">
       <div className="card">
         <h2>
-          {tournament ? tournament.name : '赛事'} · 小组排名
-          <Link className="btn small float-right" to="/">
-            ← 返回首页
+          {tournament ? tournament.name : '赛事'} · {pageTitle}
+          {/* Public 只读视图绝不能把“返回首页”指向管理端 `/`：那是管理员控制台入口。
+              这里改为回到本赛事的公开实况页（保持 path param，不退回 ?tid=/localStorage）。 */}
+          <Link
+            className="btn small float-right"
+            to={readOnly ? `/public/t/${tid}/live` : '/'}
+          >
+            {readOnly ? '← 返回实况' : '← 返回首页'}
           </Link>
         </h2>
         {tournament && (
@@ -206,6 +283,21 @@ export default function RankingsPage({
             </div>
           )}
       </div>
+
+      {/* Public 只读空态：后端没有返回任何排名行时不要留一片空白。
+          文案对三种赛制都成立（不推断赛制、不伪造排名、不调用任何写接口）。 */}
+      {readOnly && loaded && rankings.rankings.length === 0 && (
+        <PublicEmptyState
+          title="暂无赛事排名"
+          hint="本赛事目前还没有可发布的排名数据。"
+          actions={[{ label: '查看签表', to: `/public/t/${tid}/bracket` }]}
+        >
+          <p>
+            如果本赛事采用单淘汰等不设循环赛排名的赛制，本页不会显示排名；
+            请打开签表查看对阵与晋级情况。
+          </p>
+        </PublicEmptyState>
+      )}
 
       {rankings.rankings.map((g) => (
         <div className="card" key={g.group_id}>
