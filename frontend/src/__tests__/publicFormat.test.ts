@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   getPublicCapabilities,
+  getPublicMatchStageLabel,
   getPublicStageLabel,
   getRankingsTitle,
   isRoundRobin,
@@ -109,5 +110,35 @@ describe('getPublicStageLabel：阶段文案（纯展示，不做状态机）', 
   it('没有 stage 时返回空串（不猜阶段）', () => {
     expect(getPublicStageLabel('ROUND_ROBIN', null)).toBe('')
     expect(getPublicStageLabel('ROUND_ROBIN', undefined)).toBe('')
+  })
+})
+
+describe('getPublicMatchStageLabel：单场比赛的赛段文案', () => {
+  it('ROUND_ROBIN + GROUP → 循环赛（不再与顶部的「循环赛」自相矛盾）', () => {
+    expect(getPublicMatchStageLabel('ROUND_ROBIN', 'GROUP')).toBe('循环赛')
+  })
+
+  it('GROUP_KNOCKOUT + GROUP → 小组赛（原行为不变）', () => {
+    expect(getPublicMatchStageLabel('GROUP_KNOCKOUT', 'GROUP')).toBe('小组赛')
+  })
+
+  it('legacy(null) + GROUP → 小组赛（不推断、保持既有文案）', () => {
+    expect(getPublicMatchStageLabel(null, 'GROUP')).toBe('小组赛')
+    expect(getPublicMatchStageLabel(undefined, 'GROUP')).toBe('小组赛')
+  })
+
+  it('任意赛制的 KNOCKOUT → 淘汰赛', () => {
+    for (const format of ['ROUND_ROBIN', 'SINGLE_ELIMINATION', 'GROUP_KNOCKOUT', null] as const) {
+      expect(getPublicMatchStageLabel(format, 'KNOCKOUT')).toBe('淘汰赛')
+    }
+  })
+
+  it('SINGLE_ELIMINATION + KNOCKOUT → 淘汰赛', () => {
+    expect(getPublicMatchStageLabel('SINGLE_ELIMINATION', 'KNOCKOUT')).toBe('淘汰赛')
+  })
+
+  it('没有 matchStage 时返回空串（不猜赛段）', () => {
+    expect(getPublicMatchStageLabel('ROUND_ROBIN', null)).toBe('')
+    expect(getPublicMatchStageLabel('ROUND_ROBIN', undefined)).toBe('')
   })
 })

@@ -26,7 +26,7 @@
  * 本文件不新建第二套 enum，也不使用 `as any`。
  */
 
-import type { Tournament } from './api'
+import type { MatchStage, Tournament } from './api'
 
 /** Public 端模块可见性。只有这三个开关，避免长成第二个“前端赛制引擎”。 */
 export interface PublicCapabilities {
@@ -118,4 +118,37 @@ export function getPublicStageLabel(
       // GROUP_KNOCKOUT 与 legacy(null) 保持既有文案
       return stage === 'KNOCKOUT' ? '淘汰赛' : '小组赛'
   }
+}
+
+/**
+ * 单场比赛的赛段文案（纯展示映射）。
+ *
+ * ## 为什么需要它
+ *
+ * 纯循环赛在领域模型里同样使用 `Tournament.stage = GROUP_STAGE` 与
+ * `Match.stage = GROUP`（这是既有后端事实，**不改** DB CHECK / 枚举 / Handler）。
+ * 如果比赛卡片直接照搬 `Match.stage`，就会出现自相矛盾的画面：
+ *
+ * ```text
+ * 大屏顶部：循环赛
+ * 比赛卡片：小组赛   ← 同一场比赛，两个说法
+ * ```
+ *
+ * 因此这里只把「明确是 ROUND_ROBIN 的 GROUP 比赛」这一个组合改写成「循环赛」，
+ * 其余组合保持既有文案。只做文案映射，不做状态机，也不动任何后端枚举。
+ *
+ * | format_code | match.stage | 文案 |
+ * | --- | --- | --- |
+ * | `ROUND_ROBIN` | `GROUP` | 循环赛 |
+ * | `GROUP_KNOCKOUT` / `null` / 其它 | `GROUP` | 小组赛 |
+ * | 任意 | `KNOCKOUT` | 淘汰赛 |
+ * | `GROUP_KNOCKOUT`（应不出现） | `GROUP` | 小组赛 |
+ */
+export function getPublicMatchStageLabel(
+  formatCode: Tournament['format_code'],
+  matchStage: MatchStage | null | undefined,
+): string {
+  if (!matchStage) return ''
+  if (matchStage === 'KNOCKOUT') return '淘汰赛'
+  return isRoundRobin(formatCode) ? '循环赛' : '小组赛'
 }

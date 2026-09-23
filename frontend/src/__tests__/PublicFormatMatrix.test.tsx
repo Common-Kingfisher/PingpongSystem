@@ -55,6 +55,35 @@ const DASHBOARD = {
   next_playable: [],
 }
 
+/**
+ * 真正“正在进行”的大屏数据：一个 OCCUPIED 球台 + 一个 PLAYING 的 GROUP 比赛。
+ *
+ * reviewer 明确要求 RR 的断言不能只看页面顶部（那里修前就已经是「循环赛」），
+ * 必须定位到**比赛卡片**，因此必须有这张卡存在，否则测试会虚假通过。
+ */
+const DASHBOARD_WITH_PLAYING_GROUP_MATCH = {
+  stats: { total: 1, finished: 0, playing: 1, waiting: 0 },
+  tables: [
+    {
+      id: 1,
+      name: '1号台',
+      status: 'OCCUPIED',
+      match: {
+        id: 501,
+        stage: 'GROUP',
+        status: 'PLAYING',
+        entry_a_id: 101,
+        entry_b_id: 102,
+        player_a_id: 1,
+        player_b_id: 2,
+        player_a_score: null,
+        player_b_score: null,
+      },
+    },
+  ],
+  next_playable: [],
+}
+
 function rankingEntry(playerId: number, name: string, rank: number, qualified: boolean) {
   return {
     player_id: playerId,
@@ -158,6 +187,7 @@ let requestedPaths: string[] = []
 let currentTournament = tournament('GROUP_KNOCKOUT', 'GROUP_STAGE')
 let rankingsBody: unknown = RANKINGS_WITH_GROUP
 let knockoutBody: unknown = emptyTree()
+let dashboardBody: unknown = DASHBOARD
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -176,7 +206,7 @@ function installFetch() {
     if (/\/api\/tournaments\/\d+(\?|$)/.test(path)) {
       return Promise.resolve(jsonResponse(currentTournament))
     }
-    if (/\/dashboard$/.test(path)) return Promise.resolve(jsonResponse(DASHBOARD))
+    if (/\/dashboard$/.test(path)) return Promise.resolve(jsonResponse(dashboardBody))
     if (/\/rankings$/.test(path)) return Promise.resolve(jsonResponse(rankingsBody))
     if (/\/groups$/.test(path)) return Promise.resolve(jsonResponse({ groups: [] }))
     if (/\/knockout$/.test(path)) return Promise.resolve(jsonResponse(knockoutBody))
@@ -215,6 +245,17 @@ beforeEach(() => {
   currentTournament = tournament('GROUP_KNOCKOUT', 'GROUP_STAGE')
   rankingsBody = RANKINGS_WITH_GROUP
   knockoutBody = emptyTree()
+  dashboardBody = DASHBOARD
+  // jsdom 没有 ResizeObserver（无排版引擎），而冠军之路在有签表时会用它测量连线。
+  // 这里只做测试环境 shim，不改变组件行为。
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  )
   installFetch()
 })
 
@@ -424,5 +465,98 @@ describe('BigScreen：赛制 → 展示区域与请求集合', () => {
     expect(await screen.findByRole('heading', { name: '小组排名（出线区）' })).toBeTruthy()
     expect(requestsMatching(/\/knockout$/).length).toBeGreaterThan(0)
     expect(screen.queryByRole('heading', { name: '赛事排名' })).toBeNull()
+  })
+
+  it('ROUND_ROBIN：正在进行比赛卡显示「循环赛」，卡内不出现「小组赛」', async () => {
+    currentTournament = tournament('ROUND_ROBIN', 'GROUP_STAGE')
+    dashboardBody = DASHBOARD_WITH_PLAYING_GROUP_MATCH
+    renderAt(`/public/t/${TID}/live`)
+
+    // 先确认确实渲染了「正在进行」的比赛卡（否则下面的卡内断言会虚假通过）
+    await screen.findByText('1号台')
+    const card = document.querySelector('.bigscreen-table')
+    expect(card).not.toBeNull()
+
+    expect(within(card as HTMLElement).getByText('循环赛')).toBeTruthy()
+    expect(within(card as HTMLElement).queryByText('小组赛')).toBeNull()
+  })
+
+  it('GROUP_KNOCKOUT：同一张比赛卡仍显示「小组赛」（不退化）', async () => {
+    currentTournament = tournament('GROUP_KNOCKOUT', 'GROUP_STAGE')
+    dashboardBody = DASHBOARD_WITH_PLAYING_GROUP_MATCH
+    renderAt(`/public/t/${TID}/live`)
+
+    await screen.findByText('1号台')
+    const card = document.querySelector('.bigscreen-table')
+    expect(card).not.toBeNull()
+
+    expect(within(card as HTMLElement).getByText('小组赛')).toBeTruthy()
+    expect(within(card as HTMLElement).queryByText('循环赛')).toBeNull()
+  })
+})
+
+// --------------------------------------------------------------- 5. Champion 深链
+
+describe('Champion 深链：capability guard 与 Public 返回地址', () => {
+  it('ROUND_ROBIN：不进入冠军之路、不请求 /knockout，改为只读空态 + 查看排名', async () => {
+    currentTournament = tournament('ROUND_ROBIN', 'GROUP_STAGE')
+    renderAt(`/public/t/${TID}/champion`)
+
+    expect(await screen.findByText('本赛事不设冠军之路')).toBeTruthy()
+    expect(screen.getAllByText(/循环赛/).length).toBeGreaterThan(0)
+    expect(screen.getByText('本赛事采用循环赛制，最终名次以赛事排名为准。')).toBeTruthy()
+    expect(screen.getByRole('link', { name: '查看排名' }).getAttribute('href')).toBe(
+      `/public/t/${TID}/rankings`,
+    )
+
+    // 不进入淘汰赛 / 冠军逻辑
+    expect(requestsMatching(/\/knockout$/)).toEqual([])
+    // 页面上不得出现管理端深链
+    expect(hrefs().filter((h) => h.includes('/knockout?tid='))).toEqual([])
+    // 主导航也不显示「冠军」入口
+    await waitFor(() => expect(navLabels()).not.toContain('冠军'))
+  })
+
+  it('SINGLE_ELIMINATION：复用冠军之路，且「返回签表」留在 Public', async () => {
+    currentTournament = tournament('SINGLE_ELIMINATION', 'KNOCKOUT')
+    knockoutBody = singleEliminationTree()
+    renderAt(`/public/t/${TID}/champion`)
+
+    // 冠军之路真的按签表数据渲染出来
+    expect(await screen.findByRole('heading', { name: '半决赛' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: '返回签表' }).getAttribute('href')).toBe(
+      `/public/t/${TID}/bracket`,
+    )
+    expect(requestsMatching(/\/knockout$/).length).toBeGreaterThan(0)
+    expect(hrefs().filter((h) => h.includes('/knockout?tid='))).toEqual([])
+  })
+
+  it('GROUP_KNOCKOUT：复用冠军之路，且「返回签表」留在 Public', async () => {
+    currentTournament = tournament('GROUP_KNOCKOUT', 'KNOCKOUT')
+    knockoutBody = singleEliminationTree()
+    renderAt(`/public/t/${TID}/champion`)
+
+    expect(await screen.findByRole('heading', { name: '半决赛' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: '返回签表' }).getAttribute('href')).toBe(
+      `/public/t/${TID}/bracket`,
+    )
+    expect(requestsMatching(/\/knockout$/).length).toBeGreaterThan(0)
+    expect(hrefs().filter((h) => h.includes('/knockout?tid='))).toEqual([])
+  })
+
+  it('legacy（format_code = null）：继续兼容冠军之路，不默认成 GK、也不显示不适用空态', async () => {
+    const legacy = tournament(null, 'GROUP_STAGE')
+    delete (legacy as { format_code?: unknown }).format_code
+    currentTournament = legacy
+    knockoutBody = singleEliminationTree()
+    renderAt(`/public/t/${TID}/champion`)
+
+    expect(await screen.findByRole('heading', { name: '半决赛' })).toBeTruthy()
+    expect(screen.queryByText('本赛事不设冠军之路')).toBeNull()
+    expect(screen.getByRole('link', { name: '返回签表' }).getAttribute('href')).toBe(
+      `/public/t/${TID}/bracket`,
+    )
+    expect(requestsMatching(/\/knockout$/).length).toBeGreaterThan(0)
+    expect(hrefs().filter((h) => h.includes('/knockout?tid='))).toEqual([])
   })
 })

@@ -27,7 +27,17 @@ function MatchTile({ match, active, capture }: { match: KnockoutMatch; active: b
   </article>
 }
 
-export default function ChampionJourneyPage({ tid: tidProp }: { tid?: number } = {}) {
+/**
+ * 冠军之路（管理端 `/journey?tid=` 与 Public `/public/t/:tid/champion` 共用）。
+ *
+ * `backTo` 是**精确的**返回地址覆盖（默认管理端 `/knockout?tid=`）：
+ * Public 视图必须回到 `/public/t/:tid/bracket`，否则观众点「返回签表」会掉出 Public shell
+ * 进入管理端路由。刻意只加这一个 prop，不引入模糊的 `readOnly` 去重构本页行为。
+ */
+export default function ChampionJourneyPage({
+  tid: tidProp,
+  backTo,
+}: { tid?: number; backTo?: string } = {}) {
   const [params] = useSearchParams()
   const raw = params.get('tid')
   // tid 优先级：显式 prop（Public 路由的 path param）> ?tid= > localStorage（V0.2 兼容）
@@ -133,7 +143,7 @@ export default function ChampionJourneyPage({ tid: tidProp }: { tid?: number } =
       </div>
       <div className="journey-actions">
         <button onClick={() => window.print()}>导出画面</button>
-        <Link to={`/knockout?tid=${tid}`}>返回签表</Link>
+        <Link to={backTo ?? `/knockout?tid=${tid}`}>返回签表</Link>
       </div>
     </header>
 

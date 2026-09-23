@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, Dashboard, Entry, KnockoutTree, Player, RankingsResult, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import KnockoutBracket from '../components/KnockoutBracket'
-import { getPublicCapabilities, getPublicStageLabel, isRoundRobin } from '../publicFormat'
+import { getPublicCapabilities, getPublicMatchStageLabel, getPublicStageLabel, isRoundRobin } from '../publicFormat'
 
 /**
  * 赛事大屏（Public `/public/t/:tid/live` 与管理端 `/bigscreen` 共用）。
@@ -168,7 +168,9 @@ export default function BigScreenPage({ tid: tidProp }: { tid?: number } = {}) {
                   <div>{nameOf(tb.match!.entry_b_id ?? null, tb.match!.player_b_id)}</div>
                 </div>
                 <div className="muted">
-                  {tb.match!.stage === 'GROUP' ? '小组赛' : '淘汰赛'}
+                  {/* 赛段文案按赛制映射：纯循环赛的 GROUP 比赛显示「循环赛」，
+                      避免与顶部阶段徽标（循环赛）自相矛盾。后端 stage 枚举不变。 */}
+                  {getPublicMatchStageLabel(tournament?.format_code, tb.match!.stage)}
                   {tb.match!.player_a_score !== null && (
                     <span> · {tb.match!.player_a_score} : {tb.match!.player_b_score}</span>
                   )}
