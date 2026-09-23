@@ -24,6 +24,7 @@ SQLite 的"先 SELECT 判断、再无条件写入"不是原子操作：FastAPI �
 import sqlite3
 from contextlib import contextmanager
 from typing import Iterator
+from uuid import uuid4
 
 #: 锁等待超时的默认文案（调用方一般会传自己的 `busy_message`）。
 DEFAULT_BUSY_MESSAGE = "该资源正在被另一个请求处理，请稍后重试"
@@ -48,21 +49,35 @@ def write_transaction(
     busy_message: str = DEFAULT_BUSY_MESSAGE,
     conflict_message: str | None = None,
 ) -> Iterator[None]:
-    """把一次"读-判断-写"整体放进 `BEGIN IMMEDIATE` 写事务。
+    """把一次"读-判断-写"整体放进写事务。
 
-    - `BEGIN IMMEDIATE` 立刻取写锁，把同一资源的并发请求串行化；
-    - 事务体内任何异常都 `rollback`（不留半成品状态）；
-    - 提交失败同样 `rollback` 并按 409 冲突报告；
-    - 调用方已经开了事务（漏 commit / 嵌套）属于内部错误 → 500，不伪装成业务冲突。
+    - 干净连接使用 `BEGIN IMMEDIATE` 立刻取写锁，把同一资源的并发请求串行化；
+    - 已处于外部事务时改用 SAVEPOINT，保证内部失败可回滚且不替外部提前提交；
+    - 事务体内任何异常都回滚到进入点（不留半成品状态）；
+    - 提交失败同样 `rollback` 并按 409 冲突报告。
     """
+    if conn.in_transaction:
+        savepoint = f"d6a_write_{uuid4().hex}"
+        conn.execute(f'SAVEPOINT "{savepoint}"')
+        try:
+            yield
+        except BaseException:
+            try:
+                conn.execute(f'ROLLBACK TO SAVEPOINT "{savepoint}"')
+            finally:
+                conn.execute(f'RELEASE SAVEPOINT "{savepoint}"')
+            raise
+        conn.execute(f'RELEASE SAVEPOINT "{savepoint}"')
+        return
+
     try:
         conn.execute("BEGIN IMMEDIATE")
     except sqlite3.OperationalError as exc:
         message = str(exc).lower()
-        if "within a transaction" in message:
-            # 调用方漏了 commit，属于内部错误（正常请求路径每个请求一个干净连接）。
-            raise TransactionBusyError(f"内部错误：写事务嵌套（{exc}）", 500) from None
-        raise TransactionBusyError(f"{busy_message}（{exc}）") from None
+        if "locked" in message or "busy" in message:
+            raise TransactionBusyError(f"{busy_message}（{exc}）") from None
+        # 例如表缺失、SQL 语法错误等属于真实内部错误，不能被伪装成业务冲突。
+        raise
 
     try:
         yield
@@ -74,5 +89,9 @@ def write_transaction(
         conn.commit()
     except sqlite3.OperationalError as exc:
         conn.rollback()
-        hint = conflict_message or busy_message
-        raise TransactionBusyError(f"{hint}（{exc}）") from None
+        message = str(exc).lower()
+        if "locked" in message or "busy" in message:
+            hint = conflict_message or busy_message
+            raise TransactionBusyError(f"{hint}（{exc}）") from None
+        # commit 阶段的非锁错误也必须回滚，但不应被调用方映射成 409。
+        raise

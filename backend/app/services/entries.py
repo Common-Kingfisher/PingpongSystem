@@ -12,6 +12,7 @@ from .. import repository as repo
 from ..models import EventType, MatchStage, MatchStatus, ResultType, TableStatus, TournamentStage
 from . import knockout as knockout_service
 from . import teams as teams_service
+from .transaction import TransactionBusyError, write_transaction
 
 
 class EntryError(Exception):
@@ -53,7 +54,7 @@ def build_singles_entries(conn: sqlite3.Connection, tournament_id: int) -> list[
     return repo.list_entries(conn, tournament_id)
 
 
-def random_pair_doubles(
+def _random_pair_doubles_locked(
     conn: sqlite3.Connection,
     tournament_id: int,
     pairing_seed: int | None = None,
@@ -97,11 +98,10 @@ def random_pair_doubles(
             seed_no=index if index <= tournament["group_count"] else None,
         )
 
-    conn.commit()
     return repo.list_entries(conn, tournament_id), remaining, seed
 
 
-def confirm_roster(conn: sqlite3.Connection, tournament_id: int) -> tuple[dict, list[dict]]:
+def _confirm_roster_locked(conn: sqlite3.Connection, tournament_id: int) -> tuple[dict, list[dict]]:
     """确认名单。三个项目分支必须显式写全，禁止"非单打即双打"的二元假设。"""
     tournament = _tournament(conn, tournament_id)
     event_type = tournament["event_type"]
@@ -125,7 +125,6 @@ def confirm_roster(conn: sqlite3.Connection, tournament_id: int) -> tuple[dict, 
     else:
         raise EntryError(f"未知的参赛项目：{event_type}，不能确认名单", 409)
     repo.confirm_tournament_roster(conn, tournament_id)
-    conn.commit()
     return repo.get_tournament(conn, tournament_id), repo.list_entries(conn, tournament_id)
 
 
@@ -204,7 +203,7 @@ def resolve_withdrawn_participants(conn: sqlite3.Connection, match: dict) -> boo
     )
 
 
-def withdraw_from_tournament(
+def _withdraw_from_tournament_locked(
     conn: sqlite3.Connection,
     tournament_id: int,
     entry_id: int,
@@ -261,5 +260,45 @@ def withdraw_from_tournament(
     from . import formats as formats_service
 
     formats_service.sync_round_robin_stage(conn, tournament_id)
-    conn.commit()
     return repo.get_entry(conn, entry_id), affected, finished_before
+
+def random_pair_doubles(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    pairing_seed: int | None = None,
+) -> tuple[list[dict], list[dict], int]:
+    """名单读取、配对计算、清空旧 Entry 与新 Entry 落库在同一写锁内。"""
+    try:
+        with write_transaction(conn, busy_message="双打配对繁忙，请稍后重试"):
+            return _random_pair_doubles_locked(conn, tournament_id, pairing_seed)
+    except TransactionBusyError as exc:
+        raise EntryError(str(exc), exc.code) from None
+
+
+def confirm_roster(conn: sqlite3.Connection, tournament_id: int) -> tuple[dict, list[dict]]:
+    """单人/双人名单确认使用统一写锁；团体分支复用既有名单写锁。"""
+    tournament = _tournament(conn, tournament_id)
+    if tournament["event_type"] == EventType.TEAM.value:
+        return _confirm_roster_locked(conn, tournament_id)
+    try:
+        with write_transaction(conn, busy_message="名单确认繁忙，请稍后重试"):
+            return _confirm_roster_locked(conn, tournament_id)
+    except TransactionBusyError as exc:
+        raise EntryError(str(exc), exc.code) from None
+
+
+def withdraw_from_tournament(
+    conn: sqlite3.Connection,
+    tournament_id: int,
+    entry_id: int,
+    operator_name: str,
+    reason: str,
+) -> tuple[dict, list[int], int]:
+    """退赛状态、自动判负、晋级同步与阶段同步整体提交或回滚。"""
+    try:
+        with write_transaction(conn, busy_message="退赛办理繁忙，请稍后重试"):
+            return _withdraw_from_tournament_locked(
+                conn, tournament_id, entry_id, operator_name, reason
+            )
+    except TransactionBusyError as exc:
+        raise EntryError(str(exc), exc.code) from None
