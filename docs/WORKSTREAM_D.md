@@ -2293,3 +2293,134 @@ HTTP 层只能证明「SPA 正常返回」；**「不适用空态」本身由 15
 已知取舍：`PublicLayout` 在赛事数据到达前按「全部可见」渲染导航，因此存在极短的
 「全量导航 → 按赛制收敛」过渡帧。这是刻意选择 —— 赛制未知时隐藏入口，风险高于多显示一帧。
 
+---
+
+# D 轨 Day4D · 第三轮收口（PR #50 最终 review）
+
+> 触发：reviewer 确认上一轮主阻断（master 同步 / `format_code` 接线 / generated contract /
+> `contract:check` / Rankings / Bracket / BigScreen 主体 / LAN DB path）已关闭，本轮只剩 2 个 P1 + 1 个非阻断项。
+> 范围：**小补丁收口**，不动 contract、不动 Rankings / Bracket / LAN 主方案。
+
+## 46. master 同步判定
+
+| 项 | 值 |
+| --- | --- |
+| 本轮开始时 PR50 head | `3aed9aef50e525614bb4bcc738cf2354fb158691` |
+| `git fetch origin` 后的 `origin/master` | `37a751aa3323f7bf9877262df503e001bc07f9dc`（**未前进**） |
+| `git merge-base HEAD origin/master` | 同上（= base） |
+| behind / ahead | `0 / 7` |
+| 结论 | **不制造空 merge**，直接在当前 head 上收口 |
+
+## 47. P1-A：Public `/champion` 缺少 capability guard + 返回地址错误
+
+### 47.1 根因
+
+`ChampionJourneyPage` 内部**无条件**执行 `setTree(await api.getKnockout(tid))`，
+而 Public adapter 直接把它挂到 `/public/t/:tid/champion`：
+
+```text
+ROUND_ROBIN 赛事（没有淘汰阶段）
+  -> 访问 /public/t/<tid>/champion
+  -> 仍然进入淘汰赛 / 冠军逻辑，并发出一次无意义的 /knockout 请求
+```
+
+同一页面的「返回签表」写死为 `to={`/knockout?tid=${tid}`}` —— 那是**管理端路由**，
+Public 观众一点就会掉出 Public shell。
+
+### 47.2 修复（最小改动，不重构页面）
+
+1. `frontend/src/PublicRoutes.tsx` 新增 `PublicChampionView`：先 `api.getTournament(tid)`
+   拿权威 `format_code`，再用 `getPublicCapabilities(...).showChampion` 决定走向；
+2. `ROUND_ROBIN` → 不渲染 `ChampionJourneyPage`、不请求 `/knockout`，改为复用既有
+   `PublicEmptyState`：标题「本赛事不设冠军之路」，说明「本赛事采用循环赛制，最终名次以赛事排名为准。」，
+   CTA「查看排名」→ `/public/t/:tid/rankings`；
+3. `ChampionJourneyPage` 新增**精确的** `backTo?: string` prop（默认值仍是管理端
+   `/knockout?tid=<tid>`）；Public adapter 传 `/public/t/<tid>/bracket`。
+   刻意不加模糊的 `readOnly`，也不重构页面行为。
+
+| format_code | `/public/t/:tid/champion` |
+| --- | --- |
+| `ROUND_ROBIN` | 只读空态；**0 次** `/knockout` 请求；CTA → `/rankings` |
+| `SINGLE_ELIMINATION` | 进入冠军之路；「返回签表」→ `/public/t/:tid/bracket` |
+| `GROUP_KNOCKOUT` | 同上 |
+| `null` / 字段缺失（legacy） | 同上（不默认成 GK，也不显示不适用空态） |
+
+Public 页面**不再出现任何 `/knockout?tid=` 管理端 href**。
+
+## 48. P1-B：ROUND_ROBIN 大屏比赛卡文案自相矛盾
+
+### 48.1 根因
+
+大屏顶部已用 `getPublicStageLabel()` 把 RR 显示成「循环赛」，
+但「正在进行」的比赛卡仍写死 `tb.match.stage === 'GROUP' ? '小组赛' : '淘汰赛'`。
+纯循环赛在领域模型里本来就是 `Match.stage = GROUP`（既有后端事实），于是同一场比赛出现两个说法：
+
+```text
+顶部：循环赛
+比赛卡：小组赛
+```
+
+### 48.2 修复
+
+在 `frontend/src/publicFormat.ts` 增加纯展示 helper：
+
+```text
+getPublicMatchStageLabel(formatCode, matchStage)
+  ROUND_ROBIN + GROUP              -> 循环赛
+  GROUP_KNOCKOUT / null + GROUP    -> 小组赛
+  任意 + KNOCKOUT                   -> 淘汰赛
+```
+
+`BigScreenPage` 的比赛卡统一调用该 helper，**不再在 JSX 内复制赛制判断**。
+**未修改** `TournamentStage` / `MatchStage` 枚举、DB CHECK、任何 Format Handler。
+
+## 49. 本轮新增测试（全部非空洞）
+
+| 文件 | 新增 | 要点 |
+| --- | --- | --- |
+| `frontend/src/__tests__/publicFormat.test.ts` | +6（合计 18） | `getPublicMatchStageLabel`：RR+GROUP → 循环赛；GK+GROUP / legacy+GROUP → 小组赛；任意 + KNOCKOUT → 淘汰赛；空 stage → 空串 |
+| `frontend/src/__tests__/PublicFormatMatrix.test.tsx` | +6（合计 21） | Champion 深链 4 例（RR / SE / GK / legacy）、RR 比赛卡 1 例、GK 比赛卡 1 例 |
+
+**非空洞性**（reviewer 明确要求）：
+
+- RR 大屏 fixture 真的包含 `table.status = OCCUPIED` + `match.status = PLAYING` + `match.stage = GROUP`；
+  断言用 `within(document.querySelector('.bigscreen-table'))` **定位到比赛卡**：
+  卡内必须有「循环赛」、必须没有「小组赛」—— 只断言页面顶部会虚假通过，因此没有那样写；
+- Champion 断言检查**真实 `href`**（`/public/t/12/bracket`），并反向断言不存在 `/knockout?tid=`；
+- RR Champion 断言 `/knockout` 请求数为 **0**；
+- jsdom 无 `ResizeObserver`（冠军之路在有签表时会用它测量连线），测试内做环境 shim，不改组件行为。
+
+## 50. 本轮回归结果
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd backend && python export_openapi.py --check` | **PASS** |
+| `cd backend && pytest` | **955 passed, 20 skipped** |
+| `frontend: pnpm exec tsc --noEmit` | 退出码 0 |
+| `frontend: pnpm test` | **10 files / 150 passed**（上一轮 138 → +12） |
+| `frontend: pnpm build` | 退出码 0 |
+| `frontend: pnpm contract:check` | **PASS（退出码 0）** |
+| `start_pingpong.ps1` Parser / BOM | parse errors = 0 / `EF BB BF`（本轮未改该脚本） |
+
+## 51. Champion deep-link smoke（production 单服务）
+
+真实执行 `start_pingpong.ps1`，用同一库内的 `41 = ROUND_ROBIN` / `42 = SINGLE_ELIMINATION` /
+`43 = GROUP_KNOCKOUT` 三个赛事验证：
+
+| 深链接 | 结果 |
+| --- | --- |
+| `/public/t/41/champion`、`/public/t/42/champion`、`/public/t/43/champion` | 均 **200 + SPA root、刷新不 404** |
+| `/api/health`、`/` | 200 |
+
+语义层（RR 不请求 `/knockout`、SE/GK/legacy 返回 Public bracket、无管理端 href）
+由 §49 的 jsdom 集成测试断言，二者互补。夹具已删除，端口已释放。
+
+## 52. 本轮明确未做
+
+未重新修改 `frontend/src/generated/openapi.d.ts`、`docs/openapi-v0.2.json`、
+`RankingsPage.tsx`、`KnockoutPage.tsx`、`start_pingpong.ps1`、
+`backend/tests/test_deployment_address_policy.py`、`backend/tests/test_start_pingpong_script.py`；
+未触碰 `backend/app/services/formats.py`、`backend/app/domain/draw.py`、
+`backend/app/services/knockout.py` 及 ranking / seed / BYE / qualification 逻辑；
+未做 Day5（报名 / 二维码 / Organization / Venue）；未引入新依赖。
+
