@@ -1428,6 +1428,18 @@ def list_tournament_score_requests(conn: sqlite3.Connection, tournament_id: int)
     return [dict(r) for r in rows]
 
 
+def list_tournament_score_audits(conn: sqlite3.Connection, tournament_id: int) -> list[dict]:
+    """某赛事全部比分审计记录（导出用，一次查询避免逐场查询）。"""
+    rows = conn.execute(
+        "SELECT a.id, a.match_id, a.action, a.before_snapshot, a.after_snapshot, "
+        "a.operator_name, a.change_reason, a.request_id, a.created_at "
+        "FROM score_audits a JOIN matches m ON m.id = a.match_id "
+        "WHERE m.tournament_id = ? ORDER BY a.id",
+        (tournament_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def decorate_match(conn: sqlite3.Connection, match: dict) -> dict:
     result = dict(match)
     entries = {}

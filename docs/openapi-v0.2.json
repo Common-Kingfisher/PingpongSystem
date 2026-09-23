@@ -10286,6 +10286,34 @@
           "tournament": {
             "$ref": "#/components/schemas/TournamentOut"
           },
+          "registrations": {
+            "items": {
+              "$ref": "#/components/schemas/RegistrationAdminOut"
+            },
+            "type": "array",
+            "title": "Registrations",
+            "default": []
+          },
+          "organizations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrganizationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "venues": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VenueOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "players": {
             "items": {
               "$ref": "#/components/schemas/PlayerOut"
@@ -10348,6 +10376,14 @@
             },
             "type": "array",
             "title": "Score Requests"
+          },
+          "score_audits": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreAuditOut"
+            },
+            "type": "array",
+            "title": "Score Audits",
+            "default": []
           },
           "team_ties": {
             "items": {
