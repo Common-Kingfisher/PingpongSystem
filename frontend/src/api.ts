@@ -25,6 +25,9 @@ export type BronzeMode = Schemas['BronzeMode']
 export type PlacementMode = Schemas['PlacementMode']
 export type MatchBracket = Schemas['MatchBracket']
 export type ResultType = Schemas['ResultType']
+// 赛事级赛制（A 轨 D4 冻结）：ROUND_ROBIN / SINGLE_ELIMINATION / GROUP_KNOCKOUT。
+// 历史赛事的 TournamentOut.format_code 允许为 null，D4A 明确禁止默认成 GROUP_KNOCKOUT。
+export type TournamentFormat = Schemas['TournamentFormat']
 
 // ------------------------------------------------------------------ 响应 / 请求 DTO（来自 OpenAPI schema）
 
