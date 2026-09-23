@@ -5,7 +5,7 @@ import random
 import pytest
 
 from app import repository as repo
-from app.models import MatchBracket, MatchStage, MatchStatus
+from app.models import MatchBracket, MatchStage, MatchStatus, ResultType, TableStatus
 from app.services import formats
 from app.services import entries as entries_service
 from app.services import groups as groups_service
@@ -413,3 +413,49 @@ def test_knockout_forfeit_request_replay_does_not_duplicate_winner_propagation(c
         [row for row in repo.list_tournament_score_requests(conn, tournament_id) if row["request_id"] == request_id]
     ) == 1
     assert handler.get_completion_state(conn, tournament_id)["state"] == "KNOCKOUT_IN_PROGRESS"
+
+
+def test_group_withdrawal_stress_preserves_history_and_excludes_withdrawn_entry(conn):
+    """16 人分组中混合状态退赛后，历史、赛台、资格和淘汰签必须一致。"""
+    tournament_id = _create_group_knockout_tournament(conn, players=16, group_count=4, qualify=2)
+    handler = formats.resolve_format_handler(formats.GROUP_KNOCKOUT)
+    handler.generate_matches(conn, tournament_id)
+    withdrawn_id = repo.list_entries(conn, tournament_id)[0]["id"]
+    involved = [
+        match for match in repo.list_matches(conn, tournament_id)
+        if withdrawn_id in (match["entry_a_id"], match["entry_b_id"])
+    ]
+    finished = involved[0]
+    scores_service.record_score(
+        conn, finished["id"], *( (2, 0) if finished["entry_a_id"] == withdrawn_id else (0, 2) )
+    )
+    playing = involved[1]
+    table = next(table for table in repo.list_tables(conn, tournament_id) if table["status"] == TableStatus.FREE.value)
+    scheduling_service.assign_table(conn, playing["id"], table["id"])
+    before_finished = repo.get_match(conn, finished["id"])
+
+    entries_service.withdraw_from_tournament(conn, tournament_id, withdrawn_id, "D6B主裁", "组合压力退赛")
+
+    assert repo.get_match(conn, finished["id"]) == before_finished
+    assert repo.get_table(conn, table["id"])["status"] == TableStatus.FREE.value
+    for match in involved[1:]:
+        actual = repo.get_match(conn, match["id"])
+        assert actual["status"] == MatchStatus.FINISHED.value
+        assert actual["result_type"] == ResultType.FORFEIT.value
+        assert actual["forfeit_entry_id"] == withdrawn_id
+        assert actual["finished_at"]
+    _finish_scheduled_matches(conn, tournament_id)
+    rankings = handler.calculate_ranking(conn, tournament_id)
+    assert all(
+        not entry["qualified"]
+        for group in rankings
+        for entry in group["entries"]
+        if entry["entry_id"] == withdrawn_id
+    )
+    handler.advance_participants(conn, tournament_id)
+    assert withdrawn_id not in {
+        entry_id
+        for match in repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value)
+        for entry_id in (match["entry_a_id"], match["entry_b_id"])
+        if entry_id is not None
+    }
