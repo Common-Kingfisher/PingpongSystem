@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, api, OrganizationUpsert, Tournament, TournamentFormat, VenueUpsert } from '../api'
-import { getActiveTournamentId } from '../activeTournament'
+import { getActiveTournamentId, setActiveTournamentId } from '../activeTournament'
 import './TournamentSettingsPage.css'
 
 const tabs = ['基本信息', '赛制与规则', '报名设置', '公开与展示', '高级操作'] as const
@@ -95,7 +95,7 @@ export default function TournamentSettingsPage({ tournament: suppliedTournament 
   const deleteTournament = () => void run(async () => {
     if (!tournament) return
     await api.deleteTournament(tournament.id, tournament.operation_mode === 'LIVE' ? deleteName : undefined)
-    localStorage.removeItem('activeTournamentId'); window.location.assign('/')
+    setActiveTournamentId(null); window.location.assign('/')
   }, '删除赛事失败')
 
   if (tid === null && !tournament) return <div className="card"><h2>赛事设置</h2><p className="muted">请先选择一场赛事。</p></div>
