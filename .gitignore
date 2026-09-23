@@ -18,3 +18,9 @@ Thumbs.db
 
 # »’÷æ
 *.log
+
+# SQLite runtime sidecars and database backups
+*.db-wal
+*.db-shm
+*.db-journal
+backend/data/backups/
