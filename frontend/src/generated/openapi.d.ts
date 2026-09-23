@@ -3220,6 +3220,13 @@ export interface components {
             /** Exported At */
             exported_at: string;
             tournament: components["schemas"]["TournamentOut"];
+            /**
+             * Registrations
+             * @default []
+             */
+            registrations: components["schemas"]["RegistrationAdminOut"][];
+            organizations?: components["schemas"]["OrganizationOut"] | null;
+            venues?: components["schemas"]["VenueOut"] | null;
             /** Players */
             players: components["schemas"]["PlayerOut"][];
             /** Entries */
@@ -3238,6 +3245,11 @@ export interface components {
             qualification_decisions: components["schemas"]["QualificationDecisionExport"][];
             /** Score Requests */
             score_requests: components["schemas"]["ScoreRequestOut"][];
+            /**
+             * Score Audits
+             * @default []
+             */
+            score_audits: components["schemas"]["ScoreAuditOut"][];
             /** Team Ties */
             team_ties: components["schemas"]["TeamTieRecordOut"][];
             /** Team Rubbers */

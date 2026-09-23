@@ -173,6 +173,10 @@ def test_export_contains_games_audit_and_derived(conn):
     assert [g["game_no"] for g in data["match_games"]] == [1, 2]
     assert data["match_games"][0]["side_a_score"] == 11
     assert [r["request_id"] for r in data["score_requests"]] == ["export-audit-1"]
+    # A6.26：score_audits 与 score_requests 同属比分审计链，必须一并归档
+    assert [a["action"] for a in data["score_audits"]] == ["RECORD", "REVISE"]
+    assert all(isinstance(a["before_snapshot"], dict) for a in data["score_audits"])
+    assert all(isinstance(a["after_snapshot"], dict) for a in data["score_audits"])
     decision = data["qualification_decisions"][0]
     assert decision["operator_name"] == "裁判长"
     assert decision["active"] is True
@@ -272,3 +276,93 @@ def test_api_export_with_qualification_decision(client):
     # 真实快照是 JSON 对象，导出必须原样保留可机读结构
     assert exported[0]["ranking_snapshot"]["group_id"] == group["id"]
     assert exported[0]["ranking_snapshot"]["entries"], "快照必须保留各组参赛位明细"
+
+def test_export_decisions_cover_every_group(conn):
+    """多组赛事的裁定按 group_id 分散存储，导出必须全部覆盖。
+
+    ``tournament_id`` 与 ``group_id`` 在单组测试里常会撞号，因此必须用两组
+    用例证明导出确实遍历了赛事下的每个小组。
+    """
+    tid = _build(conn, players=4, group_count=2, qualify=1)
+    groups_service.auto_group_tournament(conn, tid)
+    groups = repo.list_groups(conn, tid)
+    assert len(groups) == 2
+    matches_service.generate_group_matches(conn, tid)
+    selected_a = repo.list_entries(conn, tid)[0]["id"]
+    selected_b = repo.list_entries(conn, tid)[1]["id"]
+    for group, selected in ((groups[0], selected_a), (groups[1], selected_b)):
+        repo.create_qualification_decision(
+            conn,
+            tid,
+            group["id"],
+            json.dumps([selected]),
+            rankings_service.qualification_snapshot(
+                {
+                    "group_id": group["id"],
+                    "qualify_count": 1,
+                    "finished_matches": 0,
+                    "total_matches": 0,
+                    "entries": [],
+                }
+            ),
+            f"第{group['sort_order'] + 1}组人工裁定",
+            "裁判长",
+        )
+    conn.commit()
+
+    data = export_service.get_export(conn, tid)
+
+    exported_group_ids = {d["group_id"] for d in data["qualification_decisions"]}
+    assert exported_group_ids == {groups[0]["id"], groups[1]["id"]}
+    assert len(data["qualification_decisions"]) == 2
+
+
+def test_export_contains_registration_organization_and_venue(conn):
+    """A6.26：D5 报名 / 组织方 / 场馆字段必须进入赛事归档导出。"""
+    tid = _build(conn, players=2, group_count=1, qualify=1)
+    repo.create_registration(
+        conn,
+        tid,
+        name="现场补报名",
+        affiliation="体育学院",
+        contact="13800000000",
+        rating_points=1200,
+    )
+    repo.upsert_organization(
+        conn,
+        tid,
+        name="市乒乓球协会",
+        contact_name="王老师",
+        contact="010-00000000",
+        note="主办单位",
+    )
+    repo.upsert_venue(
+        conn,
+        tid,
+        name="市民健身中心",
+        address="体育馆路 1 号",
+        contact_name="李老师",
+        contact="010-11111111",
+        note="主赛场",
+    )
+    conn.commit()
+
+    data = export_service.get_export(conn, tid)
+
+    assert [r["name"] for r in data["registrations"]] == ["现场补报名"]
+    assert data["registrations"][0]["status"] == "PENDING"
+    assert data["organizations"]["name"] == "市乒乓球协会"
+    assert data["venues"]["address"] == "体育馆路 1 号"
+
+
+def test_export_optional_d5_fields_default_to_empty(conn):
+    """未设置 D5 资料时导出字段存在且为空，保证归档结构稳定。"""
+    tid = _build(conn, players=2, group_count=1, qualify=1)
+    conn.commit()
+
+    data = export_service.get_export(conn, tid)
+
+    assert data["registrations"] == []
+    assert data["organizations"] is None
+    assert data["venues"] is None
+    assert data["score_audits"] == []

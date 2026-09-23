@@ -1178,6 +1178,9 @@ class TournamentExport(BaseModel):
     schema_version: str
     exported_at: str
     tournament: TournamentOut
+    registrations: list[RegistrationAdminOut] = []
+    organizations: OrganizationOut | None = None
+    venues: VenueOut | None = None
     players: list[PlayerOut]
     entries: list[EntryOut]
     entry_members: list[EntryMemberRecordOut]
@@ -1187,6 +1190,7 @@ class TournamentExport(BaseModel):
     match_games: list[MatchGameOut]
     qualification_decisions: list[QualificationDecisionExport]
     score_requests: list[ScoreRequestOut]
+    score_audits: list[ScoreAuditOut] = []
     team_ties: list[TeamTieRecordOut]
     team_rubbers: list[TeamRubberRecordOut]
     derived: TournamentExportDerived
