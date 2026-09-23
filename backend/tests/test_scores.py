@@ -3,7 +3,9 @@
 import pytest
 
 from app import repository as repo
-from app.models import MatchStatus, TableStatus
+from app.models import MatchStatus, ResultType, TableStatus
+from app.services import entries as entries_service
+from app.services import formats
 from app.services import groups as groups_service
 from app.services import matches as matches_service
 from app.services import rankings as rankings_service
@@ -393,6 +395,24 @@ def _knockout_match(conn):
     )
 
 
+def _result_facts(match):
+    """异常 payload 被拒绝后必须保持的比赛业务事实。"""
+    return {
+        field: match.get(field)
+        for field in (
+            "status",
+            "table_id",
+            "player_a_score",
+            "player_b_score",
+            "winner_id",
+            "winner_entry_id",
+            "result_type",
+            "forfeit_entry_id",
+            "finished_at",
+        )
+    }
+
+
 # A/B：GROUP 首次录分 aggregate-only，games 为空
 def test_group_aggregate_2_0(conn):
     after = _record_group(conn, 2, 0)
@@ -458,6 +478,126 @@ def test_record_score_rejects_games_inconsistent_with_aggregate_before_write(con
     unchanged = repo.get_match(conn, m["id"])
     assert unchanged["status"] == MatchStatus.WAITING.value
     assert repo.list_match_games(conn, m["id"]) == []
+
+
+@pytest.mark.parametrize(
+    ("result_type", "games"),
+    [
+        (ResultType.FORFEIT.value, [(11, 8), (11, 7)]),
+        (ResultType.WALKOVER.value, [(11, 8), (11, 7)]),
+        (ResultType.NO_SHOW.value, [(11, 8), (11, 7)]),
+        (ResultType.DISQUALIFIED.value, [(11, 8), (11, 7)]),
+        (ResultType.FORFEIT.value, []),
+    ],
+)
+def test_abnormal_record_rejects_games_without_state_or_request_pollution(conn, result_type, games):
+    """异常赛果的 games（包括显式 []）必须在 claim 前被拒绝。"""
+    tid = _rules_tournament(conn)
+    match, table = _assign_first(conn, tid)
+    request_id = f"d6b-abnormal-record-{result_type}-{len(games)}"
+    before = _result_facts(repo.get_match(conn, match["id"]))
+    before_games = repo.list_match_games(conn, match["id"])
+    before_audits = repo.list_score_audits(conn, match["id"])
+
+    with pytest.raises(scores_service.ScoreError, match="异常赛果不能携带逐局小比分") as exc_info:
+        scores_service.record_score(
+            conn,
+            match["id"],
+            None,
+            None,
+            games=games,
+            result_type=result_type,
+            forfeit_entry_id=match["player_a_id"],
+            request_id=request_id,
+        )
+
+    assert exc_info.value.code == 422
+    assert _result_facts(repo.get_match(conn, match["id"])) == before
+    assert repo.list_match_games(conn, match["id"]) == before_games
+    assert repo.list_score_audits(conn, match["id"]) == before_audits
+    assert repo.get_table(conn, table["id"])["status"] == TableStatus.OCCUPIED.value
+    assert repo.list_tournament_score_requests(conn, tid) == []
+
+
+@pytest.mark.parametrize(
+    "result_type",
+    [
+        ResultType.FORFEIT.value,
+        ResultType.WALKOVER.value,
+        ResultType.NO_SHOW.value,
+        ResultType.DISQUALIFIED.value,
+    ],
+)
+def test_abnormal_revision_rejects_games_and_preserves_existing_result(conn, result_type):
+    """改分改为异常赛果时同样不能静默删除已经确认的逐局数据。"""
+    tid = _rules_tournament(conn)
+    match = _only_match(conn, tid)
+    scores_service.record_score(conn, match["id"], 2, 0, games=[(11, 8), (11, 7)])
+    before = _result_facts(repo.get_match(conn, match["id"]))
+    before_games = repo.list_match_games(conn, match["id"])
+    before_audits = repo.list_score_audits(conn, match["id"])
+
+    with pytest.raises(scores_service.ScoreError, match="异常赛果不能携带逐局小比分") as exc_info:
+        scores_service.revise_score(
+            conn,
+            match["id"],
+            None,
+            None,
+            games=[(11, 8), (11, 7)],
+            result_type=result_type,
+            forfeit_entry_id=match["player_a_id"],
+        )
+
+    assert exc_info.value.code == 422
+    assert _result_facts(repo.get_match(conn, match["id"])) == before
+    assert repo.list_match_games(conn, match["id"]) == before_games
+    assert repo.list_score_audits(conn, match["id"]) == before_audits
+
+
+def test_abnormal_revision_rejects_games_without_touching_knockout_descendant(conn):
+    """守卫必须在淘汰赛改分的下游分析与传播之前生效。"""
+    tournament = repo.create_tournament(
+        conn,
+        "异常赛果淘汰依赖",
+        "2025-06-01",
+        1,
+        1,
+        1,
+        format_code=formats.SINGLE_ELIMINATION,
+        rule_config={},
+        rule_version=1,
+    )
+    repo.create_tables_for_tournament(conn, tournament["id"], 1)
+    for name in ("A", "B", "C", "D"):
+        repo.add_player(conn, tournament["id"], name, None)
+    entries_service.confirm_roster(conn, tournament["id"])
+    formats.resolve_format_handler(formats.SINGLE_ELIMINATION).generate_matches(conn, tournament["id"])
+    upstream = next(
+        match
+        for match in repo.list_matches(conn, tournament["id"], stage="KNOCKOUT")
+        if match["round"] == 1
+    )
+    scores_service.record_score(conn, upstream["id"], 2, 0)
+    downstream = repo.list_matches_by_prev(conn, upstream["id"])[0]
+    before_upstream = _result_facts(repo.get_match(conn, upstream["id"]))
+    before_downstream = repo.get_match(conn, downstream["id"])
+    before_audits = repo.list_score_audits(conn, upstream["id"])
+
+    with pytest.raises(scores_service.ScoreError, match="异常赛果不能携带逐局小比分") as exc_info:
+        scores_service.revise_score(
+            conn,
+            upstream["id"],
+            None,
+            None,
+            games=[(11, 8), (11, 7)],
+            result_type=ResultType.FORFEIT.value,
+            forfeit_entry_id=upstream["player_a_id"],
+        )
+
+    assert exc_info.value.code == 422
+    assert _result_facts(repo.get_match(conn, upstream["id"])) == before_upstream
+    assert repo.get_match(conn, downstream["id"]) == before_downstream
+    assert repo.list_score_audits(conn, upstream["id"]) == before_audits
 
 
 # D/E：补录与数据库大比分一致 → ACCEPT，大比分/winner 不变
@@ -640,6 +780,57 @@ def test_api_score_without_games_field_allowed(client):
     assert resp.status_code == 200
     assert resp.json()["player_a_score"] == 2
     assert resp.json()["player_b_score"] == 0
+
+
+def test_api_record_abnormal_score_with_games_rejected(client):
+    """API 不能把异常赛果携带的小分伪装成成功录入。"""
+    tid, mid = _api_two_player_match(client)
+    match = next(match for match in client.get(f"/api/tournaments/{tid}/matches").json() if match["id"] == mid)
+    resp = client.post(
+        f"/api/matches/{mid}/score",
+        json={
+            "result_type": "FORFEIT",
+            "forfeit_entry_id": match["player_a_id"],
+            "games": [
+                {"side_a_score": 11, "side_b_score": 8},
+                {"side_a_score": 11, "side_b_score": 7},
+            ],
+        },
+    )
+
+    assert resp.status_code == 422
+    after = next(match for match in client.get(f"/api/tournaments/{tid}/matches").json() if match["id"] == mid)
+    assert _result_facts(after) == _result_facts(match)
+    assert after["games"] == []
+
+
+def test_api_revise_abnormal_score_with_games_rejected(client):
+    """API 改分也必须返回 422，并保留此前确认的正常赛果。"""
+    tid, mid = _api_two_player_match(client)
+    recorded = client.post(
+        f"/api/matches/{mid}/score",
+        json={"player_a_score": 2, "player_b_score": 0},
+    )
+    assert recorded.status_code == 200
+    before = recorded.json()
+    resp = client.post(
+        f"/api/matches/{mid}/revise-score",
+        json={
+            "result_type": "FORFEIT",
+            "forfeit_entry_id": before["player_a_id"],
+            "games": [
+                {"side_a_score": 11, "side_b_score": 8},
+                {"side_a_score": 11, "side_b_score": 7},
+            ],
+            "operator_name": "测试主裁",
+            "change_reason": "验证异常赛果保护",
+        },
+    )
+
+    assert resp.status_code == 422
+    after = next(match for match in client.get(f"/api/tournaments/{tid}/matches").json() if match["id"] == mid)
+    assert _result_facts(after) == _result_facts(before)
+    assert after["games"] == before["games"] == []
 
 
 def test_api_record_score_draw_is_unprocessable(client):

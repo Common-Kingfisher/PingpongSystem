@@ -131,6 +131,8 @@ python -m pytest -q -p no:cacheprovider
 
 截至 D6B，比分提交、淘汰改分依赖与排名数据不足的冻结骨架已由正式行为测试替代，
 因此从 `test_v03_rule_engine_contract.py` 删除过期 skip；这不表示删除规则要求。
+其中 `abnormal_with_games` 已由 scores service 统一返回 422：非 `NORMAL` 赛果只要显式携带
+`games`（包括空数组）即被拒绝，不再静默忽略逐局数据。
 
 | 契约 | 当前正式测试 |
 | --- | --- |
