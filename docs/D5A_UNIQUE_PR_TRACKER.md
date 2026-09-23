@@ -141,13 +141,13 @@ A5 提供 Public 报名创建、开关读取、关闭报名稳定拒绝和联系
 -> 生成比赛并进入比赛流程
 ```
 
-### 当前执行状态（2026-09-22）
+### 当前执行状态（2026-09-23 更新）
 
-- A5 后端交付基本完成：migration v5、Registration/Organization/Venue 持久化与 API、确认事务、权限/隐私、Schema/OpenAPI/contract 及本地定向/全量验证均已完成。这里的“验证通过”仅代表当前 head 的本地证据，不替代远端 CI 或发布侧独立复验。
+- A5 后端交付已通过 A5 后端范围复审（APPROVED）：migration v5、Registration/Organization/Venue 持久化与 API、确认事务、权限/隐私、Schema/OpenAPI/contract 及本地定向/全量验证均已完成。这里的“验证通过”仅代表当前 head 的本地证据，不替代远端 CI 或发布侧独立复验。
 - C5 未完成：管理页面接入、临时字段清零仍由 C5 承接。
 - D5 未完成：Public 停止使用 legacy `api.addPlayer()` 仍由 D5 承接。
 - E5 未执行：`报名 -> 确认 -> Player -> Entry -> Match/比赛` 全链 E2E 尚未运行，D5A 最终完成门槛不能视为已通过。
-- 当前 head `b1ad2d6` 没有 GitHub Actions workflow/status check 结果；最终 Gate 仍需 E5/发布侧独立复验。
+- 当前 head `d712a92` 仍没有可用的 GitHub Actions/status check 结果；D5A 最终 Gate 仍需 E5/发布侧独立复验。
 
 ## 六、实施清单
 
