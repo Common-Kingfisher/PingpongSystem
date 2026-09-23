@@ -49,7 +49,7 @@ uvicorn app.main:app --reload --port 8000
 
 健康检查：<http://127.0.0.1:8000/api/health>
 
-数据库默认写入 `backend/data/demo.db`，可通过环境变量 `DEMO_DB_PATH` 覆盖。
+数据库路径优先级为 `PINGPONG_DB_PATH` > `DEMO_DB_PATH` > `backend/data/demo.db`。生产部署建议显式设置 `PINGPONG_DB_PATH`。
 
 ### 前端（默认端口 5173）
 
@@ -78,6 +78,24 @@ python run_team_roster_demo.py --fresh
 cd backend
 python -m pytest -v
 ```
+
+## 数据库运维与 Schema 冻结
+
+V0.3 RC 的数据库结构、migration v1-v5 和 API 契约已进入候选冻结状态。升级前必须先做整库备份，恢复必须停服并显式提供 `--service-stopped`。
+
+- [Schema 冻结说明](docs/D7A_SCHEMA_FREEZE.md)
+- [数据库迁移与升级说明](docs/DATABASE_MIGRATION_GUIDE.md)
+- [数据库备份与恢复说明](docs/DATABASE_BACKUP_RESTORE.md)
+
+常用入口：
+
+```powershell
+cd backend
+python backup_db.py
+python restore_db.py <backup.db> --service-stopped
+```
+
+备份文件包含用户、session 和联系方式等敏感数据，不得提交 Git、上传 issue/PR 或发送到公共渠道。
 
 ## V0.2 演示范围
 
