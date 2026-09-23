@@ -53,6 +53,13 @@ describe('赛事设置真实契约', () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(12, true))
   })
 
+  it('TEAM 赛事不展示后端必然拒绝的个人赛 format 控件', () => {
+    render(<TournamentSettingsPage tournament={{ ...tournament, event_type: 'TEAM', format_code: null }} />)
+    expect(screen.getByRole('heading', { name: '团体赛使用独立赛制流程' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /小组赛 \+ 淘汰赛/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: '保存设置' })).toBeNull()
+  })
+
   it('organization 与 venue 分别调用 generated-contract wrapper 保存', async () => {
     const saveOrg = vi.spyOn(api, 'upsertOrganization').mockResolvedValue({ id: 1, tournament_id: 12, name: '组委会', contact_name: null, contact: null, note: null, created_at: '', updated_at: '' })
     const saveVenue = vi.spyOn(api, 'upsertVenue').mockResolvedValue({ id: 1, tournament_id: 12, name: '体育馆', address: null, contact_name: null, contact: null, note: null, created_at: '', updated_at: '' })

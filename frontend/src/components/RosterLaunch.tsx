@@ -78,6 +78,19 @@ export default function RosterLaunch({
     )
   }
 
+  if (tournament.roster_confirmed || confirmed) {
+    return (
+      <section className="card launch-card">
+        <div className="section-heading">
+          <div><span className="eyebrow">ROSTER LOCKED</span><h3>参赛名单已确认</h3></div>
+          <span className="readiness ready">结构已冻结</span>
+        </div>
+        <p className="muted">系统已经建立正式参赛位。当前后端尚无原子撤销确认接口，因此不能再次确认或修改名单。</p>
+        <div className="button-row"><Link className="btn primary" to={`/draw?tid=${tournament.id}`}>进入抽签与编排 →</Link></div>
+      </section>
+    )
+  }
+
   return (
     <>
       <section className="card launch-card">

@@ -67,6 +67,8 @@ export default function DrawPage() {
 
   const format = tournament?.format_code ?? null
   const locked = tournament?.stage !== 'REGISTRATION'
+  const seedEditorSupported = tournament?.event_type === 'SINGLES'
+  const renderUnsupportedSeeds = () => <section className="card contract-waiting"><span className="eyebrow">SEED CONTRACT</span><h3>当前项目暂不提供种子编辑</h3><p>双打编排使用组合 Entry 的种子，而现有接口只编辑 Player 种子且仅同步单打 Entry。等待组合级种子契约后再开放，避免出现“保存成功但抽签不生效”。</p></section>
   const renderSeedPanel = () => <section className="card draw-section">
     <div className="section-heading"><div><span className="eyebrow">SEED ORDER</span><h3>种子设置</h3></div><span>{seeds.length} 名</span></div>
     <p className="muted">只提供人工顺序编辑。运动员积分仅作参考；合法数量与保存规则以服务端返回为准。</p>
@@ -93,10 +95,10 @@ export default function DrawPage() {
       <section className="card contract-waiting"><h3>等待单循环生成接口</h3><p>当前后端没有按 <code>ROUND_ROBIN</code> 赛制生成对阵的正式接口，因此此处只展示规则与准备状态，不会调用旧的小组赛生成接口。</p></section>
     </>}
 
-    {format === 'SINGLE_ELIMINATION' && <>{renderSeedPanel()}<section className="card draw-section"><span className="eyebrow">KNOCKOUT DRAW</span><h3>单败淘汰签</h3><p>种子顺序已可使用真实接口保存；首轮淘汰签仍等待当前赛制专用的生成接口。</p><div className="contract-status"><span className="ready">可用 · 种子保存</span><span>等待 · 淘汰签生成</span></div></section></>}
+    {format === 'SINGLE_ELIMINATION' && <>{seedEditorSupported ? renderSeedPanel() : renderUnsupportedSeeds()}<section className="card draw-section"><span className="eyebrow">KNOCKOUT DRAW</span><h3>单败淘汰签</h3><p>{seedEditorSupported ? '单打种子顺序已可使用真实接口保存；' : '当前项目不提供种子编辑；'}首轮淘汰签仍等待当前赛制专用的生成接口。</p><div className="contract-status">{seedEditorSupported && <span className="ready">可用 · 单打种子保存</span>}<span>等待 · 淘汰签生成</span></div></section></>}
 
     {format === 'GROUP_KNOCKOUT' && <>
-      {renderSeedPanel()}
+      {seedEditorSupported ? renderSeedPanel() : renderUnsupportedSeeds()}
       <section className="card draw-section">
         <div className="section-heading"><div><span className="eyebrow">GROUP DRAW</span><h3>小组抽签结果</h3></div><span>{groups.groups.length} 组</span></div>
         <p className="muted">当前正式能力会把已确认参赛位抽入 {tournament?.group_count ?? '—'} 个小组，并由后端执行种子分散规则。</p>

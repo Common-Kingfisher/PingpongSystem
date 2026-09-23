@@ -66,7 +66,9 @@ export default function PlayersPage() {
 
   if (tid === null) return <div className="card"><h2>参赛名单</h2><p className="muted">请先在<Link to="/">赛事首页</Link>选择赛事。</p></div>
 
-  const locked = tournament?.stage !== 'REGISTRATION'
+  // confirm-roster 会建立比赛实际使用的 Entry 快照；在后端提供原子撤销确认前，
+  // roster_confirmed 必须与赛事开赛同样构成写边界，避免 Player 与 Entry 静默失配。
+  const locked = tournament?.stage !== 'REGISTRATION' || Boolean(tournament?.roster_confirmed)
   const pending = registrations.filter((item) => item.status === 'PENDING')
 
   const run = async (work: () => Promise<void>, fallback: string) => {

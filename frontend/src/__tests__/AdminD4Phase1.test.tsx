@@ -47,6 +47,16 @@ describe('抽签与编排按 format 呈现真实能力', () => {
     expect(screen.queryByRole('button', { name: /生成淘汰/ })).toBeNull()
   })
 
+  it('DOUBLES 不展示会写错实体的 Player 种子编辑器', async () => {
+    vi.spyOn(api, 'getTournament').mockResolvedValue({ ...baseTournament, event_type: 'DOUBLES', format_code: 'GROUP_KNOCKOUT' })
+    vi.spyOn(api, 'listPlayers').mockResolvedValue([player])
+    vi.spyOn(api, 'getGroups').mockResolvedValue({ groups: [] })
+    render(<MemoryRouter initialEntries={['/draw?tid=7']}><DrawPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: '当前项目暂不提供种子编辑' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '种子设置' })).toBeNull()
+    expect(screen.queryByText('种子顺序已保存。')).toBeNull()
+  })
+
   it('历史赛事 format 为空时不默认成小组赛', async () => {
     prepareDraw(null)
     expect(await screen.findByRole('heading', { name: '请先保存赛事赛制' })).toBeTruthy()
@@ -81,5 +91,24 @@ describe('参赛名单与待确认报名', () => {
     expect(await screen.findByText('未填写')).toBeTruthy()
     expect(screen.queryByRole('columnheader', { name: '种子' })).toBeNull()
     expect(screen.queryByRole('columnheader', { name: '分组' })).toBeNull()
+  })
+
+  it('名单确认后冻结 CRUD、报名确认和重复确认', async () => {
+    const pending: Registration = {
+      id: 20, tournament_id: 7, name: '王强', affiliation: null, contact: null, rating_points: 1000,
+      status: 'PENDING', confirmed_player_id: null, confirmed_by_user_id: null, confirmed_at: null,
+      created_at: '2026-09-23T08:00:00Z', updated_at: '2026-09-23T08:00:00Z',
+    }
+    vi.spyOn(api, 'getTournament').mockResolvedValue({ ...baseTournament, roster_confirmed: true })
+    vi.spyOn(api, 'listPlayers').mockResolvedValue([player])
+    vi.spyOn(api, 'listRegistrations').mockResolvedValue([pending])
+    vi.spyOn(api, 'listEntries').mockResolvedValue([])
+    render(<MemoryRouter initialEntries={['/players?tid=7']}><PlayersPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: '参赛名单已确认' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '确认参赛名单' })).toBeNull()
+    expect((screen.getByRole('button', { name: '修改' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '删除' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('tab', { name: /待确认报名/ }))
+    expect((screen.getByRole('button', { name: '确认并加入名单' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
