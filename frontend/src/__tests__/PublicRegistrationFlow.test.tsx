@@ -32,6 +32,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
+import type { Tournament } from '../api'
+import TournamentSettingsPage from '../pages/TournamentSettingsPage'
 
 const TID = 12
 const REGISTER_PATH = `/public/t/${TID}/register`
@@ -400,5 +402,100 @@ describe('场景 7：二维码', () => {
 
     await screen.findByText('当前赛事暂未开放报名')
     expect(document.querySelector('.reg-qr')).toBeNull()
+  })
+})
+
+describe('场景 8：管理端开关 ↔ Public 状态（同一个 TournamentOut.registration_enabled 事实源）', () => {
+  /** 与前端组件同类型的赛事夹具（管理端页面接收 `Tournament` prop） */
+  function settingsTournament(enabled: boolean): Tournament {
+    return {
+      id: TID,
+      name: 'Day5D 报名测试赛事',
+      date: '2026-01-01',
+      table_count: 4,
+      group_count: 2,
+      qualify_per_group: 2,
+      stage: 'REGISTRATION',
+      created_at: '2026-01-01T00:00:00Z',
+      event_type: 'SINGLES',
+      bronze_mode: 'JOINT_BRONZE',
+      placement_mode: 'OFF',
+      games_to_win: 2,
+      points_to_win: 11,
+      roster_confirmed: false,
+      operation_mode: 'LIVE',
+      registration_enabled: enabled,
+    }
+  }
+
+  it('管理端开启 → Public 报名表单出现；管理端关闭 → Public 只读关闭且 POST registration = 0', async () => {
+    // 单一内存服务端：registration_enabled 是两页共用的唯一事实源
+    const server = { enabled: false }
+    calls = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const path = raw.replace(/^https?:\/\/[^/]+/, '')
+      const method = (init?.method ?? 'GET').toUpperCase()
+      let body: unknown
+      if (typeof init?.body === 'string') {
+        try {
+          body = JSON.parse(init.body)
+        } catch {
+          body = init.body
+        }
+      }
+      calls.push({ method, path, body })
+
+      if (method === 'PUT' && /\/registration$/.test(path)) {
+        server.enabled = Boolean((body as { enabled?: boolean } | undefined)?.enabled)
+        return jsonResponse(tournament({ registration_enabled: server.enabled }))
+      }
+      if (method === 'POST' && /\/registrations$/.test(path)) {
+        return jsonResponse(
+          { registration_id: 9, status: 'PENDING', name: '张三', created_at: '2026-09-23 10:00:00' },
+          201,
+        )
+      }
+      if (/\/api\/tournaments\/\d+(\?|$)/.test(path)) {
+        return jsonResponse(tournament({ registration_enabled: server.enabled }))
+      }
+      if (/\/dashboard$/.test(path)) return jsonResponse(DASHBOARD)
+      return jsonResponse([])
+    })
+
+    // 1) Public 初始：关闭态
+    const publicClosed = renderAt(REGISTER_PATH)
+    await screen.findByText('当前赛事暂未开放报名')
+    publicClosed.unmount()
+
+    // 2) 管理端「赛事设置 → 报名设置 → 开启报名」（真实 PUT）
+    const adminEnable = render(<TournamentSettingsPage tournament={settingsTournament(false)} />)
+    fireEvent.click(screen.getByRole('tab', { name: '报名设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '开启报名' }))
+    await screen.findByText('报名中')
+    adminEnable.unmount()
+
+    // 3) Public 再读取同一赛事：报名表单可用
+    const publicOpen = renderAt(REGISTER_PATH)
+    await screen.findByLabelText('姓名（必填）')
+    publicOpen.unmount()
+
+    // 4) 管理端关闭报名
+    const adminDisable = render(<TournamentSettingsPage tournament={settingsTournament(true)} />)
+    fireEvent.click(screen.getByRole('tab', { name: '报名设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭报名' }))
+    await screen.findByText('已关闭')
+    adminDisable.unmount()
+
+    // 5) Public 回到只读关闭态，且没有任何提交
+    renderAt(REGISTER_PATH)
+    await screen.findByText('当前赛事暂未开放报名')
+    expect(screen.queryByLabelText('姓名（必填）')).toBeNull()
+    expect(registrationPosts()).toHaveLength(0)
+    expect(playerPosts()).toHaveLength(0)
+
+    // 两次开关都是真实写入，且顺序正确
+    const writes = calls.filter((call) => call.method === 'PUT')
+    expect(writes.map((call) => call.body)).toEqual([{ enabled: true }, { enabled: false }])
   })
 })
