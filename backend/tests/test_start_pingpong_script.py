@@ -19,7 +19,8 @@
    防火墙只读、``-TournamentId`` 显式覆盖、无赛事时降级到 base URL。
 
 静态断言不能替代行为验证，因此同轮还真实执行了「4 个数据库路径场景 × 跨目录启动」
-的 smoke（结果记录在 ``docs/D4D_PR50_REVIEW_REWORK.md``）。
+的 smoke（结果记录在 ``docs/WORKSTREAM_D.md`` 的「D 轨 Day4D · PR #50 Review Rework」
+章节，第 34 节；仓库中没有也不需要单独的 rework 文档）。
 """
 
 from __future__ import annotations

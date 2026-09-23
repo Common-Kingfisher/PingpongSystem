@@ -2151,3 +2151,145 @@ db = os.environ.get("PINGPONG_DB_PATH") or os.environ.get("DEMO_DB_PATH") or sys
 均未改动；未接入 `format_code`、未 merge / cherry-pick #47 与 #48、未重做 LAN 地址枚举、
 未引入新依赖、未做 Day5。
 
+---
+
+# D 轨 Day4D · 赛制契约接线轮（PR #50 第二轮 review）
+
+> 触发：`#45` / `#47` / `#48` 已全部进入 master，PR #50 原先「等待 Tournament 赛制契约」的前提失效。
+> 本轮把 Public / BigScreen 从「中性数据驱动」升级为**由后端 `format_code` 驱动的多赛制展示**。
+
+## 38. 同步 master 与冲突解决
+
+| 项 | 值 |
+| --- | --- |
+| merge 前 PR50 head | `64f067d0783c5ac268cb3d6b1b37136d2a724be6` |
+| 实际 merge 的 master | `37a751aa3323f7bf9877262df503e001bc07f9dc`（含 #45 / #47 `76302df` / #48 `04ca855` / #52 / #53） |
+| 方式 | `git merge origin/master`（**merge，不 rebase**，不 force push，不新开 PR） |
+| 冲突文件 | 仅 `docs/WORKSTREAM_D.md` |
+| 解决方式 | 用脚本按「公共前缀 + master(Day3 记录) + PR50(Day4D 记录)」重排，**两侧内容全部保留**，没有整文件选 ours/theirs；自动合并的 `api.ts` / `generated/openapi.d.ts` 等未手工逐行合并 |
+
+冲突后校验：无 `<<<<<<<` / `=======` / `>>>>>>>` 残留，且同时包含
+「# D 轨 Day 3 实施结果」「# D 轨 Day 4D 实施结果」「D 轨 Day4D · PR #50 Review Rework」三处标题。
+
+## 39. Contract 同步（本轮主目标之一）
+
+| 步骤 | 结果 |
+| --- | --- |
+| `cd backend && python export_openapi.py --check` | **PASS**（`OpenAPI snapshot is up to date`）→ 未修改 `docs/openapi-v0.2.json` |
+| `cd frontend && pnpm contract:generate` | 重新生成 `src/generated/openapi.d.ts`（openapi-typescript 7.13.0） |
+| `pnpm contract:check` | **PASS（退出码 0）** |
+
+生成的 contract 中确认存在：
+
+```text
+TournamentFormat: "ROUND_ROBIN" | "SINGLE_ELIMINATION" | "GROUP_KNOCKOUT"
+TournamentOut.format_code?: TournamentFormat | null
+TournamentOut.rule_config?: { [key: string]: unknown }
+TournamentOut.rule_version?: number | null
+```
+
+**类型来源（无第二套 enum、无 `as any`）**：
+
+- `frontend/src/api.ts` 只新增一行 `export type TournamentFormat = Schemas['TournamentFormat']`；
+- `publicFormat.ts` 的入参类型统一写成 `Tournament['format_code']`（即 generated DTO 的字段类型），
+  不手写 `'ROUND_ROBIN' | ...` 联合类型；
+- 页面里没有任何 `(tournament as any).format_code`。
+
+## 40. 唯一 capability helper：`frontend/src/publicFormat.ts`
+
+职责只有「某赛制展示哪些 Public 模块」，返回三个 UI 开关，**不计算任何业务结果**
+（排名 / 晋级 / BYE / 种子 / 抽签 / 完赛状态 / 阶段推进一律不碰）。
+
+| 赛制 | showRankings | showBracket | showChampion |
+| --- | --- | --- | --- |
+| `ROUND_ROBIN` | ✅ | ❌ | ❌ |
+| `SINGLE_ELIMINATION` | ❌ | ✅ | ✅ |
+| `GROUP_KNOCKOUT` | ✅ | ✅ | ✅ |
+| `null` / 字段缺失（legacy） | ✅ | ✅ | ✅ |
+
+`live` / `schedule` / `register` 始终可见，不受本 helper 控制。
+
+**legacy 策略（D4A 冻结）**：`format_code == null` 时**不推断赛制**、不默认成 `GROUP_KNOCKOUT`，
+一律返回「全部可见 + 数据驱动」：
+有数据就展示，没数据由页面给出中性空态 —— 这样既不会破坏 V0.2 旧赛事，也不会凭猜测隐藏入口。
+历史赛事「到底属于哪种赛制」是后端事实，前端只消费 `format_code` 本身，
+不看 `stage`、不看有没有 group、不看有没有 knockout tree。
+
+另外两个纯展示映射：
+
+- `getRankingsTitle(format_code)`：只有明确 `GROUP_KNOCKOUT` 才叫「小组排名」，
+  循环赛与 legacy 用中性的「赛事排名」；
+- `getPublicStageLabel(format_code, stage)`：修掉「纯循环赛赛事因为库里也用
+  `stage = GROUP_STAGE` 而被显示成小组赛」的误导（RR → 循环赛，SE → 单淘汰，
+  GK / legacy 保持原有 小组赛 / 淘汰赛）。只做文案映射，不做状态机。
+
+## 41. 接线明细
+
+| 文件 | 改动 |
+| --- | --- |
+| `frontend/src/layouts/PublicLayout.tsx` | `NAV_ITEMS` 增加 `capability` 标记，按 `getPublicCapabilities(tournament.format_code)` 过滤「排名 / 签表 / 冠军」；阶段徽标改用 `getPublicStageLabel`。权限判断只在这一处。 |
+| `frontend/src/pages/RankingsPage.tsx` | Public 先 `getTournament` 拿权威 `format_code`：`showRankings=false`（单淘汰）时**不请求** `/rankings` 与 GROUP 完赛查询，直接渲染只读「本赛事采用单淘汰赛制，不设置循环赛排名。」+「查看签表」CTA；标题由 `getRankingsTitle` 决定；管理端请求序列与标题完全不变。 |
+| `frontend/src/pages/KnockoutPage.tsx` | Public 先拿 `format_code`：`showBracket=false`（循环赛）时**不请求** `/knockout`，渲染只读「本赛事采用循环赛制，不设置淘汰赛签表。」+「查看排名」CTA；`SINGLE_ELIMINATION` 只请求并渲染后端签表（BYE / 待定 slot 全部按服务端数据渲染），连 `/rankings` 都不请求，因此不会出现「请先完成小组赛 / 每组前 N 名」这类 GK 专属语义；GK 与 legacy 请求序列不变。 |
+| `frontend/src/pages/BigScreenPage.tsx` | 先取 `format_code`，通用数据（tournament / dashboard / players / entries）之后按 capability 决定是否请求 `rankings` / `knockout`；出线区、签表、冠军、结束态排名面板都按 capability 门控；循环赛的排名区标题为「赛事排名」且不显示「出线」勾选；冠军仍只来自后端 `KnockoutTree.champion`。 |
+| `backend/tests/test_start_pingpong_script.py` | 修正文档引用：`docs/D4D_PR50_REVIEW_REWORK.md`（不存在）→ `docs/WORKSTREAM_D.md` 的对应章节，**没有新建重复文档**。 |
+
+**刻意不做的两件事**（避免范围扩张）：不重构 `ChampionJourneyPage`（仅通过导航隐藏 RR 的冠军入口）；
+不动 `backend/app/services/formats.py` / `domain/draw.py` / `services/knockout.py` 等 B 轨算法。
+
+## 42. 本轮新增测试
+
+| 文件 | 条数 | 覆盖 |
+| --- | --- | --- |
+| `frontend/src/__tests__/publicFormat.test.ts` | 12 | helper 纯函数：三种赛制 + legacy 的能力矩阵、legacy 不被识别成 GK、helper 只返回三个开关、标题与阶段文案映射 |
+| `frontend/src/__tests__/PublicFormatMatrix.test.tsx` | 15 | PublicLayout 导航矩阵（RR/SE/GK/null）、`/rankings` SE 不适用态（含「不请求排名数据」「无管理入口」「无写请求」）、`/bracket` RR 不适用态（含不请求 `/knockout`、无 GK 文案）、SE 渲染真实签表（BYE → 待定）、GK/legacy 不退化、BigScreen 四套赛制的区域与请求集合 |
+
+## 43. 本轮回归结果
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd backend && python export_openapi.py --check` | PASS |
+| `cd backend && pytest` | **955 passed, 20 skipped**（含本 PR 的 12 条：部署地址策略 4 + 启动脚本静态契约 8） |
+| `cd frontend && pnpm install --frozen-lockfile` | 退出码 0 |
+| `pnpm contract:generate` / `pnpm contract:check` | 生成成功 / **PASS（退出码 0）** |
+| `pnpm exec tsc --noEmit` | 退出码 0 |
+| `pnpm test` | **10 files / 138 passed**（master 合入的 MobileScore* / ConsoleScoreWorkflow / ApiErrorParsing / TournamentSettingsPage 全部继续通过） |
+| `pnpm build` | 退出码 0 |
+| PowerShell `Parser::ParseFile` | parse errors = **0** |
+| UTF-8 BOM | 首字节 `EF BB BF` |
+
+## 44. LAN smoke（真实执行 `start_pingpong.ps1`）
+
+### 44.1 上一轮 P1 回归：数据库路径（8/8 PASS）
+
+| 场景 | 工作目录 | 环境变量 | 打印 tid | 期望 | 后端回查 name |
+| --- | --- | --- | --- | --- | --- |
+| A 默认库 | 仓库根 / `frontend\` | 无 | 1 | 1 | `1` |
+| B 相对 `PINGPONG_DB_PATH` | 仓库根 / `frontend\` | `data\review_relative.db` | 41 | 41 | `review-relative-41` |
+| C 相对 `DEMO_DB_PATH` | 仓库根 / `frontend\` | `data\review_demo_relative.db` | 42 | 42 | `review-demo-relative-42` |
+| D 绝对 `PINGPONG_DB_PATH` | 仓库根 / `frontend\` | `%TEMP%\review_abs_d4d.db` | 43 | 43 | `review-abs-43` |
+
+### 44.2 三赛制 deep-link（同一库内 3 个赛事，14/14 PASS）
+
+库内：`41 = ROUND_ROBIN`、`42 = SINGLE_ELIMINATION`、`43 = GROUP_KNOCKOUT`。
+
+| 检查 | 结果 |
+| --- | --- |
+| `/api/health`、`/` | 200 |
+| `/public/t/41/{live,rankings,bracket}` | 均 200 + SPA（刷新不 404） |
+| `/public/t/42/{live,rankings,bracket}` | 均 200 + SPA |
+| `/public/t/43/{live,rankings,bracket}` | 均 200 + SPA |
+| `GET /api/tournaments/{41,42,43}.format_code` | 分别返回 `ROUND_ROBIN` / `SINGLE_ELIMINATION` / `GROUP_KNOCKOUT`（证明契约真的在服务端生效） |
+
+**TOTAL=22 PASS=22 FAIL=0**（8 条数据库路径 + 9 条 deep link + 3 条 format 契约 + 2 条 health/root）。
+HTTP 层只能证明「SPA 正常返回」；**「不适用空态」本身由 15 条 jsdom 集成测试断言**
+（见 §42），二者互补。smoke 夹具已全部删除，未污染版本库，端口已释放。
+
+## 45. 本轮明确未做
+
+未实现 Day5 报名 / 二维码 / Organization / Venue；未复制任何 B 轨规则
+（BYE / seed / 抽签 / ranking / advance / completion 全部仍由后端决定）；
+未重构 `ChampionJourneyPage`；未引入新依赖；未修改 `docs/openapi-v0.2.json`。
+
+已知取舍：`PublicLayout` 在赛事数据到达前按「全部可见」渲染导航，因此存在极短的
+「全量导航 → 按赛制收敛」过渡帧。这是刻意选择 —— 赛制未知时隐藏入口，风险高于多显示一帧。
+
