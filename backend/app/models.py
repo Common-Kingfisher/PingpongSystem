@@ -31,6 +31,14 @@ class TournamentStage(str, Enum):
     FINISHED = "FINISHED"          # 已结束（产生冠军）
 
 
+class TournamentFormat(str, Enum):
+    """个人赛 Tournament 的稳定赛制代码。"""
+
+    ROUND_ROBIN = "ROUND_ROBIN"
+    SINGLE_ELIMINATION = "SINGLE_ELIMINATION"
+    GROUP_KNOCKOUT = "GROUP_KNOCKOUT"
+
+
 class SystemRole(str, Enum):
     """系统级账号角色。"""
 

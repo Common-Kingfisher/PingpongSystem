@@ -4,7 +4,7 @@ import TouchScoreInput from './field/TouchScoreInput'
 
 type GameDraft = { a: string; b: string }
 
-export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWin, busy, detailMode = false, auditMode = 'record', onClose, onSave }: {
+export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWin, busy, detailMode = false, auditMode = 'record', submitError = null, onClose, onSave }: {
   match: Match | KnockoutMatch
   sideA: string
   sideB: string
@@ -14,6 +14,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
   /** FINISHED GROUP 比赛的逐局小分补录/修改模式；默认 false = 大比分录入/修改。 */
   detailMode?: boolean
   auditMode?: 'record' | 'revise'
+  submitError?: { title: string; message: string } | null
   onClose: () => void
   onSave: (payload: ScorePayload) => Promise<void>
 }) {
@@ -37,6 +38,9 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
   const [resultType, setResultType] = useState<ResultType>('NORMAL')
   const [operatorName, setOperatorName] = useState(() => localStorage.getItem('pingpong_referee_name') ?? '')
   const [changeReason, setChangeReason] = useState('')
+  const [revisionPending, setRevisionPending] = useState<
+    { kind: 'normal' } | { kind: 'exception'; forfeitId: number | null; sideLabel: string } | null
+  >(null)
   const auditReady = operatorName.trim().length > 0
     && (auditMode === 'record' || changeReason.trim().length >= 2)
 
@@ -102,40 +106,64 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
   const sideAId = 'games' in match ? (match.entry_a_id ?? match.player_a_id) : match.player_a?.id ?? null
   const sideBId = 'games' in match ? (match.entry_b_id ?? match.player_b_id) : match.player_b?.id ?? null
 
-  const saveNormal = () => {
+  const normalPayload = (): ScorePayload => {
     if (detailMode) {
-      onSave({
+      return {
         player_a_score: originalA ?? 0,
         player_b_score: originalB ?? 0,
         games: games.map((g) => ({ side_a_score: Number(g.a), side_b_score: Number(g.b) })),
         result_type: 'NORMAL',
         note: notePayload,
         ...auditPayload(),
-      })
-    } else {
-      onSave({
-        player_a_score: bigA,
-        player_b_score: bigB,
-        result_type: 'NORMAL',
-        note: notePayload,
-        ...auditPayload(),
-      })
+      }
+    }
+    return {
+      player_a_score: bigA,
+      player_b_score: bigB,
+      result_type: 'NORMAL',
+      note: notePayload,
+      ...auditPayload(),
     }
   }
 
-  const saveException = (forfeitId: number | null) => onSave({
+  const exceptionPayload = (forfeitId: number | null): ScorePayload => ({
     result_type: resultType,
     forfeit_entry_id: forfeitId,
     note: notePayload,
     ...auditPayload(),
   })
 
+  const requestNormalSave = () => {
+    if (auditMode === 'revise') setRevisionPending({ kind: 'normal' })
+    else void onSave(normalPayload())
+  }
+
+  const requestExceptionSave = (forfeitId: number | null, sideLabel: string) => {
+    if (auditMode === 'revise') setRevisionPending({ kind: 'exception', forfeitId, sideLabel })
+    else void onSave(exceptionPayload(forfeitId))
+  }
+
+  const confirmRevision = () => {
+    if (!revisionPending) return
+    const payload = revisionPending.kind === 'normal'
+      ? normalPayload()
+      : exceptionPayload(revisionPending.forfeitId)
+    void onSave(payload)
+  }
+
   return (
     <div className="modal-backdrop score-sheet-backdrop" role="dialog" aria-modal="true" aria-label={detailMode ? '补录小组赛逐局小分' : '录入比赛大比分'}>
       <div className="score-sheet">
         <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
         <span className="eyebrow">MATCH #{match.id}</span>
-        <h2>{detailMode ? '补录逐局小分' : '确认比赛结果'}</h2>
+        <h2>{detailMode ? '补录逐局小分' : auditMode === 'revise' ? '修改比赛结果' : '确认比赛结果'}</h2>
+        {submitError && (
+          <div className="score-submit-error" role="alert">
+            <strong>{submitError.title}</strong>
+            <span>{submitError.message}</span>
+            <small>已填写内容仍保留，请检查后重试。</small>
+          </div>
+        )}
 
         {detailMode ? (
           <>
@@ -201,8 +229,8 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
                 </label>
                 <p>选择弃权一方。淘汰赛中对方直接晋级；小组赛按弃权规则计入排名。</p>
                 <div className="forfeit-actions">
-                  <button className="btn danger" onClick={() => saveException(sideAId)} disabled={busy || !auditReady}>{sideA} 弃权</button>
-                  <button className="btn danger" onClick={() => saveException(sideBId)} disabled={busy || !auditReady}>{sideB} 弃权</button>
+                  <button className="btn danger" onClick={() => requestExceptionSave(sideAId, sideA)} disabled={busy || !auditReady}>{sideA} 弃权</button>
+                  <button className="btn danger" onClick={() => requestExceptionSave(sideBId, sideB)} disabled={busy || !auditReady}>{sideB} 弃权</button>
                 </div>
               </div>
             )}
@@ -221,14 +249,30 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
           </label>}
           <p>本次操作将保存修改前后比分、操作人和时间，记录不可覆盖。</p>
         </div>
-        <div className="modal-actions">
-          <button className="btn" onClick={onClose}>取消</button>
-          {resultType === 'NORMAL' && (
-            <button className="btn primary" onClick={saveNormal} disabled={(detailMode ? !canSubmitSupplement : !validBigScore) || busy || !auditReady}>
-              {detailMode ? '保存小分' : '确认大比分'}
-            </button>
-          )}
-        </div>
+        {revisionPending ? (
+          <div className="score-revision-confirm" role="alertdialog" aria-label="确认修改已结束比赛">
+            <span>REVISION CHECK</span>
+            <strong>确认修改已结束的比赛？</strong>
+            <p>
+              当前记录为 {sideA} {originalA ?? 0} : {originalB ?? 0} {sideB}。
+              {revisionPending.kind === 'exception' && ` 本次将登记“${revisionPending.sideLabel} 弃权／未到”。`}
+              修改可能影响排名或后续签位，服务端会执行最终校验，并保存操作人、理由和时间。
+            </p>
+            <div>
+              <button className="btn" type="button" onClick={() => setRevisionPending(null)} disabled={busy}>返回检查</button>
+              <button className="btn danger" type="button" onClick={confirmRevision} disabled={busy}>确认并保存修改</button>
+            </div>
+          </div>
+        ) : (
+          <div className="modal-actions">
+            <button className="btn" onClick={onClose}>取消</button>
+            {resultType === 'NORMAL' && (
+              <button className="btn primary" onClick={requestNormalSave} disabled={(detailMode ? !canSubmitSupplement : !validBigScore) || busy || !auditReady}>
+                {detailMode ? '保存小分' : auditMode === 'revise' ? '检查并修改' : '确认大比分'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

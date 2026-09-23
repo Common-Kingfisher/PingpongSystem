@@ -5,6 +5,33 @@ import { getActiveTournamentId } from '../activeTournament'
 import ScoreSheet from '../components/ScoreSheet'
 import LiveTableCard from '../components/LiveTableCard'
 import QueueEstimate from '../components/field/QueueEstimate'
+import { matchSidesReady } from '../mobileScore'
+
+export interface ConsoleFeedback {
+  tone: 'success' | 'warning' | 'danger'
+  title: string
+  message: string
+}
+
+/** 只分层展示 transport / HTTP 结果；业务文案仍以服务端 message 为权威。 */
+export function consoleErrorFeedback(error: unknown, fallback = '操作失败'): ConsoleFeedback {
+  if (!(error instanceof ApiError)) {
+    return { tone: 'danger', title: '操作未完成', message: fallback }
+  }
+  if (error.status === 409) {
+    return { tone: 'warning', title: '比赛状态已变化', message: error.message }
+  }
+  if (error.status === 422) {
+    return { tone: 'warning', title: '提交内容未通过校验', message: error.message }
+  }
+  if (error.status === 401 || error.status === 403) {
+    return { tone: 'danger', title: '当前账号不能执行此操作', message: error.message }
+  }
+  if (error.status >= 500) {
+    return { tone: 'danger', title: '服务暂时不可用', message: error.message }
+  }
+  return { tone: 'danger', title: '操作未完成', message: error.message }
+}
 
 export default function ConsolePage() {
   const [params] = useSearchParams()
@@ -20,10 +47,12 @@ export default function ConsolePage() {
   const [groupOrder, setGroupOrder] = useState<number[]>([])
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<ConsoleFeedback | null>(null)
   const [busy, setBusy] = useState(false)
   const [scoringMatch, setScoringMatch] = useState<Match | null>(null)
   const [scoreMode, setScoreMode] = useState<'record' | 'revise'>('record')
   const [scoreDetailMode, setScoreDetailMode] = useState(false)
+  const [scoreSubmitError, setScoreSubmitError] = useState<ConsoleFeedback | null>(null)
   const [auditMatch, setAuditMatch] = useState<Match | null>(null)
   const [audits, setAudits] = useState<ScoreAudit[]>([])
   const [estimateByMatchId, setEstimateByMatchId] = useState<Map<number, ScheduleEstimateMatch>>(new Map())
@@ -85,26 +114,50 @@ export default function ConsolePage() {
 
   const refresh = async () => {
     setError(null)
+    setFeedback(null)
     try {
       await load()
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '刷新失败')
+      setFeedback(consoleErrorFeedback(e, '刷新失败'))
     }
   }
 
-  const fail = (e: unknown) => setError(e instanceof ApiError ? e.message : '操作失败')
+  const fail = (e: unknown) => setFeedback(consoleErrorFeedback(e))
+
+  const openScoreSheet = (match: Match, mode: 'record' | 'revise', detailMode = false) => {
+    setFeedback(null)
+    setScoreSubmitError(null)
+    setScoreDetailMode(detailMode)
+    setScoreMode(mode)
+    setScoringMatch(match)
+  }
 
   const saveScoreSheet = async (payload: import('../api').ScorePayload) => {
     if (!scoringMatch) return
     setBusy(true)
-    setError(null)
+    setScoreSubmitError(null)
+    const wasRevision = scoreMode === 'revise'
+    const wasDetailRevision = wasRevision && scoreDetailMode
     try {
-      if (scoreMode === 'revise') await api.reviseScore(scoringMatch.id, payload as import('../api').ScoreRevisionPayload)
+      if (wasRevision) await api.reviseScore(scoringMatch.id, payload as import('../api').ScoreRevisionPayload)
       else await api.recordScore(scoringMatch.id, payload)
       setScoringMatch(null)
-      await refresh()
+      setFeedback({
+        tone: 'success',
+        title: wasDetailRevision ? '逐局小分已更新' : wasRevision ? '比赛结果已修改' : '比赛结果已记录',
+        message: wasRevision ? '修改已写入操作记录，比赛列表正在刷新。' : '比分已保存，比赛列表正在刷新。',
+      })
+      try {
+        await load()
+      } catch (refreshError) {
+        setFeedback({
+          tone: 'warning',
+          title: '比分已保存，但列表刷新失败',
+          message: refreshError instanceof ApiError ? refreshError.message : '请点击“刷新”查看最新比赛状态。',
+        })
+      }
     } catch (e) {
-      fail(e)
+      setScoreSubmitError(consoleErrorFeedback(e, wasRevision ? '修改比分失败' : '录入比分失败'))
     } finally {
       setBusy(false)
     }
@@ -112,6 +165,7 @@ export default function ConsolePage() {
 
   const showAudits = async (match: Match) => {
     setError(null)
+    setFeedback(null)
     try {
       setAudits(await api.listScoreAudits(match.id))
       setAuditMatch(match)
@@ -134,6 +188,7 @@ export default function ConsolePage() {
 
   const release = async (m: Match) => {
     setError(null)
+    setFeedback(null)
     setBusy(true)
     try {
       await api.releaseMatch(m.id)
@@ -195,6 +250,7 @@ export default function ConsolePage() {
       return
     }
     setError(null)
+    setFeedback(null)
     setBusy(true)
     try {
       await api.assignTable(next.id, tableId)
@@ -208,6 +264,7 @@ export default function ConsolePage() {
 
   const scheduleBatch = async () => {
     setError(null)
+    setFeedback(null)
     setBusy(true)
     try {
       const r = await api.scheduleNext(tid as number)
@@ -253,6 +310,7 @@ export default function ConsolePage() {
     )
       return
     setError(null)
+    setFeedback(null)
     setBusy(true)
     try {
       await api.finishGroupStage(tid as number)
@@ -287,6 +345,12 @@ export default function ConsolePage() {
 
   return (
     <div className="page">
+      {feedback && (
+        <div className={`console-feedback is-${feedback.tone}`} role={feedback.tone === 'danger' ? 'alert' : 'status'}>
+          <div><strong>{feedback.title}</strong><span>{feedback.message}</span></div>
+          <button type="button" onClick={() => setFeedback(null)} aria-label="关闭操作提示">×</button>
+        </div>
+      )}
       <div className="card">
         <h2>
           {tournament ? tournament.name : '赛事'} · 比赛控制台
@@ -416,7 +480,7 @@ export default function ConsolePage() {
             stageClosed={groupStageClosedWithoutKnockout}
             hintLabel={tableHint(table)}
             onAssign={assignFreeTable}
-            onScore={(match) => { setScoreDetailMode(false); setScoreMode('record'); setScoringMatch(match) }}
+            onScore={(match) => openScoreSheet(match, 'record')}
             onRelease={release}
           />)}
         </div>
@@ -439,6 +503,17 @@ export default function ConsolePage() {
                     estimatedStartAt={estimateByMatchId.get(m.id)?.estimated_start_at}
                     unavailableReason={estimateByMatchId.get(m.id)?.unavailable_reason}
                   />
+                  {/*
+                    手机录分入口（D 轨 Day 3）：跳转到
+                    /admin/t/:tid/matches/:matchId/score —— D 轨拥有的唯一精确 route。
+                    这里只在双方已就绪时给出入口 —— 对阵未定的比赛在手机上也无法录分，
+                    而“谁已就绪”直接来自 Match 契约字段，不是前端另行推导的规则。
+                  */}
+                  {matchSidesReady(m) && (
+                    <Link className="btn small waiting-match-mobile" to={`/admin/t/${tid}/matches/${m.id}/score`}>
+                      手机录分
+                    </Link>
+                  )}
                 </article>
               ))}
             </div>
@@ -473,10 +548,10 @@ export default function ConsolePage() {
                   </td>
                   <td className="match-time-cell"><span>{formatTime(m.started_at)}</span><span>{formatTime(m.finished_at)}</span></td>
                   <td>
-                    <button className="btn small" onClick={() => { setScoreDetailMode(false); setScoreMode('revise'); setScoringMatch(m) }}>
+                    <button className="btn small" onClick={() => openScoreSheet(m, 'revise')}>
                       修改大比分
                     </button>
-                    {m.stage === 'GROUP' && m.result_type === 'NORMAL' && <button className="btn small" onClick={() => { setScoreDetailMode(true); setScoreMode('revise'); setScoringMatch(m) }}>
+                    {m.stage === 'GROUP' && m.result_type === 'NORMAL' && <button className="btn small" onClick={() => openScoreSheet(m, 'revise', true)}>
                       {m.games.length ? '修改小比分' : '补录小比分'}
                     </button>}
                     <button className="btn small" onClick={() => showAudits(m)}>操作记录</button>
@@ -498,7 +573,8 @@ export default function ConsolePage() {
           busy={busy}
           detailMode={scoreDetailMode}
           auditMode={scoreMode}
-          onClose={() => setScoringMatch(null)}
+          submitError={scoreSubmitError}
+          onClose={() => { setScoringMatch(null); setScoreSubmitError(null) }}
           onSave={saveScoreSheet}
         />
       )}

@@ -921,6 +921,907 @@ DEBUG PublicRoutes tid= undefined params= {}
 6. Day 3 需真机/窄屏验收 360–430px，并补 LAN 二机实测。
 
 ---
+---
+
+# D 轨 Day 3 实施结果
+
+分支：`feat/d-day3-mobile-score`（**整个 Day 3 只开这一个 PR**）
+Day 3 起点基线：`origin/master@c900e71`（含 PR #41 B 轨比分契约、PR #43 C 轨登录骨架、PR #44 D2 Public/LAN/production）
+
+本节只追加 Day 3 实施记录，第 1–21 节（Day 1/Day 2）内容未改动。
+
+## 22. Day 3 交付结论
+
+| 项 | 结果 |
+| --- | --- |
+| 手机录分页面 | ✅ `/admin/t/:tid/matches/:matchId/score` |
+| 正常比分（大比分必填） | ✅ 复用既有 score API，无第二套写入通道 |
+| 逐局小比分（可选） | ✅ 默认收起；不录时请求**不含** `games` 字段 |
+| 异常结果 | ✅ 复用当前 `ResultType`，页内二次确认，不伪造逐局小比分 |
+| 小屏/触控适配 | ✅ 360 / 375 / 390 / 430px 真实 Chrome 实测（见 28） |
+| 防重复提交 | ✅ 按钮 disabled + ref 同步锁；连点 3 次服务端只落 1 条 RECORD |
+| 错误展示 | ✅ 422 / 409 / 401 / 403 / 404 / 网络分别给可读文案，输入不清空 |
+| Auth 最终接线 | ⛔ **未接线**：A 轨认证契约仍未进入 master（见 27） |
+
+**结论：PASS WITH BLOCKER**（唯一 blocker = Auth 最终接线，其余全部完成并实测）。
+
+## 23. 本轮实际修改文件
+
+### 23.1 新增
+
+| 文件 | 目的 |
+| --- | --- |
+| `frontend/src/pages/MobileScorePage.tsx` | 手机录分页主体：大比分录入、可选逐局小比分、异常结果、错误展示、防重复提交、完成态 |
+| `frontend/src/pages/MobileScorePage.css` | 手机优先样式（`.ms-*` 独立命名空间），360–430px 无横向滚动，底部 sticky 提交 |
+| `frontend/src/MobileScoreRoutes.tsx` | 路由表 + route adapter + **Auth 接线边界**（未来 AuthGuard 唯一挂载点） |
+| `frontend/src/mobileScore.ts` | 载荷构造与展示 helper（严格按 OpenAPI contract，**不含任何比分业务算法**） |
+| `frontend/src/routeParams.ts` | 路由参数解析（纯函数，不读 localStorage / `?tid=`） |
+| `frontend/src/__tests__/MobileScorePage.test.tsx` | 前端自动化测试 28 例 |
+| `backend/day3_mobile_score_acceptance.ps1` | 后端契约层验收：A–F 六场景，22 项断言 |
+| `backend/scripts_mobile_viewport_check.mjs` | 360/375/390/430 布局事实测量（真实 Chrome CDP） |
+| `backend/day3_mobile_e2e.mjs` | 真机视口端到端：输入 → 提交 → 服务端核对 |
+| `backend/day3_e2e_fixture.py` | 造干净的 A/C/D 三场景赛事 |
+| `backend/day3_longname_fixture.py` | 造“超长中文名 + 超长 ASCII 名”赛事（小屏破版验收数据） |
+
+### 23.2 修改
+
+| 文件 | 目的 | 改动性质 |
+| --- | --- | --- |
+| `frontend/src/App.tsx` | `/admin/*` 提前返回 `MobileScoreRoutes`，不渲染管理端 App Shell | +8 行，未动现有路由 |
+| `frontend/src/pages/ConsolePage.tsx` | 待进行比赛卡片增加「手机录分」入口（仅双方就绪时） | +11 行 |
+| `frontend/src/index.css` | `.waiting-match-card > .waiting-match-mobile` 让入口独占一行 | +2 行 |
+
+**未修改**：`api.ts`、`ScoreSheet.tsx`、`generated/openapi.d.ts`、`docs/openapi-v0.2.json`、
+后端任何业务代码、排名/晋级算法、`AdminLayout`、`PublicLayout`、`start_pingpong.ps1`、CORS。
+
+## 24. 路由与赛事上下文
+
+```text
+/admin/t/:tid/matches/:matchId/score      ← 单场比赛的手机录分页（canonical）
+```
+
+> **路径变更记录**：Day 3 初版实现的是 `/admin/t/:tid/score/:matchId`。
+> Reviewer 指出 route ownership / namespace 问题后，最终统一为
+> `/admin/t/:tid/matches/:matchId/score`（与 Day 1 冻结稿一致，`matches/:matchId/score`
+> 的资源层级也更清楚）。PR 未合并，因此**没有**为了兼容 PR 内旧实现保留两套路由。
+
+### 24.1 Route ownership：D 轨只拥有这一条精确 path
+
+`/admin` 命名空间的**总体所有权属于 A/C 轨**（AdminLayout / Login / AccessState /
+AuthGuard / RequireTournamentAccess 及其他管理端 route）。因此：
+
+* `App.tsx` **不再**使用 `pathname.startsWith('/admin/')`，改用与 D 轨 route 表共用的
+  `isMobileScoreRoutePath()`（内部为 react-router 的 `matchPath(…, { end: true })` 完整匹配）；
+* `MobileScoreRoutes` **只**声明 canonical 一条 route，**没有** `/admin/*` catch-all，
+  未知 `/admin/...` 一律交还 A/C 的管理端 route tree。
+
+`tid` 与 `matchId` **只来自路由 path**，由 `MobileScoreRoutes.tsx` 中已匹配的 route adapter
+解析后作为 props 传给页面。因此：
+
+* 页面不读 `localStorage.activeTournamentId`，也不读 `?tid=`；
+* 非法 / 缺失 param 时只渲染「链接不可用」，**不回退**到任何别的赛事或比赛（Day 2 的 PR #44 P1 同款约束）；
+* 比赛通过 `GET /api/tournaments/:tid/matches` 后在结果里按 `matchId` 定位，
+  因此“打开的比赛必然属于 URL 里的赛事”，不存在跨赛事错读。
+
+`App.tsx` 中的接线只有一条入口分支，与 Public 分支同级；具体路由收敛在 `MobileScoreRoutes.tsx`，
+以降低与 A/C 轨的合并冲突面。
+
+## 25. 后端契约（实际使用面）
+
+页面**只**调用既有 API，没有新增任何写入通道：
+
+| 用途 | 调用 | 契约来源 |
+| --- | --- | --- |
+| 赛事规则（局制/每局分） | `GET /api/tournaments/{tid}` | `TournamentOut.games_to_win` / `points_to_win` |
+| 定位比赛 | `GET /api/tournaments/{tid}/matches` | `MatchOut` |
+| 选手名回退 | `GET /api/tournaments/{tid}/players` | `PlayerOut.name` |
+| 分组名（阶段展示） | `GET /api/tournaments/{tid}/groups` | `GroupOut.name` |
+| 球台名 | `GET /api/tournaments/{tid}/dashboard` | `TableWithMatch.name`（仅当比赛已排台时才请求） |
+| **写入比分** | `POST /api/matches/{matchId}/score` | `ScoreRequest` → `MatchOut` |
+
+请求体严格使用 `ScoreRequest` 的真实字段：
+
+```jsonc
+{
+  "player_a_score": 2, "player_b_score": 1,          // 正常比赛必填
+  "games": [{"side_a_score": 11, "side_b_score": 7}], // 可选；不录时整体省略（不是 []）
+  "result_type": "NORMAL",                            // 或 FORFEIT / WALKOVER / NO_SHOW / DISQUALIFIED
+  "forfeit_entry_id": 102,                            // 异常结果必填
+  "note": "…", "operator_name": "…", "request_id": "<uuid>"
+}
+```
+
+**没有**发明 `gameScores` / `roundScores` / `abnormal` 之类的字段；前端测试对这点有显式断言。
+
+异常结果只使用当前 `ResultType` 枚举（`backend/app/models.py::ResultType`）：
+`NORMAL / FORFEIT / WALKOVER / NO_SHOW / DISQUALIFIED`。
+**没有**新增或删除任何后端枚举值，也没有替服务端决定行政比分 ——
+小组赛弃权时服务端会写入排名用行政比分（`games_to_win:0`），页面把它单独标注为
+「排名用行政比分」，与现场逐局比分明确区分。
+
+`request_id` 复用 `api.ts::submitScore()` 既有机制：同一次提交的重试复用同一个 UUID，
+因此网络中断后的重试不会双写（后端返回同一结果）。
+
+## 26. 前端**不**实现的业务规则
+
+按 Day 1 冻结的边界，页面只做交互级提示，以下全部交给后端：
+
+* 合法比分判定（每局分制、平分延长、胜局数上限）→ 后端 `_validate_game` / `_validate_scores`；
+* 逐局小比分与大比分一致性 → 后端 `_validate_normal_score_payload`；
+* winner 计算与淘汰赛推进 → 后端 `knockout_service`；
+* 改分下游影响保护 → 后端 `revise_score`（Day 3 **不使用**改分接口，见 30）。
+
+前端**保留**的检查只有肉眼可见的四类，且都只用于“省掉一次必然失败的往返”：
+空值、非整数、两边相同、小比分半局。任何被后端拒绝的载荷，页面都原样展示服务端文案。
+
+> **review 返工（见 33）**：初版还额外做了两处“按本赛事局制”的判定，已删除 ——
+> `buildNormalScorePayload()` 不再比较 `Math.max(a, b)` 与 `games_to_win`；
+> `bumpScore()` 不再用 `games_to_win` 当步进上限、也不再自动改写另一方比分。
+> 因此三局两胜里填 `1:0` 会真的发出请求，由后端返回 422。
+
+## 27. Auth 集成状态（明确边界，不含“later”）
+
+> ⚠️ **本节记录的是 Day 3 当时（`master@c900e71`）的状态，已被后面的合入取代。**
+> A 轨认证与赛事授权契约**已经合入 master**（`master@81827b3`），
+> `POST /api/matches/{id}/score` 现在由 `require_tournament_write` 保护。
+> 当前状态请看 **第 48 节（第四轮：同步 master + Auth/赛事授权真实集成验收）**。
+
+**当时状态：未接线。**
+
+截至 Day 3 基线 `master@c900e71`：
+
+* 后端**没有**任何 auth router / session / `/auth/me` / 权限依赖：
+  `backend/app/main.py` 只注册业务 routers，没有 auth 相关模块；
+* C 轨的 `AdminLayout` / `LoginPage` / `AccessStatePage` 等**展示层**已合入 master，
+  但当时的认证工作包与 C 轨 Guard 分支**都还没有进入 master**。
+
+因此在 Day 3 内**没有**实现：token、localStorage 登录态、临时用户系统、第二套权限判断。
+这些都属 A 轨契约，自己造会与正式认证直接冲突。
+
+接线点已经按最终形态固定，且**唯一**：`MobileScoreRoutes.tsx::AdminScoreGuardBoundary`。
+契约合入后只需就地替换为：
+
+```tsx
+<RequireAuth>
+  <RequireTournamentAccess tid={tid}>
+    <MobileScorePage tid={tid} matchId={matchId} />
+  </RequireTournamentAccess>
+</RequireAuth>
+```
+
+接线前必须同时满足三个条件（缺一不可）：
+
+1. `GET /auth/me` 与 401/403/404 错误 DTO 已在 master；
+2. `RequireAuth` / `RequireTournamentAccess` 已在 master（C 轨）；
+3. **服务端本身拒绝未授权调用** —— 前端 Guard 只改善 UX，服务端才是唯一安全边界。
+
+页面侧已经能正确处理 401/403/404 的展示（见 29），因此接线后不需要改页面。
+
+## 28. 测试与验收结果（真实执行）
+
+### 28.1 自动化回归
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 后端全量 | `backend> python -m pytest` | **758 passed, 30 skipped, 2 warnings** |
+| 后端基线（Day 3 前） | 同一命令 | 722 → D2 后 758；本轮**未新增后端测试**，数量与 D2 基线一致 |
+| 前端全量 | `frontend> pnpm test` | **41 passed**（28 新增 + 13 既有 Public 路由回归） |
+| 前端类型 | `frontend> pnpm exec tsc --noEmit` | 通过（exit 0） |
+| 生产构建 | `frontend> pnpm build` | 通过（71 modules，dist 生成） |
+| 契约一致性 | `frontend> pnpm contract:check` | 通过（`generated/openapi.d.ts` 无 diff） |
+
+warning 数（2）与改动前完全一致，均为既有基线技术债（见 18）。
+
+### 28.2 前端自动化测试覆盖（`MobileScorePage.test.tsx`，28 例）
+
+* **路由（5 例）**：请求全部命中 URL 里的 tid；URL 与 `localStorage` 冲突时 URL 胜；
+  比赛不属于该赛事时明确报错且不去别的赛事找；非法 param 不发任何赛事请求；
+  不渲染管理端 11 个导航入口。
+* **正常比分（5 例）**：只录大比分时 payload **不含 `games`**；提交后重新拉取真实 Match；
+  空值 / 平局时前端提示且不发请求；**胜方局数不符合本赛事局制时不阻断，请求照样发给后端
+  并展示服务端 detail**；**步进按钮只做 ±1 与下限 0，不受 `gamesToWin` 限制、也不改动另一方**。
+* **可选小比分（3 例）**：大比分 + 完整小比分同次提交且使用 contract 字段；
+  半局被拦下；删除局后重新提交不携带被删除的局。
+* **异常结果（6 例）**：`FORFEIT` / `NO_SHOW` / `WALKOVER` / `DISQUALIFIED` 四种类型
+  各自断言 `result_type` + `forfeit_entry_id` 正确且**不带 games**；未选异常方不提交；
+  完成态显示「李四弃权」而不是 `2:1`。
+* **错误与防重复（6 例）**：422 业务文案原样展示且**不清空**输入；409 冲突文案；
+  网络失败提示检查局域网且不清空输入；**POST 成功但刷新失败时必须报“比分已保存 + 刷新失败”，
+  不得报“本次未保存”，且 score POST 只有一次**；连点 3 次只发 1 次请求且按钮 disabled / 显示“提交中…”；
+  被拒绝后可再次提交（锁正确释放）。
+* **操作人（2 例）**：填写后随请求提交并记忆；不填时不发送 `operator_name`。
+* **已结束比赛（1 例）**：只展示结果并指向赛事管理端，不重开改分流程。
+
+### 28.3 真机尺寸验收（真实 Chrome 153 + 真实后端，`scripts_mobile_viewport_check.mjs`）
+
+对 **正常名字**与**超长名字**两套真实数据各跑一遍，**60 项检查全部 PASS**（每断点 15 项 × 4 断点）：
+
+| 断点 | 无横向滚动 | 大比分输入 | 步进按钮 | 提交按钮 | 小比分输入 | 删除按钮 | 名字不破版 | 错误文字可见 | 步进不动另一方 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 360px | ✅ scrollWidth=360 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ | ✅ |
+| 375px | ✅ scrollWidth=375 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ | ✅ |
+| 390px | ✅ scrollWidth=390 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ | ✅ |
+| 430px | ✅ scrollWidth=430 | ✅ 64px | ✅ 64px | ✅ 58px | ✅ 52px | ✅ 44px | ✅ | ✅ | ✅ |
+
+超长数据：赛事名 32 字、姓名 `张三丰·欧阳锋·令狐冲·东方不败` 与
+`AlexandertheGreatWangXiaoming`。
+
+### 28.4 端到端验收（真实 Chrome 390×844 + 真实后端，`day3_mobile_e2e.mjs`）
+
+在手机视口里真的用键盘输入、真的点按钮，然后回服务端核对事实，**21 项全部 PASS**：
+
+| 场景 | 断言 |
+| --- | --- |
+| A 只录大比分 | 页面显示「比分已保存」；服务端 `FINISHED`、`2:1`、`games=[]`（无伪造逐局） |
+| A 连点 3 次 | 服务端**只有 1 条 RECORD 审计** |
+| C 非法小比分（汇总 0:2 vs 大比分 2:1） | 页面显示 `服务端未接受本次比分：逐局小比分与大比分不一致`；服务端状态未变；输入未清空 |
+| B 局制不符（2 局制填 1:0） | 前端无本地赛制提示；请求到达后端；展示 `服务端未接受本次比分：大比分胜局数必须为 2`；服务端状态未变 |
+| D 异常结果（B 方弃权） | 提交前出现确认条；服务端 `result_type=FORFEIT`、`forfeit_entry_id` 正确、`games=[]`；页面显示「弃权」并标注「排名用行政比分」 |
+
+### 28.5 后端契约层验收（`day3_mobile_score_acceptance.ps1`，22 项 PASS）
+
+`[PASS] A accepted`、`A match FINISHED`、`A big score stored`、`A no fabricated per-game scores`、
+`E same request_id returns 200 (idempotent replay)`、`E only one RECORD audit row`、
+`E same request_id with different payload rejected (409)`、`B per-game scores stored correctly`、
+`C rejected by server (422 逐局小比分与大比分不一致)`、`C match untouched after rejection`、
+`C draw rejected 422`、`C inconsistent games rejected 422`、`D result_type=FORFEIT`、
+`D forfeit_entry_id stored`、`D no per-game scores created`、`D bad forfeit side rejected 422`、
+`F rejected 409` 等。
+
+### 28.6 LAN / production 兼容（PR #44 能力未被破坏）
+
+| 项 | 结果 |
+| --- | --- |
+| `http://127.0.0.1:8000`（等价 8099）深链接 `/admin/t/:tid/matches/:matchId/score` | ✅ 200 返回 SPA |
+| `http://192.168.3.32:8099/api/health` | ✅ `{"status":"ok"}` |
+| 局域网地址打开录分页并渲染 | ✅ 四个断点全部 PASS（页面请求发向当前服务器，非 localhost） |
+| 相对 API 路径 | ✅ 页面与 `api.ts` 全部使用 `/api/...`，未写死 host / 端口 |
+| CORS | ✅ **未改动**（仍只有 5173 两个来源），未为 LAN 放宽成 `*` |
+| `start_pingpong.ps1` | ✅ 未修改 |
+
+> 说明：本轮用本机私网地址 `192.168.3.32` 验证「非 localhost 来源可正常打开并录分」，
+> 满足“请求发向当前服务器”这一条。**真机二机实测仍需人工**（本环境无第二台设备），见 31。
+
+## 29. 错误处理矩阵（页面实际行为）
+
+| 后端结果 | 页面文案 |
+| --- | --- |
+| 422 | `服务端未接受本次比分：<后端 detail>`（如「逐局小比分与大比分不一致」「比赛不允许平局」） |
+| 409 | `当前比赛状态不允许这样操作：<后端 detail>` |
+| 404 | `比赛不存在或已不属于本赛事：<后端 detail>` |
+| 401 | `登录状态已失效，请重新登录后再提交。（<后端 detail>）` |
+| 403 | `当前账号没有本赛事的录分权限：<后端 detail>` |
+| 5xx | `服务端出错，本次比分未保存：<后端 detail>` |
+| 网络失败 / 断网 | `网络连接失败，请检查局域网连接后重试`，且**不清空**已输入数据 |
+
+所有业务错误都显示服务端真实 `detail`，不存在统一显示“提交失败”的兜底。
+
+## 30. 改分边界（Day 3 不做）
+
+Day 3 的核心是**现场首次录分**。页面在比赛已 FINISHED 时：
+
+* 只展示真实结果（正常比分 + 逐局小比分，或异常结果 + 行政比分标注）；
+* 明确提示「如需修改结果，请前往赛事管理端」；
+* **不提供**任何第二次录分 / 改分入口，也不调用 `POST /api/matches/{id}/revise-score`；
+* 现有的改分能力仍在 `ConsolePage` + `ScoreSheet`（桌面端）中，未被改动。
+
+因此 Day 3 没有扩大范围，也没有与 B 轨的改分影响保护产生第二套实现。
+
+## 31. 已知边界（只列真实未完成项）
+
+| 项 | 状态 |
+| --- | --- |
+| **Auth 最终接线** | 后端已完成并实测（第 48 节）；**前端 shell 仍等 C 轨** `RequireAuth` / `RequireTournamentAccess`。接线点已在 `MobileScoreRoutes.tsx::AdminScoreGuardBoundary` 固定。D 轨未引入任何临时认证 |
+| **LAN 真机二机实测** | ⛔ 未做：本环境无第二台设备。已用本机私网地址 `192.168.3.32` 验证非 localhost 来源可正常打开并录分 |
+| **iOS Safari / Android Chrome 真机触摸** | ⛔ 未做：本轮为 Chrome 153 headless + CDP 视口测量与真实输入，非真机。视口尺寸、触摸目标高度、无横向滚动均已实测 |
+| **键盘弹出后的可视区域** | ⛔ 未在真机验证：提交按钮为 sticky bottom + `env(safe-area-inset-bottom)`，headless 无法模拟软键盘遮挡 |
+| **逐局小比分“局数自动跟随大比分”** | 已知交互简化：展开时按当前大比分推导行数（`a+b` 行，上限 `2×games_to_win-1`），之后改大比分不会自动重排行数，由裁判手点「再加一局」 |
+| **团体赛（TEAM）录分** | 不在 Day 3 范围：本页只处理普通 `Match`，团体盘比分仍走既有 `TeamTiePage` |
+| **`pnpm test` 的 `cleanup()`** | 既有 `PublicRoutes.test.tsx` 未显式 cleanup（vitest 未开 globals，自动 cleanup 不注册）。它每个用例只渲染一次因而未暴露问题；新测试文件已显式 `cleanup()`。未顺手改既有测试文件以免扩大 diff |
+
+## 32. 本地复现验收的完整步骤
+
+```powershell
+# 1. 后端（独立验收库，避免污染 demo.db）
+cd backend
+$env:DEMO_DB_PATH='data\d3_acceptance.db'
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8099
+
+# 2. 契约层验收（另开一个终端）
+powershell -File .\day3_mobile_score_acceptance.ps1
+
+# 3. 前端构建产物 + 起一个开了 CDP 的 Chrome
+cd ..\frontend; pnpm build
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --disable-gpu `
+    --remote-debugging-port=9333 --user-data-dir=$env:TEMP\d3chrome about:blank
+
+# 4. 端到端 + 小屏测量
+cd ..\backend
+.\.venv\Scripts\python.exe .\day3_e2e_fixture.py          # 打印 TID / MATCH_A / MATCH_C / MATCH_D / MATCH_B
+node .\day3_mobile_e2e.mjs http://127.0.0.1:8099 <TID> <MATCH_A> <MATCH_C> <MATCH_D> <MATCH_B>
+.\.venv\Scripts\python.exe .\day3_longname_fixture.py     # 打印超长名字赛事路径
+node .\scripts_mobile_viewport_check.mjs http://127.0.0.1:8099 /admin/t/<tid>/matches/<mid>/score
+```
+
+---
+---
+
+# D 轨 Day 3 Review 返工记录
+
+分支与 PR 未变：`feat/d-day3-mobile-score` / **PR #45**（review 返工继续追加在同一个 PR，未开新 PR、未合并）。
+本节只记录本轮两处 review 问题的修复，不改变 22–32 节的交付范围。
+
+## 33. 修复：POST 成功但刷新失败被报成“提交失败”
+
+### 33.1 问题
+
+`MobileScorePage.tsx::runSubmit()` 初版把 `await api.recordScore(...)` 与 `await load()`
+放在**同一个 try/catch**：
+
+```text
+POST /score 成功落库 → 重新 GET Match 时网络失败 → catch → 显示“网络连接失败…”
+```
+
+此时比分**事实上已经保存**，却告诉裁判“没保存”，会诱导重复提交。这是错误状态。
+
+### 33.2 修复
+
+拆成两段，并在 POST 成功后立即记录服务端返回的真实 `MatchOut`：
+
+```ts
+let savedMatch: Match
+try {
+  savedMatch = await api.recordScore(match.id, payload)   // ① 只有这里失败才算“未保存”
+  setSavedMatch(savedMatch)
+} catch (error) {
+  setFormError(/* 422/409/401/403/404/网络 文案，输入不清空 */)
+  return
+}
+
+try {
+  await load()                                            // ② 刷新失败 ≠ 提交失败
+} catch {
+  setRefreshWarning('比分已保存，但最新状态刷新失败，请重新加载页面确认。')
+}
+```
+
+* **A. score POST 失败**：仍按 `describeSubmitError` 展示，覆盖 422 / 409 / 401 / 403 / 404 / 网络错误，输入不清空。
+* **B. POST 成功但刷新失败**：新增 `savedMatch` / `refreshWarning` 两个状态，用 POST 返回的真实
+  `MatchOut` 作为已保存结果兜底展示完成态，并给出醒目的 `.ms-refresh-warning` 提示条：
+  「**比分已保存** …… 请重新加载页面，核对最新比赛状态；不要重复提交。」
+  该提示条刻意**不是**红色错误样式，避免诱导重复提交。
+* 成功刷新时页面仍以刷新后的 match 为准（不拿旧响应覆盖真实状态）：兜底仅在
+  `refreshWarning !== null && savedMatch.status === 'FINISHED'` 时启用。
+* 未改后端、未新增第二条 API。
+
+### 33.3 回归测试
+
+新增 1 例（`MobileScorePage.test.tsx`）：`POST /score → 200` 成功，随后所有 `/api/*` GET 网络失败。断言：
+
+* `scorePosts.length === 1`（score POST 只有一次）
+* 页面出现「比分已保存」
+* 页面出现「最新状态刷新失败」与「请重新加载」
+* 存在 `.ms-refresh-warning` 提示条，且**不存在** `.ms-error`
+* `document.body.textContent` **不包含**「网络连接失败」「本次比分未保存」「服务端出错」
+* 完成态下不存在「确认提交大比分」按钮（不可能再触发第二次提交）
+
+## 34. 修复：删除前端对 `gamesToWin` 的业务合法性裁决
+
+### 34.1 删除的内容
+
+| 位置 | 删除的行为 |
+| --- | --- |
+| `mobileScore.ts::buildNormalScorePayload` | `if (Math.max(big.a, big.b) !== gamesToWin)` 阻断提交（连同该入参一起移除） |
+| `MobileScorePage.tsx::bumpScore` | 用 `gamesToWin` 当步进上限（`Math.min(gamesToWin, base + delta)`） |
+| `MobileScorePage.tsx::bumpScore` | 一方达到 `gamesToWin` 时**自动改写另一方**比分（`otherApply(String(gamesToWin - 1))`） |
+| `MobileScorePage.tsx::describeNormalHint` | 提示「本赛事 N 局制：胜方大比分应为 N」这条按赛制推导的结论 |
+
+这些都属于「本场比分是否合法」的业务判断，等于在手机端建立第二套合法比分算法；
+Day3D 的冻结边界是「移动端负责交互，后端负责规则」，且 Day4 调整赛制/规则时前端不应同步复制规则。
+
+### 34.2 保留的交互检查
+
+必填、必须为非负整数、双方大比分明显相同的提示、小比分“只填一边”的半局提示、
+防重复提交、数字键盘 / `inputMode` / 可点区域等纯交互约束 —— 全部保留。
+
+步进按钮仍为 `+1 / −1` 且下限 `0`，但不再受 `gamesToWin` 限制，也不改动另一方。
+
+### 34.3 现在的行为
+
+三局两胜里填 `1:0`（业务上非法）会**真的发出请求**：
+
+```text
+POST /api/matches/{id}/score  →  backend scores.py  →  422「大比分胜局数必须为 2」
+  →  手机端展示服务端真实 detail
+```
+
+### 34.4 回归测试
+
+* 新增 1 例：胜方局数不符合本赛事局制时**不阻断**，断言请求确实发出（`scorePosts.length === 1`）且展示服务端 detail。
+* 新增 1 例：步进按钮连点 4 次得到 `4`（不被 2 局制截断），另一方仍为空（不被自动改写），下限仍为 `0`。
+* 定向 E2E 新增 scenario B：真实 Chrome 里填 `1:0` 提交 → 前端无本地赛制提示 → 服务端 422 文案上屏 → 服务端状态未变。
+
+## 35. 本轮验证结果
+
+| 项目 | 结果 |
+| --- | --- |
+| `frontend> pnpm test` | **41 passed**（原 39 + 本轮净增 2） |
+| `frontend> pnpm exec tsc --noEmit` | 通过（exit 0） |
+| `frontend> pnpm build` | 通过 |
+| `frontend> pnpm contract:check` | 通过（未改 OpenAPI，无 diff） |
+| `backend> python -m pytest` | 本轮未改后端，沿用 **758 passed, 30 skipped, 2 warnings** |
+| `day3_mobile_score_acceptance.ps1` | **22 PASS / 0 FAIL** |
+| `day3_mobile_e2e.mjs`（真实 Chrome 390×844） | **21 PASS / 0 FAIL**（新增 scenario B 三例） |
+| `scripts_mobile_viewport_check.mjs`（360/375/390/430，含超长名字） | **60 PASS / 0 FAIL**（每断点 15 项，其中新增“步进不动另一方”1 项） |
+
+## 36. Auth 边界未变
+
+本轮**没有**触碰 token、Session、AuthContext、localStorage 登录、backend auth 或临时 Guard。
+`MobileScoreRoutes.tsx::AdminScoreGuardBoundary` 仍是唯一接线点，PR #45 描述中的
+`Auth final wiring blocked by A track contract` 状态不变。
+
+---
+---
+
+# D 轨 Day 3 Reviewer 第二轮返工：路由切换的陈旧响应竞态
+
+分支与 PR 未变：`feat/d-day3-mobile-score` / **PR #45**。本轮只处理 Reviewer 指出的 **1 个 P1**，
+未扩大 Day3D 范围，未触碰 backend / OpenAPI / Auth。
+
+## 37. 缺陷
+
+React Router 在同一路由 pattern 下切换 `:tid` / `:matchId` 时，`MobileScorePage`
+**不会 remount**（`MobileScoreRoutes` 里没有 `key`），只有 props 变化。此时 `load()` 内部自己
+`setData(...)`，于是：
+
+```text
+打开 /admin/t/A/matches/X/score（关键 GET 悬挂）
+  → 同 SPA 导航到 /admin/t/B/matches/Y/score，B/Y 先完成并正确显示
+  → 释放 A/X 旧请求，旧响应晚返回 → setData(A/X) 覆盖页面
+```
+
+最危险的后果是「页面显示 A/X，但 `match.id` 已经是 Y」→ **录的分可能写到别的比赛上**。
+原实现的 `let active = true` 只保护 `load().catch(...)`，管不到成功路径的 `setData`。
+
+## 38. 修复
+
+### 38.1 `load()` 变成纯取数函数
+
+```ts
+type LoadResult =
+  | { ok: true; data: LoadedData }
+  | { ok: false; failure: LoadFailure }
+
+const load = useCallback(async (): Promise<LoadResult> => { /* 只调 API + 组装结果 */ }, [tid, matchId])
+```
+
+`load()` 内**不再出现任何** `setData` / `setFailure` / `setSavedMatch` / `setRefreshWarning`。
+`match` 不存在时也改为 `return { ok: false, failure: { kind: 'match-missing', ... } }`，
+由调用方在确认 generation 有效后才写 `setFailure`。
+
+### 38.2 generation 是新鲜度的唯一依据
+
+新增 `loadGenerationRef`，并把它作为**唯一**的陈旧响应判据：
+
+* 每次进入新的加载上下文 `++loadGenerationRef.current`；
+* effect cleanup 里作废当前 generation（只作废一次）；
+* 所有异步写入统一经过 `applyLoadResult(generation, result)`，或显式比较
+  `generation !== loadGenerationRef.current`。
+
+⚠️ 同时**移除了 effect 里的 `let cancelled` 闭包标志**。原因是它会让 generation 判断永远
+短路、测试也跟着变成空测试：作者实测把 generation 机制整体禁用后全部用例仍然通过
+（见 39.2）。现在只保留一套判断，任何一套被改坏都会被测试抓到。
+
+### 38.3 提交后的 refresh 复用同一套防护
+
+`runSubmit()` 在开头捕获 `const generation = loadGenerationRef.current`，并在每个写 state 的
+分支前检查 `isStale()`：
+
+| 位置 | 陈旧时行为 |
+| --- | --- |
+| POST 成功树 | 不写 `savedMatch`（只释放 `inFlight`） |
+| POST 失败 catch | 不写 `formError` |
+| refresh 结果 | 经 `applyLoadResult(generation, …)`，不写 `data` / `failure` |
+| refresh 失败 catch | 不写 `refreshWarning` |
+| finally | 不写 `submitting` / `inFlight` |
+
+因此「旧比赛 POST 成功但刷新失败」**不会**在新比赛页面上显示“已保存 / 刷新失败”提示。
+
+### 38.4 路由切换时重置表单与提交状态
+
+因为是同组件 props 变化（不 remount），切换比赛时会清空上一场的输入与提示
+（`scoreA/B`、`games`、`note`、`mode`、`confirmAbnormal`、`formError`、`savedMatch`、
+`refreshWarning`、`submitting`），并重置 `inFlight` 锁 —— 否则上一场未归零的锁会卡死
+新页面的首次提交。`operatorName` 刻意保留（它是裁判身份，已持久化在 localStorage）。
+
+### 38.5 上一轮语义保持
+
+* POST 失败才算“本次比分没有保存”（422/409/401/403/404/网络，输入不清空）；
+* POST 成功 + refresh 失败 = **已保存**，显示“比分已保存，但最新状态刷新失败，请重新加载页面确认”；
+* 该提示条仍不是红色错误样式，不诱导重复提交。
+
+## 39. 回归测试
+
+新增 `frontend/src/__tests__/MobileScoreRouteRace.test.tsx`（3 例），使用 deferred promise
+真实制造竞态，并且**在同一次 render / 同一个 `MemoryRouter` 内**导航（不重新 mount 测试 App）：
+
+1. **A/X 请求晚返回时页面仍显示 B/Y，且提交只命中 Y**
+   悬挂 A 的 `GET /api/tournaments/A/matches` → 同 SPA 导航到 B/Y → B/Y 正常显示 →
+   释放 A 的旧请求 → 断言页面仍是 B/Y、`TOURNAMENT_A.name` / `AAA选手一` / `AAA选手二`
+   都不出现、且没有变成“比赛不存在” → 填分提交 →
+   `expect(scorePostPaths).toEqual([`/api/matches/${MATCH_Y}/score`])`
+   并断言绝不含 `/api/matches/${MATCH_X}/score`。
+2. **A/X 旧请求晚返回时不得把已显示 B/Y 的页面改成“比赛不存在”**
+   A 的悬挂请求释放后返回**不含 X** 的列表，覆盖 `match-missing` 也必须在 generation 保护内。
+3. **B/Y 显示期间不出现上一场的错误态或“已保存/刷新失败”提示**
+   覆盖 `failure` / `savedMatch` / `refreshWarning` 的跨路由污染，并断言全程零提交。
+
+路由使用**生产环境的真实 adapter**（`MobileScoreRoutes.tsx::AdminScoreAdapter`，本轮为测试
+导出），测试只在外层注入一个导航探针（录分页本身刻意不含任何跳转链接）。
+
+### 39.2 非空测试验证（避免“测试永远通过”）
+
+把 generation 机制临时整体禁用（effect 不递增 + cleanup 不作废）后重跑：
+
+```text
+× A/X 请求晚返回时页面仍显示 B/Y，且提交只命中 Y   → Unable to find "TID-B-THIRTY-TWO 赛事"
+× A/X 旧请求晚返回时不得把已显示 B/Y 的页面改成“比赛不存在” → expected <h1></h1> to be null
+× B/Y 显示期间不出现上一场的错误态或“已保存/刷新失败”提示 → Unable to find "TID-B-THIRTY-TWO 赛事"
+Tests  3 failed | 41 passed (44)
+```
+
+恢复修复后 44 例全绿 —— 说明这 3 例确实在守护该竞态，而不是恒真断言。
+
+## 40. 本轮验证结果
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 前端全量 | `frontend> pnpm test` | **44 passed**（3 files：41 + 本轮新增 3） |
+| 前端类型 | `frontend> pnpm exec tsc --noEmit` | 通过（exit 0） |
+| 生产构建 | `frontend> pnpm build` | 通过 |
+| 契约检查 | `frontend> pnpm contract:check` | 通过（未改 OpenAPI，无 diff） |
+| 后端全量 | `backend> python -m pytest` | 本轮未改后端，沿用 **758 passed, 30 skipped, 2 warnings** |
+| 契约层验收 | `day3_mobile_score_acceptance.ps1` | **22 PASS / 0 FAIL** |
+| 端到端 | `day3_mobile_e2e.mjs`（真实 Chrome 390×844） | **21 PASS / 0 FAIL** |
+| 小屏 | `scripts_mobile_viewport_check.mjs`（360/375/390/430，含超长名字） | **60 PASS / 0 FAIL** |
+
+---
+---
+
+# D 轨 Day 3 Reviewer 第三轮返工：Route ownership 与 canonical URL
+
+分支与 PR 未变：`feat/d-day3-mobile-score` / **PR #45**。本轮只处理 Reviewer 的 1 个 P1，
+未改 backend / OpenAPI / Auth，未扩大 Day3D 范围。
+
+## 41. 缺陷：D 轨抢占整个 `/admin/*`
+
+```tsx
+// App.tsx（错误实现）
+if (pathname.startsWith('/admin/')) return <MobileScoreRoutes />
+// MobileScoreRoutes 内还声明了
+<Route path="/admin/*" element={<AdminScoreInvalidLink />} />
+```
+
+任何 `/admin/...` 都先被 D 轨接管；A/C 后续接入 `AdminLayout` / `Login` / `AccessState` /
+`AuthGuard` / `RequireTournamentAccess` 及其他管理端 route 时会被这里截断。
+
+## 42. 修复
+
+### 42.1 canonical URL 统一
+
+```text
+/admin/t/:tid/matches/:matchId/score        （最终，canonical）
+```
+
+与 Day 1 冻结稿一致，`matches/:matchId/score` 的资源层级更清楚。PR 未合并且**没有**保留第二套路由。
+
+### 42.2 `App.tsx`：精确匹配入口
+
+```tsx
+// 与 D 轨 route 表共用同一个判断，避免两处字符串漂移
+if (isMobileScoreRoutePath(pathname)) return <MobileScoreRoutes />
+```
+
+`isMobileScoreRoutePath()`（在 `MobileScoreRoutes.tsx` 内导出）内部是 react-router 的
+`matchPath({ path: MOBILE_SCORE_ROUTE_PATH, end: true }, pathname) !== null` ——
+**完整匹配**，不自写字符串解析，也**不再**出现 `startsWith('/admin/')`。
+
+### 42.3 `MobileScoreRoutes.tsx`：只声明自己拥有的 route
+
+```tsx
+export const MOBILE_SCORE_ROUTE_PATH = '/admin/t/:tid/matches/:matchId/score'
+// 路由表只声明这一条；没有 /admin/* catch-all
+<Route element={<AdminScoreAdapter />} path={MOBILE_SCORE_ROUTE_PATH} />
+```
+
+未知 `/admin/...` 一律交还 A/C 的管理端 route tree；D 轨不再替管理端决定“未知 admin 路径显示什么”。
+
+### 42.4 非法 param 仍走 adapter 错误页
+
+`/admin/t/abc/matches/345/score`、`/admin/t/12/matches/xyz/score` 的 route pattern 本身正确，
+仍进入 `AdminScoreAdapter`，由 `parseRouteTournamentId()` / `parseRouteMatchId()` 判为非法 →
+显示「链接不可用」，不回退 query / localStorage，也不发任何 API 请求。
+错误页示例地址已更新为 `/admin/t/12/matches/345/score`。
+
+### 42.5 `ConsolePage` 入口
+
+```tsx
+to={`/admin/t/${tid}/matches/${m.id}/score`}
+```
+
+只改 URL，未动比赛筛选、排台、桌面端录分、改分与 Match 状态。
+
+## 43. Route ownership 回归测试（`MobileScoreRouteOwnership.test.tsx`，36 例）
+
+### 43.1 为什么不用“外层 `/admin/*` 哨兵”
+
+两种写法都实测为**假测试**，记录在此避免重犯：
+
+1. 在外层 `<Routes>` 放 `/admin/*` 哨兵“证明交给外层”：react-router 按 route 打分而不是声明顺序，
+   `/admin/*` 比 `*` 更具体，会**先于 `App`** 命中 → `App` 根本不被挂载，测试测不到它的分支；
+2. 只断言“页面里没有 D 的内容”：D 若被误挂载但自身 route 表已收窄，它会渲染一棵**空**树，
+   同样“什么都没出现”，断言恒真。
+
+### 43.2 实际使用的两个可观测判据
+
+* **入口判定**：对 `App.tsx` **实际调用**的 `isMobileScoreRoutePath()` 做决策表断言
+  （命中 2 条 / 不命中 15 条，含 `/admin/events`、`/admin/login`、`/admin/t/12/settings`、
+  `/admin/t/12/matches`、`/admin/t/12/matches/345/score/extra`、`/admin/t/12/score/345`、
+  `/admin`、`/admin/` 等），并额外做**源码级护栏**：`App.tsx` 必须包含
+  `isMobileScoreRoutePath(pathname)`、且（剥掉注释后）不含 `startsWith('/admin/')` 与 `/admin/*`。
+* **D 轨 route 表**：单独渲染 `MobileScoreRoutes`，断言
+  canonical 路径渲染录分页、而 7 条非 canonical `/admin/...` 路径下**渲染结果为空**
+  （既不显示录分页、也不显示 D 的「链接不可用」）且**零 API 请求**。
+
+### 43.3 校准（两种回归都实测会失败）
+
+```text
+回归 1：入口改回 pathname.startsWith('/admin/')
+  → 1 failed（App.tsx 源码级护栏拦下）          79 passed
+
+回归 2：D 轨 route 表加回 /admin/* catch-all
+  → 7 failed（7 条非 canonical 路径都渲染出了 D 的页面/错误页） 73 passed
+
+恢复修复后：80 passed
+```
+
+## 44. RouteRace 测试保持有效
+
+`MobileScoreRouteRace.test.tsx` 未删除、未弱化，只把 URL 迁移到 canonical 形式
+（`/admin/t/A/matches/X/score` → `/admin/t/B/matches/Y/score`），竞态手法不变：
+deferred promise 悬挂 A/X → 同 SPA 导航 B/Y → B/Y 显示 → 释放 A/X → 页面仍是 B/Y →
+提交只命中 `Y`。前一轮的“非空测试验证”结论同样保持有效。
+
+## 45. P-01 核验（LAN 只是 Deployment）
+
+* production 业务代码仍然只使用相对 `/api/...`：`frontend/src` 下**没有** `http://localhost`、
+  `http://127.0.0.1`、`http://192.168`、固定 backend hostname 或 `:5173`（本轮复核，见 46 报告）；
+* 测试/验收脚本中的 `http://127.0.0.1:8099` 属允许范围；
+* 未开发公网 / Tunnel / Caddy / 域名 / QR / LAN IP 自动发现。
+
+## 46. 依赖
+
+`pnpm install --frozen-lockfile` 通过，`package.json` 与 `pnpm-lock.yaml` **未改动**
+（本 PR 未新增任何依赖）。
+
+## 47. 本轮验证结果
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 前端全量 | `frontend> pnpm test` | **80 passed**（4 files） |
+| 前端类型 | `frontend> pnpm exec tsc --noEmit` | 通过（exit 0） |
+| 生产构建 | `frontend> pnpm build` | 通过 |
+| 契约检查 | `frontend> pnpm contract:check` | 通过（未改 OpenAPI，无 diff） |
+| 依赖锁定 | `frontend> pnpm install --frozen-lockfile` | 通过，无 lockfile 变更 |
+| 后端全量 | `backend> python -m pytest` | 本轮未改后端，沿用 **758 passed, 30 skipped, 2 warnings** |
+| 契约层验收 | `day3_mobile_score_acceptance.ps1` | **22 PASS / 0 FAIL** |
+| 端到端 | `day3_mobile_e2e.mjs`（真实 Chrome 390×844，canonical URL） | **21 PASS / 0 FAIL** |
+| 小屏 | `scripts_mobile_viewport_check.mjs`（canonical URL） | **60 PASS / 0 FAIL** |
+
+---
+---
+
+# D 轨 Day 3 第四轮返工：同步最新 master + Auth/赛事授权真实集成验收
+
+分支与 PR 未变：`feat/d-day3-mobile-score` / **PR #45**。本轮把 PR45 的开发基线从
+`master@c900e71` 前移到最新 master，并让全部 Day3 验收走**真实认证**。
+
+## 48. 同步 master
+
+| 项 | 值 |
+| --- | --- |
+| merge 前 PR head | `7c5b23b6ec19e4fee88d1192e73db16c939b2ff8` |
+| 合入的 master | `81827b3ea9c81b3c4c54078f5c45c95d0faac19b`（PR #46 D3A 协作管理员与异常结果接口） |
+| merge commit | `52190f6` |
+| 冲突 | **无**（`git merge origin/master --no-edit` 一次通过） |
+
+为什么没冲突：master 自 `c900e71` 以来**完全没有改 `frontend/src/`**（`git diff --name-only c900e71 origin/master -- frontend/src` 为空），
+A 轨改动全部落在 `backend/`、`docs/`、`docs/openapi-v0.2.json`。D 轨的全部产物
+（MobileScorePage / MobileScoreRoutes / mobileScore.ts / routeParams.ts / 测试 / 验收脚本）
+在 merge 后逐项复核仍在位，`isMobileScoreRoutePath`、`loadGenerationRef` 等不变量未回退。
+
+## 49. 当前 Auth 契约（合并后实际状态）
+
+来源：`docs/A2.7_AUTH_CONTRACT_DELIVERY.md`、`backend/app/routers/auth.py`、
+`backend/app/auth_dependencies.py`、`backend/app/dependencies.py`、
+`backend/app/routers/scores.py`、`docs/openapi-v0.2.json`。
+
+### 49.1 认证入口与凭据
+
+| 项 | 契约 |
+| --- | --- |
+| 登录 | `POST /api/v1/auth/login`（`mode: "browser" \| "bearer"`） |
+| 退出 | `POST /api/v1/auth/logout`（幂等，成功删除 Cookie） |
+| 当前用户 | `GET /api/v1/auth/me` |
+| 改密 | `POST /api/v1/auth/change-password` |
+| 浏览器凭据 | `pp_session` Cookie：`HttpOnly` / `SameSite=Lax` / `Path=/`，HTTPS 追加 `Secure`；**browser 模式不返回 `access_token`** |
+| 脚本凭据 | `Authorization: Bearer <opaque token>`（bearer 模式返回 `access_token`） |
+| 凭据冲突 | 同一请求同时带 Cookie 与 Bearer 且指向不同会话 → 401 `AUTH_REQUIRED` |
+
+### 49.2 赛事写权限
+
+```text
+POST /api/matches/{match_id}/score
+    ↓ Depends(require_tournament_write)     # WRITE_TOURNAMENT_ROLES = OWNER/ADMIN/OPERATOR
+    ↓ 赛事归属来自 tournaments.owner_user_id 或有效的 tournament_admins 授权
+```
+
+### 49.3 错误语义（页面必须尊重）
+
+| 场景 | 状态 | `detail.code` | `detail.message` |
+| --- | --- | --- | --- |
+| 未登录 | 401 | `AUTH_REQUIRED` | 请先登录 / 登录状态已失效，请重新登录 |
+| 无该赛事授权 / 跨赛事资源 | 404 | `RESOURCE_NOT_FOUND` | 资源不存在 |
+| 系统角色不足 | 403 | `FORBIDDEN` | 需要…权限 |
+
+跨赛事统一 404 是**防资源枚举**设计：不得改写成“你没有某赛事权限”。
+
+## 50. MobileScoreRoutes 的 Auth 状态更新
+
+`AdminScoreGuardBoundary` **保持为唯一接线点**，未新增任何临时认证。
+
+判断依据（实测）：`RequireAuth` / `RequireTournamentAccess` / `AuthContext` 在
+`origin/master` 上**不存在**，在 C 轨自己的 `feat/v03-c-d3-settings` 分支上也还没有
+（`frontend/src/pages/LoginPage.tsx` 仍是展示层）。因此属于"情况 B"：
+后端契约已完成，前端 shell 依赖 C 轨。
+
+代码注释已改写为当前事实（后端已落地、录分写入已受保护、前端仍等 C 轨、接线只剩一个前置条件）。
+
+## 51. 共享 `api.ts` 错误解析修复
+
+### 51.1 问题
+
+后端错误体现在有两种形态：
+
+```jsonc
+{ "detail": "逐局小比分与大比分不一致" }                              // 旧式业务错误
+{ "detail": { "code": "AUTH_REQUIRED", "message": "请先登录" } }     // A 轨结构化错误
+```
+
+`api.ts::request()` 只认字符串 detail，因此 401 在页面上退化成 `请求失败 (401)`，
+裁判看不到真实原因。
+
+### 51.2 修改（transport 层一次解析，页面复用）
+
+* `parseErrorBody()` 同时兼容字符串 detail 与结构化 `{code,message}`；
+* `ApiError` 扩展为 `status / message / code?`（可选字段，未改造整个前端异常体系）；
+* 页面**不**自己解析 response、**不**自己判断 `detail.code`。
+
+`MobileScorePage` 只在必要时加前缀，message 一律用服务端原文：
+
+| 后端 | 页面显示 |
+| --- | --- |
+| 401 `AUTH_REQUIRED`「请先登录」 | `请先登录后再提交：请先登录` |
+| 404 `RESOURCE_NOT_FOUND`「资源不存在」 | `服务端拒绝了本次录分：资源不存在`（**不**翻译成权限推断） |
+| 403 `FORBIDDEN` | `当前账号没有该操作的权限：…` |
+| 422 业务错误 | 前缀 + 服务端原文（不变） |
+
+新增 `frontend/src/__tests__/ApiErrorParsing.test.tsx`（6 例）直接测 transport 层。
+
+## 52. 验收脚本如何认证化
+
+| 脚本 | 变化 |
+| --- | --- |
+| `day3_auth_client.py`（新增） | 真实 Bootstrap → 真实建 EVENT_ADMIN → 真实登录（Bearer / Cookie 两种模式）；**不含任何绕过** |
+| `day3_auth_acceptance.py`（新增，替代 `.ps1`） | 30 项断言，全部经真实认证的 HTTP |
+| `day3_e2e_fixture.py` / `day3_longname_fixture.py` | 先真实登录再建赛事（创建赛事本身需要 `require_event_admin`），并打印浏览器 E2E 用的账号密码 |
+| `day3_cdp_auth.mjs`（新增） | Node 侧共享 CDP 客户端；让**浏览器自己**登录建立 `pp_session` |
+| `day3_mobile_e2e.mjs` | 先匿名验证后端拒绝，再真实浏览器登录后跑完整流程 |
+| `scripts_mobile_viewport_check.mjs` | 测量前先建立真实会话，避免只测到 401 页面尺寸 |
+
+明确**没有**做：关闭鉴权、dependency override、`TEST_MODE`、"本机/局域网就放行"、
+直接调 service 层代替 HTTP 写操作、把 bearer token 塞 localStorage 冒充浏览器登录。
+
+## 53. 真实 Auth 场景验收结果
+
+`day3_auth_acceptance.py`：**30 PASS / 0 FAIL**
+
+| 场景 | 结果 |
+| --- | --- |
+| A 已登录 + 有写权限（OWNER） | 200，`FINISHED`，`2:1` 落库，`games=[]` |
+| B 匿名 POST score | **401 `AUTH_REQUIRED`**「请先登录」，比赛仍 `WAITING` 且比分未写入 |
+| B4 匿名写操作（新增选手） | 401 `AUTH_REQUIRED` |
+| B2/B3 匿名只读（比赛列表 / 排名） | 200 —— 这是 master 冻结的 Public 只读契约，不是漏洞 |
+| C 已登录但无该赛事授权 | **404 `RESOURCE_NOT_FOUND`**「资源不存在」，比赛状态不变，响应不泄露资源存在性 |
+| D 只录大比分 | 200，`games=[]` |
+| E 大比分 + 完整小分 | 200，逐局 `11-7 / 9-11 / 11-8` 正确 |
+| F 非法比分 | 422 三次（一致性 / 平局 / 局制），被拒后状态未变 |
+| G 异常结果（弃权） | 200，`result_type` / `forfeit_entry_id` 落库，无逐局小分 |
+| H 同一 request_id 重放 | 200 幂等，只有 1 条 RECORD；换载荷 409 |
+| I 已结束比赛再次录分 | 409 |
+| J `GET /api/v1/auth/me` | 200，返回当前用户 |
+
+## 54. C/D 文件所有权
+
+保持：D 轨本轮只改自己的文件（`MobileScorePage.tsx` 的错误文案映射、
+`MobileScoreRoutes.tsx` 的 Auth 注释），以及共享 `api.ts` 的 transport 解析（第 51 节，属
+"一次解析、所有页面复用"，不是页面级 Auth 逻辑）。
+
+`ConsolePage.tsx` 本轮**未改动**。C 轨拥有的桌面端错误分层 / `pageError` / `actionError` /
+`scoreError` / 桌面改分二次确认 / `ScoreSheet` 桌面体验 / 赛事设置，D 轨一律未碰。
+
+## 55. P-01 核验
+
+* `frontend/src` 生产代码仍只使用相对 `/api/...`；grep `http://|localhost|127.0.0.1|192.168|:5173|:8000|:8099` **无命中**；
+* 认证与授权**不依赖任何 IP 网段**：身份 = Cookie/Bearer → User → Owner/TournamentAdmin；
+  代码中不存在 `if private_ip: allow` / `if LAN: skip auth` 之类分支（A 轨契约第 6 节同款约束）；
+* 未开发公网 / Tunnel / Caddy / 域名 / QR / LAN 自动发现。
+
+## 56. 本轮验证结果（重新执行，不沿用历史常数）
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 后端全量 | `backend> python -m pytest` | **860 passed, 30 skipped, 4 warnings** |
+| OpenAPI 快照 | `backend> python export_openapi.py --check` | `OpenAPI snapshot is up to date` |
+| 依赖锁定 | `frontend> pnpm install --frozen-lockfile` | 通过，`package.json` / `pnpm-lock.yaml` 无 diff |
+| 前端全量 | `frontend> pnpm test` | **89 passed**（5 files） |
+| 前端类型 | `frontend> pnpm exec tsc --noEmit` | 通过（exit 0） |
+| 生产构建 | `frontend> pnpm build` | 通过 |
+| 契约检查 | `frontend> pnpm contract:check` | 通过（generated 已按 master 的 OpenAPI 重新生成，见第 57 节） |
+| 后端授权验收 | `day3_auth_acceptance.py` | **30 PASS / 0 FAIL** |
+| 浏览器端到端 | `day3_mobile_e2e.mjs`（真实 Chrome 390×844 + 真实会话） | **31 PASS / 0 FAIL** |
+| 小屏 | `scripts_mobile_viewport_check.mjs`（canonical URL + 真实会话） | **62 PASS / 0 FAIL** |
+
+> 历史记录的 `758 passed` 是 Day3 初版基线，本轮已按实际结果更新为 **860 passed**；
+> A2.7 报告中的 `835 passed` 也不是验收常数。
+
+## 57. OpenAPI generated 漂移（机械重新生成）
+
+master 更新了 `docs/openapi-v0.2.json`（新增认证 / 系统 / 赛事协作管理员接口），
+但**没有**同步 `frontend/src/generated/openapi.d.ts`，因此 `pnpm contract:check` 在 master 上本身就是失败的。
+
+D 轨用 `pnpm contract:generate` 机械重新生成，并**机械校验**（不是肉眼看）：
+
+```text
+contract schemas : 126     contract paths : 66
+generated types  : 111     generated paths: 66
+types NOT in contract (会表明是发明的): ['parameters', 'requestBody', 'responses']  ← 生成器自身的辅助键
+contract paths missing from generated : []
+generated paths not in contract       : []
+```
+
+即：`generated/openapi.d.ts` 完全来自已提交的 `docs/openapi-v0.2.json`，
+**D 轨没有发明或手工编辑任何契约**（`contract:check` 现已通过）。
+
+## 58. 本轮 commit
+
+```text
+52190f6  Merge remote-tracking branch 'origin/master' into feat/d-day3-mobile-score
+593c118  fix(frontend): parse structured API error details
+5f1eedb  fix(D-Day3): integrate mobile scoring with the landed auth contract
+2cc2c49  chore(frontend): regenerate OpenAPI types from the committed contract
+```
+
+## 59. 剩余依赖
+
+```text
+Backend Auth and tournament authorization are integrated and verified.
+The remaining frontend-shell dependency is C-track
+RequireAuth / RequireTournamentAccess integration.
+No temporary D-track authentication layer was introduced.
+```
+
+---
 
 # D 轨 Day 4D 实施结果
 

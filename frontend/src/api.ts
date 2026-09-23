@@ -90,12 +90,51 @@ type TournamentCreateRequest = Omit<Schemas['TournamentCreate'], 'games_to_win' 
 
 // ------------------------------------------------------------------ client-only
 
+/**
+ * 后端错误响应体有两种形态（都以 `detail` 为外层键）：
+ *
+ * ```jsonc
+ * // 1. 业务错误（V0.2 起一直如此）：字符串 detail
+ * { "detail": "逐局小比分与大比分不一致" }
+ *
+ * // 2. 结构化错误（A 轨认证/授权契约冻结，见 docs/openapi-v0.2.json 的 ApiErrorResponse）
+ * { "detail": { "code": "AUTH_REQUIRED", "message": "请先登录" } }
+ * ```
+ *
+ * transport 层在这里**一次**解析完，页面只消费 `ApiError.message` / `ApiError.code`，
+ * 不允许任何页面自己解析 response（否则等于复制 transport contract）。
+ */
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  /**
+   * 结构化错误码（如 `AUTH_REQUIRED` / `RESOURCE_NOT_FOUND` / `FORBIDDEN`）。
+   *
+   * 旧式字符串 detail 的后端响应没有这个字段，此时为 `undefined`。
+   * 注意：页面**不得**用它自行推导业务结论（例如把 401/404 改写成自己的权限文案）——
+   * 服务端返回的语义就是权威，尤其是跨赛事资源统一按 404 RESOURCE_NOT_FOUND
+   * “资源不存在”表达，以防资源枚举。
+   */
+  code?: string
+  constructor(status: number, message: string, code?: string) {
     super(message)
     this.status = status
+    this.code = code
   }
+}
+
+/** 从错误响应体解析出可读 message 与可选的结构化 code。 */
+function parseErrorBody(body: unknown): { message?: string; code?: string } {
+  if (typeof body !== 'object' || body === null) return {}
+  const detail = (body as { detail?: unknown }).detail
+  if (typeof detail === 'string') return { message: detail }
+  if (typeof detail === 'object' && detail !== null) {
+    const structured = detail as { code?: unknown; message?: unknown }
+    return {
+      message: typeof structured.message === 'string' ? structured.message : undefined,
+      code: typeof structured.code === 'string' ? structured.code : undefined,
+    }
+  }
+  return {}
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -106,16 +145,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   if (!resp.ok) {
-    let detail = `请求失败 (${resp.status})`
+    let message = `请求失败 (${resp.status})`
+    let code: string | undefined
     try {
-      const body = await resp.json()
-      if (typeof body?.detail === 'string') detail = body.detail
+      const parsed = parseErrorBody(await resp.json())
+      if (parsed.message !== undefined) message = parsed.message
+      code = parsed.code
     } catch {
       // 非 JSON 错误体，保留默认信息
     }
     // 开发期诊断：把失败请求的 method/url/status/detail 打到浏览器 Console
-    console.error(`[api] ${init?.method ?? 'GET'} ${path} -> ${resp.status}`, detail)
-    throw new ApiError(resp.status, detail)
+    console.error(`[api] ${init?.method ?? 'GET'} ${path} -> ${resp.status}`, message, code ?? '')
+    throw new ApiError(resp.status, message, code)
   }
   if (resp.status === 204) return undefined as T
   return (await resp.json()) as T
