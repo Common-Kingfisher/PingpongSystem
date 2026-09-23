@@ -167,7 +167,8 @@ post-restore tests
 
 ## 十、唯一 PR 声明
 
-- 分支：`fix/D6A并发事务备份恢复`。
+- 分支：`fix/D6A-concurrency-transaction-backup-restore`。
+- 分支名使用 UTF-8 安全的 ASCII 字符，不直接使用中文。
 - 建议标题：`fix(A轨-D6)：加固并发事务与备份恢复`。
 - D6A 当天只使用本分支和本 PR。
 - 后续代码、测试、文档和修改报告全部追加到本 PR。
