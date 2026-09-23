@@ -123,3 +123,23 @@ python -m pytest -q -p no:cacheprovider
 - 633 passed，32 skipped，0 failed。
 - 2 条依赖弃用警告；完整回归耗时约 3 分钟。
 - 此前记录的 `tests/test_team_group_ties.py::test_generated_tie_continues_into_production_runtime` 已随测试执行提交中的夹具修正解决，不再作为当前基线失败记录。
+
+## 9. D6B 当前状态更新（历史冻结后的实现落地）
+
+> 历史说明：第 1～8 节记录的是 2026-09-21 Day 1 建立冻结骨架时的现况，
+> 其中“32 skipped”是当时的验证事实，并非当前测试状态。
+
+截至 D6B，比分提交、淘汰改分依赖与排名数据不足的冻结骨架已由正式行为测试替代，
+因此从 `test_v03_rule_engine_contract.py` 删除过期 skip；这不表示删除规则要求。
+其中 `abnormal_with_games` 已由 scores service 统一返回 422：非 `NORMAL` 赛果只要显式携带
+`games`（包括空数组）即被拒绝，不再静默忽略逐局数据。
+
+| 契约 | 当前正式测试 |
+| --- | --- |
+| 比分与异常结果 | `backend/tests/test_scores.py` |
+| 淘汰改分依赖 | `backend/tests/test_knockout_flow.py`、`backend/tests/test_knockout_dependency_contract.py`、`backend/tests/test_d6b_rule_stress.py` |
+| 排名、缺小分与人工裁定 | `backend/tests/test_scores.py`、`backend/tests/test_format_handlers.py`、`backend/tests/test_qualification_decisions.py`、`backend/tests/test_entry_withdrawal.py` |
+
+Day 1 对“下游已生成但未开赛”的“显式确认”设想已被后续 D3B 批准行为取代：
+胜者不变时不重置下游；胜者变化且所有下游均未开始时直接重置受影响分支并传播新胜者；
+任一下游为 `PLAYING` 或 `FINISHED` 时拒绝修改。这一演进由上述淘汰改分回归测试承接。
