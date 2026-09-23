@@ -2734,3 +2734,200 @@ E5：报名 → 确认 → Player → Entry → Match → 比赛 的全链独立
 
 本轮只能声明：**D 轨负责的 Public 侧交付完成并通过本地证据验证**，
 Day5 总 Gate 仍需 C5 + E5 独立复验。
+
+---
+
+# D 轨 Day5D · PR #58 Review 返工：管理端赛事级报名开关
+
+## 66. 触发条件（Reviewer 结论）
+
+```text
+PR #58
+branch: feat/d-day5-public-registration
+旧 head: cec4e8a29a5b9b7152bd6b61d895713350681511
+相对旧 master: ahead 4 / behind 12 / diverged
+结论: CHANGES_REQUESTED
+```
+
+唯一 P1 阻断项：
+
+> Public 已经能够读取 `registration_enabled`，但 EVENT_ADMIN 没有任何 UI 可以真正开启 / 关闭报名。
+
+已被 review 通过、本轮**没有重写**的部分：Public 不再 `api.addPlayer()`、`POST Registration → PENDING`、
+`registration_enabled=false` 时 Public 只读、Public 不读取报名管理列表、contact 不在 Public 回显、
+QR URL 使用当前 origin、无固定 LAN IP / localhost / 公网域名、duplicate submit 只是前端单动作锁。
+
+## 67. 先同步最新 master（merge，不 rebase）
+
+```text
+origin/master  14577ee  →  31c79225115c5731ba278294a4ac19792ada10fb
+git checkout feat/d-day5-public-registration && git merge origin/master
+→ 无冲突（0 conflicts），未 force push、未 rebase
+merge commit   6b9c5dd7f40831ff0c3b7ddb74dfff829ada6fde
+merge 后       ahead 5 / behind 0
+git diff --check → 干净
+```
+
+master 这一轮（D6A/D7A）主要带来：数据库备份恢复与迁移冻结、并发事务改造、
+`backend/tests/test_d6a_concurrency.py`、`test_database_backup_restore.py`、`test_restart_persistence.py` 等；
+前端侧只有 `generated/openapi.d.ts` 与 `docs/openapi-v0.2.json` 的机械增量。
+
+**同步后重点复查结论（决定「不做第二套」）**：
+
+| 复查项 | 结论 |
+| --- | --- |
+| master 是否已实现报名开关 UI | ❌ 没有。`TournamentSettingsPage.tsx` 本轮**未被 master 修改**，仍只有占位分支 |
+| C5 是否已实现报名待确认管理 | ❌ 没有 |
+| `/settings` 管理端 route | ❌ 仍未接入：`AdminLayout` 的「赛事设置」只声明 `to: '/settings'`，`App.tsx` 没有该 route，`RequireAuth` / `RequireTournamentAccess` 在 master 中也不存在 |
+| generated contract | ✅ `TournamentRegistrationUpdate` 已在契约中（来自 PR #51），`contract:check` 无漂移 |
+
+因此不存在「第二套实现」冲突：本轮的开关控制面是唯一实现。
+
+## 68. Root cause
+
+```text
+PR #58 只实现了「Public 读 registration_enabled」这一半：
+  Public 只读 → 正确
+  EVENT_ADMIN 写 → 完全缺失
+后果：registration_enabled 只能靠手工 PUT 修改，
+      新赛事默认 false（A5 冻结：历史赛事默认关闭），
+      于是 Public 永远停在「当前赛事暂未开放报名」，
+      整条 Public 报名链路在真实产品里无法走通。
+```
+
+## 69. 修复内容（仅 2 个源文件）
+
+| 文件 | 改动 |
+| --- | --- |
+| `frontend/src/api.ts` | 新增 `TournamentRegistrationUpdate = Schemas['TournamentRegistrationUpdate']` 与 `api.setRegistrationEnabled(tournamentId, body)` → `PUT /api/tournaments/{tid}/registration`，返回权威 `TournamentOut`。没有手写 `interface RegistrationSetting`，也没有乐观置位 |
+| `frontend/src/pages/TournamentSettingsPage.tsx` | 「报名设置」从占位页变成 `RegistrationSettings` 控制面：`[开启报名] / [关闭报名]` → `PUT` → **UI 状态 = `response.registration_enabled`** |
+| `frontend/src/pages/TournamentSettingsPage.css` | 状态点 / 开关按钮 / 提示 / 错误条的样式（复用既有色板与紧凑排版） |
+
+**没有**新增页面、路由、Layout；**没有**实现报名列表 / 确认 / 拒绝 / 批量操作（属 C5）；
+**backend 0 业务改动**（`router` / `service` / `schema` / `migration` / `models` / 权限依赖全部未触碰）。
+
+```text
+EVENT_ADMIN
+  → 赛事设置 → 报名设置
+  → [开启报名] / [关闭报名]
+  → PUT /api/tournaments/{tid}/registration  { enabled }
+  → 权威 TournamentOut.registration_enabled
+  → Public 只读同一个事实源 → 开放表单 / 只读关闭态
+```
+
+## 70. 交互状态与错误语义
+
+| UI state | 表现 |
+| --- | --- |
+| `idle` | 按钮可点；文案/状态点按 `registration_enabled` 渲染（关闭=灰点「已关闭」+「开启报名」；开启=绿点「报名中」+「关闭报名」） |
+| `saving` | 按钮 `disabled` + 「正在开启… / 正在关闭…」；另有同步 `ref` 锁兜住同一事件循环的连点（与 Public 报名页 / MobileScorePage 同一模式） |
+| `error` | 保持**原状态**不变（不产生假状态），展示服务端统一解析出的可读 message，按钮恢复可点 |
+
+错误处理遵守项目既有 `ApiError` 体系，页面**不按 status code 复制业务判断**：
+401 / 403 / 404 / 409 一律展示服务端返回的 message（401 的「请先登录」、403 的「没有权限修改该赛事」、
+404 的 `RESOURCE_NOT_FOUND`、409 的赛事状态类文案，全部以服务端为准）。
+
+赛事切换：`useEffect` 以 `[tid, tournament?.registration_enabled]` 同步本地状态，
+赛事 A 的报名状态不会残留到赛事 B。
+
+## 71. 测试（本轮新增 / 替换）
+
+### 71.1 `frontend/src/__tests__/TournamentSettingsPage.test.tsx`（16 例）
+
+旧的过期断言「报名设置 → 等待对应的后端数据与权限契约后接入」已删除并替换。
+
+| 用例 | 断言 |
+| --- | --- |
+| A 默认关闭 | 显示「已关闭」「开启报名」与关闭态说明；加载阶段 0 次写请求 |
+| B 开启成功 | `PUT` 恰好 1 次、path/body 精确（`/api/tournaments/12/registration` + `{enabled:true}`）、成功后显示「报名中」+「关闭报名」 |
+| B2 服务端状态优先 | 请求 `enabled:true` 但服务端返回 `registration_enabled=false` → UI 必须显示「已关闭」且**绝不**出现「关闭报名」（证明没有乐观置位） |
+| C 关闭成功 | `PUT {enabled:false}`，服务端确认后显示「已关闭」 |
+| D 409 失败 | 展示服务端 message、保持「报名中」、无「已关闭」、按钮恢复可点、只 1 次 PUT |
+| E 连点 | 同一事件循环连点 3 次 → 只有 1 次 PUT，且期间按钮 disabled |
+| F 赛事切换 | A(true) → B(false) 后显示「已关闭」，不残留 |
+| 父级刷新 | 同赛事新对象回传时不改变已确认的服务端状态，也不补发 PUT |
+| 401 / 403 / 404 / 409 | 4 例：展示服务端 message、保持原状态、不白屏、只 1 次 PUT |
+| 无赛事数据 | 报名设置显示「等待赛事数据」，不出现开关按钮、0 次请求（已不再是占位页） |
+| 管理端 Public 入口 | 既有 2 例不变（`/public/t/:tid/live`、未选赛事时 aria-disabled） |
+
+### 71.2 `frontend/src/__tests__/PublicRegistrationFlow.test.tsx` 场景 8（跨页联调）
+
+单一内存服务端（`registration_enabled` 是唯一事实源）：
+
+```text
+Public 初始 → 「当前赛事暂未开放报名」
+管理端 [开启报名] → 真实 PUT → 服务端 enabled=true
+Public 再读取 → 报名表单出现（#reg-name 可见）
+管理端 [关闭报名] → 真实 PUT → 服务端 enabled=false
+Public 再读取 → 只读关闭态，POST /registrations = 0、POST /players = 0
+两次 PUT 的 body 顺序断言为 [{enabled:true},{enabled:false}]
+```
+
+### 71.3 测试非空洞校准（真实执行）
+
+| 故意注入的回归 | 结果 |
+| --- | --- |
+| `setEnabled(next)` 乐观置位（不读 response） | **B2 失败** |
+| 去掉按钮 `saving` disabled | **E 失败** |
+
+两次注入均先失败后还原，证明这组测试锁的是真实行为而不是「永远通过」。
+
+## 72. 本轮真实回归数字（不引用上一轮常数）
+
+| 命令 | 结果 |
+| --- | --- |
+| `backend: python export_openapi.py --check` | `OpenAPI snapshot is up to date` |
+| `backend: pytest` | **1027 passed**（master 合并前为 995，本轮 master 侧新增用例后为 1027） |
+| `frontend: pnpm install --frozen-lockfile` | PASS（`Already up to date`） |
+| `frontend: pnpm contract:check` | 退出码 0（无漂移） |
+| `frontend: pnpm exec tsc --noEmit` | 退出码 0 |
+| `frontend: pnpm test` | **12 files / 187 passed**（上一轮 12/174 → 本轮 +13：settings 4→16、flow 13→14） |
+| `frontend: pnpm build` | 退出码 0 |
+
+PR #58 原有验收在 merge master 后重新执行，未退化：
+
+| 脚本 | 结果 |
+| --- | --- |
+| `backend/day5d_registration_smoke.py` | **16/16 PASS**（含 `Player / Entry / Match` 数量 before=after=(0,0,0)） |
+| `backend/day5d_registration_ui_check.mjs`（真实 Chrome CDP） | **56/56 PASS**（360/375/390/430 断点、超长赛事名、深链接、关闭态） |
+
+## 73. 本轮明确未做 / 残留（含一条必须显式记录的接线缺口）
+
+1. **`/settings` 管理端 route 仍未接入（C 轨）**：
+   `TournamentSettingsPage` 目前**没有任何 route 引用它**，因此它被 Vite tree-shake 掉、
+   **不在 production bundle 内**。实测证据（构建产物文本检索）：
+
+   ```text
+   dist/assets/*.js 中 '开启报名'      → 0 次
+   dist/assets/*.css 中 'settings-toggle' → 0 次
+   对照：dist/assets/*.js 中 '当前赛事暂未开放报名' → 1 次（Public 页在 bundle 内）
+   ```
+
+   按本轮 review 指令「不要新建新的 route / Layout、范围只有报名设置 Tab + 报名开关 API」，
+   且 `frontend/src/App.tsx` 不在推荐修改范围内，D 轨**刻意没有**接线该 route ——
+   它属于 C 轨信息架构（`docs/V03_C_D2_AUTH_ROUTING.md` §5 已把 `/settings` 归入
+   `RequireAuth → RequireTournamentAccess`），而这两个 guard 目前**尚未进入 master**。
+   因此本轮的「EVENT_ADMIN 开关」是通过**组件级真实 fetch 测试**（16 例）+ 契约层真实 HTTP
+   验证的，而不是通过点开产品页面验证的；一旦 C 轨接上 `/settings` 与 guard，
+   本组件无需再改即可生效。
+2. 未实现报名待确认列表 / 确认 / 拒绝 / 批量操作（C5）。
+3. 未实现 Organization / Venue 后台（C5）。
+4. 未实现赛制设置 / 高级设置（C 轨）。
+5. E5 全链独立 E2E（`Public submit → PENDING → C5 confirm → Player → Entry → Match → 比赛`）未执行。
+6. 未新增二维码管理系统（reviewer 已明确本轮不需要）。
+
+## 74. PR 描述修正（替换旧完成度表述）
+
+旧的「报名开关接线 ✅」只覆盖 Public 读侧，容易读成端到端已通，本轮修正为：
+
+```text
+报名开关（双向）✅
+  EVENT_ADMIN：赛事设置 → 报名设置 → [开启报名] / [关闭报名]
+               → PUT /api/tournaments/{tid}/registration → 服务端权威 TournamentOut
+  Public：只读同一个 registration_enabled → 开放表单 / 只读关闭态
+
+仍未完成（不得声明 Day5 总 Gate PASS）：
+  - `/settings` 管理端 route 与 RequireAuth / RequireTournamentAccess 接线（C 轨）
+  - C5 报名待确认管理（列表 / 确认 / 拒绝）
+  - E5 全链独立端到端验收
+```
