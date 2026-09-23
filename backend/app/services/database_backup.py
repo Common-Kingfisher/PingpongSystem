@@ -31,6 +31,7 @@ CORE_TABLES = (
 
 # 恢复并执行当前 migration 后，所有当前版本业务表都必须存在。
 REQUIRED_TABLES = CORE_TABLES + (
+    "system_state",
     "user_sessions",
     "tournament_admins",
     "registrations",
@@ -233,7 +234,12 @@ def backup_database(
 
     try:
         _copy_with_sqlite_backup(source_path, temporary_path)
-        verification = _verify_database(temporary_path)
+        # 备份命令只接受当前恢复流程能够完整落地的快照，避免“备份成功、
+        # 恢复时才因关键表缺失而失败”产生不可验证的备份承诺。
+        verification = _verify_database(
+            temporary_path,
+            required_tables=REQUIRED_TABLES,
+        )
         os.replace(temporary_path, final_path)
     except DatabaseBackupError:
         _remove_file(temporary_path)

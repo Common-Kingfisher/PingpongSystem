@@ -570,3 +570,44 @@ def test_atomic_replace_failure_keeps_target_database(tmp_path, monkeypatch):
 
     assert database_path.read_bytes() == before_failure
     assert list(tmp_path.glob(f".{database_path.name}.restore-*.tmp")) == []
+
+def test_backup_rejects_current_schema_missing_system_state(tmp_path):
+    """当前迁移版本但缺少 system_state 时，备份不得产出伪成功快照。"""
+    database_path = tmp_path / "missing-system-state-backup.db"
+    backup_dir = tmp_path / "backups"
+    _initialize(database_path)
+
+    with _database(database_path) as connection:
+        assert connection.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ).fetchone()[0] == database_backup.SCHEMA_VERSION
+        connection.execute("DROP TABLE system_state")
+
+    with pytest.raises(database_backup.DatabaseBackupError, match="system_state"):
+        database_backup.backup_database(database_path, backup_dir)
+
+    assert list(backup_dir.glob("pingpong-backup-*.db")) == []
+
+
+def test_restore_rejects_current_schema_missing_system_state(tmp_path):
+    """当前迁移版本但缺少 system_state 时，恢复必须在替换目标库前拒绝。"""
+    database_path = tmp_path / "missing-system-state-restore.db"
+    target_path = tmp_path / "restored.db"
+    backup_dir = tmp_path / "backups"
+    _initialize(database_path)
+
+    with _database(database_path) as connection:
+        assert connection.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ).fetchone()[0] == database_backup.SCHEMA_VERSION
+        connection.execute("DROP TABLE system_state")
+
+    with pytest.raises(database_backup.DatabaseRestoreError, match="system_state"):
+        database_backup.restore_database(
+            database_path,
+            target_path,
+            backup_dir,
+            service_stopped=True,
+        )
+
+    assert not target_path.exists()

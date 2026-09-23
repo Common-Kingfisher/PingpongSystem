@@ -83,41 +83,37 @@ def _create_tournament_with_tables_locked(
         normalized_rule_config = _validate_rule_config(rule_config or {})
         rule_version = INITIAL_RULE_VERSION
 
-    try:
-        tournament = repo.create_tournament(
+    tournament = repo.create_tournament(
+        conn,
+        name,
+        date.isoformat(),
+        table_count,
+        group_count,
+        qualify_per_group,
+        event_type,
+        bronze_mode,
+        placement_mode,
+        games_to_win,
+        points_to_win,
+        operation_mode,
+        owner_user_id=owner_user_id,
+        format_code=format_code,
+        rule_config=normalized_rule_config,
+        rule_version=rule_version,
+        registration_enabled=registration_enabled,
+    )
+    if handler is not None:
+        handler.validate_config(conn, tournament["id"])
+    if owner_user_id is not None:
+        repo.upsert_tournament_admin(
             conn,
-            name,
-            date.isoformat(),
-            table_count,
-            group_count,
-            qualify_per_group,
-            event_type,
-            bronze_mode,
-            placement_mode,
-            games_to_win,
-            points_to_win,
-            operation_mode,
-            owner_user_id=owner_user_id,
-            format_code=format_code,
-            rule_config=normalized_rule_config,
-            rule_version=rule_version,
-            registration_enabled=registration_enabled,
+            tournament["id"],
+            owner_user_id,
+            TournamentRole.OWNER.value,
+            created_by_user_id=owner_user_id,
         )
-        if handler is not None:
-            handler.validate_config(conn, tournament["id"])
-        if owner_user_id is not None:
-            repo.upsert_tournament_admin(
-                conn,
-                tournament["id"],
-                owner_user_id,
-                TournamentRole.OWNER.value,
-                created_by_user_id=owner_user_id,
-            )
-        repo.create_tables_for_tournament(conn, tournament["id"], table_count)
-        return tournament
-    except Exception:
-        conn.rollback()
-        raise
+    repo.create_tables_for_tournament(conn, tournament["id"], table_count)
+    return tournament
 
 
 def update_format_config(

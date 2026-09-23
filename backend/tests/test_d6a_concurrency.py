@@ -575,3 +575,40 @@ def test_d6a_withdrawal_failure_rolls_back_entry_and_table(conn, test_db_path, m
     assert repo.get_entry(conn, entry_id)["status"] == "ACTIVE"
     assert repo.get_match(conn, match["id"])["status"] == MatchStatus.PLAYING.value
     assert repo.get_table(conn, table["id"])["status"] == TableStatus.OCCUPIED.value
+
+
+def test_d6a_create_tournament_failure_keeps_outer_transaction(
+    conn, test_db_path, monkeypatch
+):
+    """外层事务已有写入时，内部赛事创建失败只能回滚自身 SAVEPOINT。"""
+    outer_user = repo.create_user(
+        conn,
+        "d6a-outer-transaction-owner",
+        "D6A 外层事务 Owner",
+        "d6a-outer-owner-password-hash",
+        SystemRole.EVENT_ADMIN.value,
+    )
+    assert conn.in_transaction
+
+    def fail_owner_grant(*args, **kwargs):
+        raise RuntimeError("D6A 注入：外层事务中的赛事创建失败")
+
+    monkeypatch.setattr(repo, "upsert_tournament_admin", fail_owner_grant)
+    with pytest.raises(RuntimeError, match="外层事务中的赛事创建失败"):
+        tournaments_service.create_tournament_with_tables(
+            conn,
+            "D6A 外层事务失败回滚",
+            dt.date(2026, 9, 23),
+            2,
+            1,
+            1,
+            owner_user_id=outer_user["id"],
+        )
+
+    assert conn.in_transaction
+    assert repo.get_user_by_username(conn, "d6a-outer-transaction-owner") is not None
+    assert conn.execute(
+        "SELECT COUNT(*) FROM tournaments WHERE name = ?",
+        ("D6A 外层事务失败回滚",),
+    ).fetchone()[0] == 0
+    conn.rollback()
