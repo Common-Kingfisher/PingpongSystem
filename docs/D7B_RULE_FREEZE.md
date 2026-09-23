@@ -50,11 +50,48 @@ get_completion_state()
 
 ## 赛制、签表与抽签
 
-- 循环赛按轮生成，每对参赛者恰好一次；奇数人数通过轮空轮次保证对阵不重复、不遗漏。
-- 纯淘汰支持 2、4、8、16 人及非 2 幂规模。非 2 幂签表以空签／`WALKOVER` 表达 BYE，保证每个有效 Entry 只有一条晋级路径。
-- 小组加淘汰只在排名数据充足且出线无歧义时推进；16 人、4 组、每组前 2 的小组到冠军闭环由 D7B 发布验收测试覆盖。
-- 抽签优先级固定为：赛制合法性 > 种子保护 > Affiliation 软规避 > 组／签区均衡 > 随机性。
-- Affiliation 为软约束：能规避时优先规避，不能破坏种子或签表合法性；双打任意成员 affiliation 相交即视为碰撞。
+### ROUND_ROBIN
+
+循环赛按轮生成，每对参赛者恰好一次；奇数人数使用轮空占位参与轮转计算，但轮空本身不生成真实比赛，保证真实对阵不重复、不遗漏。
+
+### SINGLE_ELIMINATION
+
+纯淘汰支持 2、4、8、16 人及非 2 幂规模。非 2 幂人数扩展到下一档 2 的幂签位，空签通过系统 `WALKOVER` 自动推进，不伪造正常比赛比分。
+
+单淘汰的冻结约束为：
+
+1. 签表容量合法；
+2. 已设置的种子进入固定种子槽位；
+3. BYE 接收者及其空对手位置固定；
+4. Affiliation 仅在不移动种子和 BYE 固定位置的其余可移动签位中作为软约束优化；
+5. 多个候选具有相同合法性和 Affiliation 碰撞结果时，允许使用随机选择；配置 `draw_seed` 时结果可复现。
+
+Affiliation 不得破坏签表容量、种子位置或 BYE。双打 Entry 聚合两名成员的所属单位，任一单位相交即视为 Affiliation 碰撞。
+
+当前单淘汰实现不存在独立的“组／签区均衡”优先级阶段，因此本冻结不声明该规则。
+
+### GROUP_KNOCKOUT
+
+小组加淘汰只在小组比赛结束、排名数据充足且出线无歧义或已有有效人工裁定时推进；16 人、4 组、每组前 2 的小组到冠军闭环由 D7B 发布验收测试覆盖。
+
+当前正式冻结的淘汰首轮配对范围为：
+
+- 2 组 × 每组前 2：`A1-B2`、`B1-A2`；
+- 4 组 × 每组前 2：`A1-D2`、`C1-B2`、`B1-C2`、`D1-A2`；
+- 一般的偶数组 × 每组前 2：第 i 组第 1 名与倒数第 i 组第 2 名首尾交叉；
+- 在上述冻结范围内，同组两名出线者分处不同半区，1/2 号种子分处不同半区。
+
+以下行为当前存在确定性的 compatibility implementation，但**不属于 V0.3 正式冻结赛制规则**：
+
+- 总晋级人数不是 2 的幂时的具体 BYE 落位方式；
+- 3 / 5 / 7 等奇数组；
+- 每组晋级人数不是 2；
+- 各组晋级人数不一致；
+- `_extended_first_pairs()` 提供的其它扩展配对 fallback。
+
+这些兼容路径只保证当前系统在允许扩展模式时能够形成确定性签表，不能描述为正式或国际赛制规则。
+
+`GROUP_KNOCKOUT` 不使用 `SINGLE_ELIMINATION` 的 Affiliation 优化或随机抽签算法，因此本冻结不对 `GROUP_KNOCKOUT` 声明 Affiliation／随机抽签优先级。
 
 ## 排名与数据不足
 
@@ -81,7 +118,9 @@ get_completion_state()
 | 循环赛、三类 Handler 与完成状态 | `backend/tests/test_round_robin.py`、`backend/tests/test_format_handlers.py` |
 | 16 人、4 组、每组前 2 的发布验收 | `backend/tests/test_d7b_rule_freeze.py` |
 | 非 2 幂、BYE、淘汰链 | `backend/tests/test_d6b_rule_stress.py`、`backend/tests/test_knockout.py` |
-| 种子与 Affiliation | `backend/tests/test_draw_rules.py`、`backend/tests/test_seeds.py`、`backend/tests/test_groups.py` |
+| SINGLE_ELIMINATION 种子、BYE、Affiliation 与可复现抽签 | `backend/tests/test_draw_rules.py`、`backend/tests/test_seeds.py` |
+| GROUP_KNOCKOUT 首尾交叉、半区约束与扩展兼容边界 | `backend/tests/test_knockout.py`、`backend/tests/test_d7b_rule_freeze.py` |
+| 小组阶段分组／Affiliation | `backend/tests/test_groups.py` |
 | 排名、同分、资格裁定与退赛 | `backend/tests/test_ranking.py`、`backend/tests/test_qualification_decisions.py`、`backend/tests/test_entry_withdrawal.py` |
 
 ## 明确不支持
