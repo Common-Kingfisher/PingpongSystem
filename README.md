@@ -84,6 +84,7 @@ python -m pytest -v
 V0.3 RC 的数据库结构、migration v1-v5 和 API 契约已进入候选冻结状态。升级前必须先做整库备份，恢复必须停服并显式提供 `--service-stopped`。
 
 - [Schema 冻结说明](docs/D7A_SCHEMA_FREEZE.md)
+- [V0.3 B 轨规则冻结说明](docs/D7B_RULE_FREEZE.md)
 - [数据库迁移与升级说明](docs/DATABASE_MIGRATION_GUIDE.md)
 - [数据库备份与恢复说明](docs/DATABASE_BACKUP_RESTORE.md)
 

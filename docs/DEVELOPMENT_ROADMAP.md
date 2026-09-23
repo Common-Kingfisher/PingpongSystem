@@ -1,5 +1,9 @@
 # 开发路线与风险清单
 
+## 2026-09-23 状态更新（D7B Rule Freeze）
+
+V0.3 新版 B 轨（个人赛规则／比赛引擎）进入 Release Candidate 冻结候选：支持 `ROUND_ROBIN`、`SINGLE_ELIMINATION`、`GROUP_KNOCKOUT`，并冻结比分与逐局分一致性、异常赛果、改分影响、BYE、种子、Affiliation 与同分／人工裁定边界。Swiss、双败淘汰、完整团体赛规则和通用规则 DSL 不属于本次冻结；后续规则扩展必须另开需求与测试。精确行为和自动化回归入口见 [D7B 规则冻结说明](D7B_RULE_FREEZE.md)。
+
 最近维护：2026-09-18（A6.3 / A6.4）；集成分支 `develop/field-demo-v02`。路线图按每个功能 PR 更新，完成状态以代码、测试和对应 PR 为准。
 
 ## 2026-09-18 状态更新（A6.3 Qualification + A6.4 Team Knockout Bracket）
