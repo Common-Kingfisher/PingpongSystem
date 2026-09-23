@@ -31,5 +31,24 @@
 .settings-pending { min-height: 230px; display: grid; align-content: center; margin-top: 18px; padding: 28px; background: #fff; border: 1px solid #d7e1e9; }
 .settings-pending h2 { margin: 0; font-size: 18px; }
 .settings-pending p { color: #65798d; font-size: 12px; }
+/* 报名设置：管理端唯一的赛事级报名开关控制面（D 轨 Day5D / PR #58 review 返工） */
+.settings-registration { margin-top: 18px; padding: 22px; background: #fff; border: 1px solid #d7e1e9; }
+.settings-registration-status { display: flex; align-items: center; gap: 12px; }
+.settings-registration-status div { display: grid; gap: 3px; }
+.settings-registration-status small { color: #6e8397; font-size: 10px; letter-spacing: .08em; }
+.settings-registration-status strong { color: #102a43; font-size: 22px; }
+.settings-status-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; background: #98a2b3; box-shadow: 0 0 0 3px rgba(152,162,179,.18); }
+.settings-registration-status.is-open .settings-status-dot { background: #12805c; box-shadow: 0 0 0 3px rgba(18,128,92,.18); }
+.settings-registration-note { margin: 12px 0 0; color: #52606d; font-size: 12px; line-height: 1.7; }
+.settings-registration-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.settings-toggle { min-height: 40px; padding: 0 18px; font-family: inherit; font-size: 12px; font-weight: 800; cursor: pointer; border: 1px solid transparent; }
+.settings-toggle.is-open { color: #fff; background: #1769e0; border-color: #1769e0; }
+.settings-toggle.is-open:hover { background: #1257bb; border-color: #1257bb; }
+.settings-toggle.is-close { color: #b42318; background: #fff; border-color: #e0a9a3; }
+.settings-toggle.is-close:hover { background: #fef3f2; }
+.settings-toggle:disabled { color: #7c8fa1; background: #edf1f5; border-color: #d6dfe7; cursor: progress; }
+.settings-toggle:focus-visible { outline: 2px solid #1769e0; outline-offset: 2px; }
+.settings-toggle-hint { color: #72869a; font-size: 11px; line-height: 1.7; }
+.settings-registration-error { margin: 14px 0 0; padding: 10px 12px; color: #b42318; background: #fef3f2; border: 1px solid #fecdca; border-left: 3px solid #d92d20; font-size: 12px; line-height: 1.6; }
 @media(max-width:850px) { .settings-rule-grid { grid-template-columns: 1fr; } .settings-heading-mark { display: none; } }
-@media(max-width:520px) { .settings-facts { grid-template-columns: 1fr; } .settings-actions { flex-wrap: wrap; } .settings-actions span { width: 100%; } }
+@media(max-width:520px) { .settings-facts { grid-template-columns: 1fr; } .settings-actions { flex-wrap: wrap; } .settings-actions span { width: 100%; } .settings-registration-actions { flex-wrap: wrap; } .settings-toggle { width: 100%; } }

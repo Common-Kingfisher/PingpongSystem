@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api, ApiError } from '../api'
 import type { Tournament } from '../api'
 import './TournamentSettingsPage.css'
 
@@ -21,6 +22,124 @@ export interface TournamentSettingsPageProps {
 
 function Fact({ label, value, note }: { label: string; value: string; note?: string }) {
   return <div className="settings-fact"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div>
+}
+
+type SaveState = 'idle' | 'saving' | 'error'
+
+/**
+ * 「报名设置」= 管理端**唯一**的赛事级报名开关控制面（D 轨 Day5D + PR #58 review 返工）。
+ *
+ * ## 为什么这一块必须存在
+ *
+ * PR #58 review 的唯一 P1：Public 端已经能读 `TournamentOut.registration_enabled`，
+ * 但 EVENT_ADMIN 没有任何 UI 能真正开启 / 关闭报名 —— 只能手工调
+ * `PUT /api/tournaments/{tid}/registration`，于是 Public 永远停在「报名已关闭」。
+ * 本组件把这条写入通道接上正式契约。
+ *
+ * ## 边界（刻意很窄）
+ *
+ * - 只做**开关**：报名列表 / 确认 / 拒绝 / 批量操作属于 C5，不在这里实现；
+ * - 状态**只认服务端**：`PUT` 的响应 `TournamentOut.registration_enabled` 是唯一事实源，
+ *   不做「点击后先本地置位」的乐观更新（失败会留下假状态）；
+ * - 失败时保持原状态并展示服务端可读 message（401 / 403 / 404 / 409 的语义由后端决定，
+ *   前端不按 status code 自己复制业务判断）；
+ * - 不新增页面 / 路由 / API：`api.setRegistrationEnabled()` 就是既有的
+ *   `PUT /api/tournaments/{tid}/registration`。
+ */
+function RegistrationSettings({ tournament }: { tournament: Tournament | null }) {
+  const tid = tournament?.id ?? null
+  const [enabled, setEnabled] = useState(tournament?.registration_enabled ?? false)
+  const [state, setState] = useState<SaveState>('idle')
+  const [errorText, setErrorText] = useState<string | null>(null)
+  /** 同步锁：同一事件循环内的连续点击只放行一次（与 Public 报名页 / MobileScorePage 同一模式）。 */
+  const savingRef = useRef(false)
+
+  // 赛事切换（或父级重新拉取赛事）时同步本地状态：
+  // 旧赛事 A 的报名状态绝不能残留到赛事 B。
+  useEffect(() => {
+    setEnabled(tournament?.registration_enabled ?? false)
+    setState('idle')
+    setErrorText(null)
+    savingRef.current = false
+  }, [tid, tournament?.registration_enabled])
+
+  const apply = useCallback(
+    async (next: boolean) => {
+      if (tid === null || savingRef.current) return
+      savingRef.current = true
+      setState('saving')
+      setErrorText(null)
+      try {
+        const updated = await api.setRegistrationEnabled(tid, { enabled: next })
+        setEnabled(updated.registration_enabled)
+        setState('idle')
+      } catch (err) {
+        // 失败：保持原状态，只展示服务端统一解析出的可读 message
+        setState('error')
+        setErrorText(err instanceof ApiError ? err.message : '报名设置保存失败，请稍后重试')
+      } finally {
+        savingRef.current = false
+      }
+    },
+    [tid],
+  )
+
+  if (tournament === null) {
+    return (
+      <section className="settings-registration">
+        <div className="settings-registration-status">
+          <span className="settings-status-dot" aria-hidden="true" />
+          <div>
+            <small>公开报名</small>
+            <strong>等待赛事数据</strong>
+          </div>
+        </div>
+        <p className="settings-registration-note">
+          选择一场赛事后才能开启或关闭公开报名。
+        </p>
+      </section>
+    )
+  }
+
+  const saving = state === 'saving'
+
+  return (
+    <section className="settings-registration">
+      <div className={enabled ? 'settings-registration-status is-open' : 'settings-registration-status'}>
+        <span className="settings-status-dot" aria-hidden="true" />
+        <div>
+          <small>公开报名</small>
+          <strong>{enabled ? '报名中' : '已关闭'}</strong>
+        </div>
+      </div>
+
+      <p className="settings-registration-note">
+        {enabled
+          ? '选手可以通过公开报名页面提交报名。报名记录将进入待确认列表。'
+          : '选手当前无法通过公开报名页面提交报名。'}
+      </p>
+
+      <div className="settings-registration-actions">
+        <button
+          className={enabled ? 'settings-toggle is-close' : 'settings-toggle is-open'}
+          disabled={saving}
+          onClick={() => apply(!enabled)}
+          type="button"
+        >
+          {saving ? (enabled ? '正在关闭…' : '正在开启…') : enabled ? '关闭报名' : '开启报名'}
+        </button>
+        <span className="settings-toggle-hint">
+          {enabled
+            ? '关闭后公开报名页立即变为只读，选手无法再提交报名。'
+            : '报名开启后，公开报名页面将允许选手提交报名申请。提交后不会直接成为正式参赛选手，仍需赛事管理员确认。'}
+        </span>
+      </div>
+
+      {errorText && (
+        <p className="settings-registration-error" role="alert">{errorText}</p>
+      )}
+    </section>
+  )
 }
 
 export default function TournamentSettingsPage({ tournament = null }: TournamentSettingsPageProps) {
@@ -78,7 +197,8 @@ export default function TournamentSettingsPage({ tournament = null }: Tournament
           </section>
         </div>
         <footer className="settings-actions"><span>等待规则更新接口</span><button disabled type="button">取消修改</button><button className="primary" disabled type="button">保存设置</button></footer>
-      </> : <section className="settings-pending"><h2>{activeTab}</h2><p>此分类已预留页面位置；等待对应的后端数据与权限契约后接入，不显示模拟设置。</p></section>}
+      </> : activeTab === '报名设置' ? <RegistrationSettings tournament={tournament} />
+        : <section className="settings-pending"><h2>{activeTab}</h2><p>此分类已预留页面位置；等待对应的后端数据与权限契约后接入，不显示模拟设置。</p></section>}
     </div>
   </div>
 }
