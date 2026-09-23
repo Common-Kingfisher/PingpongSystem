@@ -157,8 +157,10 @@ python backup_db.py --database D:\pingpong\data\demo.db --backup-dir D:\pingpong
 备份成功
 integrity_check：ok
 foreign_key_check：0 条违规
-schema_migrations：5
+schema_migrations：2/3/4/5（以源库实际版本为准）
 ```
+
+legacy v2/v3/v4 数据库执行升级前备份时，CLI 输出源库自身版本；生成的快照经当前 `restore_db.py` 恢复时会先迁移到 v5。
 
 ### 6.3 升级后验证
 
@@ -266,10 +268,10 @@ python restore_db.py `
 
 ```text
 v1-v5 clean install：通过
-v4/v5 旧库路径：通过
+v2/v3/v4/v5 旧库路径：通过
 init_db 幂等：通过
-migration / backup / restore 定向测试：38 passed，0 failed
-backend full pytest：1025 passed、0 failed、0 skipped，退出码 0
+migration / backup / restore 定向测试：40 passed，0 failed
+backend full pytest：1027 passed、0 failed、0 skipped，退出码 0
 ```
 
 如后续新增 v6，该记录必须重新执行，不能沿用 v5 的结果。

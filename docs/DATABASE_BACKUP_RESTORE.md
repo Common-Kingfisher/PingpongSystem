@@ -130,7 +130,7 @@ python backup_db.py `
 - 不直接复制正在运行中的 `.db` 文件；
 - 备份文件命名带时间戳；
 - 同秒重复备份自动追加 `-01`、`-02` 等序号；
-- 备份前后执行完整性校验；
+- 复制完成后对生成的备份快照执行完整性、外键及必需表校验；
 - 默认目录是 `<db-dir>/backups/`；
 - 备份文件不得提交 Git。
 
@@ -150,7 +150,7 @@ CLI 成功输出至少应包含：
 源数据库
 integrity_check：ok
 foreign_key_check：0 条违规
-schema_migrations：5
+schema_migrations：5（源库为 legacy v2/v3/v4 时对应输出 2/3/4）
 ```
 
 只要出现失败或校验不通过，就不能把该文件标记为可恢复备份。
@@ -240,7 +240,7 @@ schema_migrations：5
 
 ### 9.1 旧 backup 移动到当前版本
 
-恢复时会把 backup 复制到临时库，执行当前 migration，再替换目标库。因此旧 migration 备份可以在当前程序下升级。
+恢复时会把 backup 复制到临时库，执行当前 migration，再替换目标库。因此旧 migration 备份可以在当前程序下升级。backup 按源库 migration 版本校验：当前 v5 库要求全部必需表，legacy v2/v3/v4 库允许缺少 v5 新增表，v2 还允许缺少 v3 新增的 `system_state`；恢复时再迁移到 v5 并按当前完整表清单校验。
 
 ### 9.2 新 backup 不保证向下兼容
 
