@@ -1,0 +1,236 @@
+/* ---------------------------------------------------------------------------
+ * Public 在线报名页样式（D 轨 Day5D）
+ *
+ * 目标：与 PublicLayout 风格统一（同一套色板 / 圆角），手机优先，
+ * 360 / 375 / 390 / 430px 无横向滚动、触摸目标 ≥44px。
+ * 不做大规模视觉重构：外层仍是既有 `.page` / `.card` 结构。
+ * --------------------------------------------------------------------------- */
+
+.reg-page {
+  width: 100%;
+}
+
+.reg-card {
+  max-width: 720px;
+  margin: 0 auto;
+  /* 极端窄屏（含超长赛事名 / 超长 URL）下的最后一道兜底 */
+  overflow-wrap: anywhere;
+}
+
+.reg-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.reg-heading h2 {
+  margin: 0;
+  /* 超长赛事名换行而不是撑破卡片 */
+  overflow-wrap: anywhere;
+}
+
+.reg-back-link {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  color: #1769e0;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.reg-intro {
+  margin: 0 0 4px;
+}
+
+/* ------------------------------------------------------------------- 表单 */
+
+.reg-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 520px;
+  margin-top: 12px;
+}
+
+.reg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.reg-field label {
+  color: #52606d;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.reg-field input {
+  box-sizing: border-box;
+  width: 100%;
+  /* 手机易点击 */
+  min-height: 44px;
+  padding: 10px 12px;
+  color: #1f2933;
+  background: #fff;
+  border: 1px solid #cbd2d9;
+  border-radius: 8px;
+  /* 16px 及以上可避免 iOS Safari 自动放大输入框 */
+  font-size: 16px;
+}
+
+.reg-field input:focus {
+  border-color: #1769e0;
+  outline: 2px solid rgba(23, 105, 224, 0.18);
+}
+
+.reg-privacy {
+  margin: 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.reg-actions {
+  display: flex;
+}
+
+.reg-submit {
+  min-height: 44px;
+  width: 100%;
+  padding: 0 18px;
+  color: #fff;
+  background: #1769e0;
+  border: 1px solid #1769e0;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reg-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.reg-error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  color: #b42318;
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  border-left: 3px solid #d92d20;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.55;
+  /* 服务端长错误信息不溢出 */
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------- 报名关闭 / 回执 */
+
+.reg-closed,
+.reg-receipt {
+  margin-top: 12px;
+  padding: 16px;
+  border-radius: 10px;
+}
+
+.reg-closed {
+  color: #475467;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.reg-closed h3 {
+  margin: 0 0 6px;
+  color: #1f2933;
+  font-size: 16px;
+}
+
+.reg-closed p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.reg-receipt {
+  color: #14532d;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.reg-receipt h3 {
+  margin: 0 0 10px;
+  color: #166534;
+  font-size: 16px;
+}
+
+.reg-receipt-facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.reg-receipt-facts > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reg-receipt-facts dt {
+  flex: 0 0 auto;
+  min-width: 72px;
+  color: #527a63;
+  font-size: 13px;
+}
+
+.reg-receipt-facts dd {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.reg-receipt-status {
+  font-weight: 700;
+}
+
+.reg-receipt-note {
+  margin: 12px 0 0;
+  color: #3f6212;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 加载 / 错误态：复用 PublicLayout 的 .pub-message 观感，但去掉外层大边距 */
+.reg-message {
+  margin: 0 auto;
+}
+
+@media (max-width: 430px) {
+  .reg-card {
+    padding: 16px 14px;
+  }
+
+  .reg-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .reg-back-link {
+    padding-left: 0;
+  }
+
+  .reg-receipt-facts > div {
+    flex-direction: column;
+    gap: 2px;
+  }
+}

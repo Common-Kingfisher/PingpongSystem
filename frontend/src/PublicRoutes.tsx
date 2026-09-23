@@ -189,35 +189,22 @@ function PublicChampionAdapter() {
 }
 
 /**
- * Public 报名页 adapter。
+ * Public 报名页 adapter（D 轨 Day5D 已切换为正式链路）。
  *
- * ⚠️ legacy：当前复用 V0.2 `RegisterPage`，其行为是**直接创建正式 Player**
- * （`api.addPlayer`），与 V0.3 冻结的 `Registration(pending) → EVENT_ADMIN 确认入赛`
- * 契约不一致。
+ * `RegisterPage` 现在的行为是 V0.3 冻结契约：
  *
- * 因此这里显式标记为 legacy 兼容页面，并明确告知用户当前行为：
- * - 不自行设计 Registration schema / API；
- * - 不把“直接 addPlayer”包装成 V0.3 最终报名方案；
- * - 不使用尚未存在的 `registration_enabled` 字段做显隐或校验；
- * - 等 A 轨正式 Registration contract 落地后再切换本 adapter。
+ * ```text
+ * 提交报名 → POST /api/tournaments/{tid}/registrations
+ *          → Registration = PENDING
+ *          → 等待 EVENT_ADMIN 确认
+ * ```
+ *
+ * 它**不再**调用 `api.addPlayer()`，也不再显示 V0.2 的 legacy 提示条。
+ * `registration_enabled` 由页面读取后端 `TournamentOut.registration_enabled` 决定
+ * 显示报名表还是只读的「暂未开放报名」空态（本 adapter 不复制该判断）。
  */
 function PublicRegisterAdapter() {
-  return (
-    <PublicTidBoundary>
-      {(tid) => (
-        <>
-          <div className="pub-note" role="status">
-            <strong>兼容模式（legacy）</strong>
-            <span>
-              当前报名入口仍是 V0.2 行为：提交后直接进入正式参赛名单，<b>没有</b>
-              “待审核 → 管理员确认入赛”流程。V0.3 正式报名契约（Registration pending）由 A 轨提供后切换。
-            </span>
-          </div>
-          <RegisterPage tid={tid} />
-        </>
-      )}
-    </PublicTidBoundary>
-  )
+  return <PublicTidBoundary>{(tid) => <RegisterPage tid={tid} />}</PublicTidBoundary>
 }
 
 /**
