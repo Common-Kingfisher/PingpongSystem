@@ -147,7 +147,7 @@ A5 提供 Public 报名创建、开关读取、关闭报名稳定拒绝和联系
 - C5 未完成：管理页面接入、临时字段清零仍由 C5 承接。
 - D5 未完成：Public 停止使用 legacy `api.addPlayer()` 仍由 D5 承接。
 - E5 未执行：`报名 -> 确认 -> Player -> Entry -> Match/比赛` 全链 E2E 尚未运行，D5A 最终完成门槛不能视为已通过。
-- 当前 head `d712a92` 仍没有可用的 GitHub Actions/status check 结果；D5A 最终 Gate 仍需 E5/发布侧独立复验。
+- 最近复审针对 head `d712a92`；后续 tracker 文档更新不改变 A5 代码交付。当前仍没有可用的 GitHub Actions/status check 结果，D5A 最终 Gate 仍需 E5/发布侧独立复验。
 
 ## 六、实施清单
 
