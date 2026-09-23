@@ -183,6 +183,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/format": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Tournament Format
+         * @description 更新赛制配置三元组；已产生比赛或团体对抗时拒绝静默切换。
+         */
+        put: operations["update_tournament_format_api_tournaments__tournament_id__format_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}": {
         parameters: {
             query?: never;
@@ -3000,6 +3020,11 @@ export interface components {
             points_to_win: number;
             /** @default LIVE */
             operation_mode: components["schemas"]["TournamentMode"];
+            format_code?: components["schemas"]["TournamentFormat"] | null;
+            /** Rule Config */
+            rule_config?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * TournamentExport
@@ -3053,6 +3078,20 @@ export interface components {
             }[];
         };
         /**
+         * TournamentFormat
+         * @description 个人赛 Tournament 的稳定赛制代码。
+         * @enum {string}
+         */
+        TournamentFormat: "ROUND_ROBIN" | "SINGLE_ELIMINATION" | "GROUP_KNOCKOUT";
+        /** TournamentFormatUpdateRequest */
+        TournamentFormatUpdateRequest: {
+            format_code: components["schemas"]["TournamentFormat"];
+            /** Rule Config */
+            rule_config?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
          * TournamentMode
          * @description 赛事运行模式。正式赛事禁止调用演示数据接口。
          * @enum {string}
@@ -3103,6 +3142,13 @@ export interface components {
             confirmed_at?: string | null;
             /** @default LIVE */
             operation_mode: components["schemas"]["TournamentMode"];
+            format_code?: components["schemas"]["TournamentFormat"] | null;
+            /** Rule Config */
+            rule_config?: {
+                [key: string]: unknown;
+            };
+            /** Rule Version */
+            rule_version?: number | null;
         };
         /**
          * TournamentRole
@@ -3604,6 +3650,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TournamentExport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_tournament_format_api_tournaments__tournament_id__format_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TournamentFormatUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TournamentOut"];
                 };
             };
             /** @description Validation Error */
