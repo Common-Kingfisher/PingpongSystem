@@ -1821,3 +1821,606 @@ RequireAuth / RequireTournamentAccess integration.
 No temporary D-track authentication layer was introduced.
 ```
 
+---
+
+# D 轨 Day 4D 实施结果
+
+> 本轮命令基线：`origin/master` = `2e57895985be8627f7531fee098afaeda8399d4d`
+> （`feat(C轨-D3): 建立赛事规则设置骨架并收口Public入口 (#49)`）
+> 分支：`feat/d-day4-public-format-lan`（Day4D 唯一 PR）
+> 文档修订时间：2026-09-22
+
+## 22. 本轮硬 Gate 与真实基线（先读这一节）
+
+Day4D 的原始目标是「Public 排名 / 签表 / 实况适配多赛制」。开工前按冻结要求核查真实仓库，
+结果为**前置 PR 未进入 master**，因此本轮按冻结规则执行「独立工作 + 不发明临时契约」。
+
+| 检查项 | 真实结果 | 对 Day4D 的影响 |
+| --- | --- | --- |
+| PR #45（D 轨 Day3 手机录分，`feat/d-day3-mobile-score`） | **未进入 master**（branch tip `65c1034`，diff 29 files / +7616） | 按冻结要求**不**从 #45 分支续做 Day4D；Day4D 从 `origin/master` 新开分支，避免 Day3 / Day4 混成一个 PR。未自行 cherry-pick #45。 |
+| PR #47（A 轨 D4 赛制配置落库，`feat/D4A赛制配置落库`） | **未进入 master**（branch tip `967ec15`，diff 13 files / +1270） | `TournamentOut.format_code` / `rule_config` / `rule_version` 在 master 上**不存在**，因此本轮不接线赛制判定。 |
+| PR #48（B 轨 D4 Format Handler，`feat/d4b-format-handlers-and-draw-rules`） | **未进入 master**（branch tip `3443951`，diff 15 files / +983） | 同上：ROUND_ROBIN / SINGLE_ELIMINATION / GROUP_KNOCKOUT Handler 尚未落地。 |
+| `frontend/src/PublicRoutes.tsx`、`PublicLayout.tsx`、`publicTournament.ts`、`pages/RankingsPage.tsx`、`pages/KnockoutPage.tsx`、`pages/BigScreenPage.tsx`、`api.ts`、`generated/openapi.d.ts` | 全部存在且结构与 Day 2 一致 | 复用而非重写。 |
+| `start_pingpong.ps1`、`backend/app/static_hosting.py` | 均存在 | 只做缺口加固，未重写。 |
+| master 上 `format_code` 的唯一出现位置 | `team_ties` / `TeamTieOut` / `RubberSkeletonRequest`（团体赛对抗赛制） | **不是**赛事级赛制字段，不能拿来当 `TournamentOut.format_code` 用（否则等于伪造契约）。 |
+
+因此本轮**不做**、也不允许做的（明确留到 #47 / #48 进入 master 之后）：
+
+* 不手写临时 `format_code` 字面量，不新建第二套 TS enum；
+* 不用 `as any` 读取尚不存在的字段，不按 `stage` 名称或“有没有 group / knockout tree”反推赛制；
+* 不复制 B 轨赛制判断，不写临时 API；
+* 不把 `#47` / `#48` 分支 merge 进 Day4D 分支。
+
+## 23. 本轮实际交付范围
+
+在 Gate 允许的四项内完成：
+
+1. **LAN / production 启动加固**（`start_pingpong.ps1`，见第 25 节）；
+2. **Public 页面展示结构整理**：Public 只读视图不再把“返回首页”指向管理端 `/`；
+   排名页在 Public 下改用中性标题「赛事排名」；
+3. **「不适用 / 空态 / readOnly」组件逻辑**：新增 `PublicEmptyState` 组件，
+   Public 排名页 / 签表页在“什么都还没有”时给出可读空态 + 回到本赛事可用视图的 CTA，
+   且空态文案对三种赛制都成立（不推断赛制）；
+4. **与现有契约无关的测试**：Public 空态 / 深链接 / 无管理入口回归测试（前端），
+   以及“production frontend runtime 不得依赖固定地址”的部署策略测试（后端）。
+
+## 24. 修改文件
+
+### 24.1 新增
+
+| 文件 | 作用 |
+| --- | --- |
+| `frontend/src/components/PublicEmptyState.tsx` | Public 只读空态卡：标题 + 说明 + 0..n 个 CTA。**不读取任何赛事字段**，不推断赛制。 |
+| `frontend/src/components/PublicEmptyState.css` | 空态卡样式，手机优先（CTA ≥ 44px，≤430px 占满整行）。 |
+| `frontend/src/__tests__/PublicViewStates.test.tsx` | 12 条回归：深链接空态、既有主链不退化、Public 无管理入口、未知子路径回实况、大屏 ENDED 展示。 |
+| `backend/tests/test_deployment_address_policy.py` | 3 条部署策略测试：前端运行时无固定地址 / API 客户端只用 `/api/...` 同源相对路径 / 源码不引用带 hash 的构建产物名。 |
+
+### 24.2 修改
+
+| 文件 | 改动与理由 |
+| --- | --- |
+| `frontend/src/pages/RankingsPage.tsx` | ① 新增 `pageTitle`：`readOnly` 时用「赛事排名」，管理端仍是「小组排名」（不改 C 轨界面）；② 后端返回空排名时渲染 `PublicEmptyState` + 「查看签表」CTA，不再是一片空白；③ Public 只读时「返回首页」改为「返回实况」并指向 `/public/t/:tid/live`，不再把观众带进管理端 `/`。 |
+| `frontend/src/pages/KnockoutPage.tsx` | ① 同上②③；② 把“本页什么都没有”时的旧文案「小组赛对阵尚未发布」（只对小组+淘汰赛成立）替换为中性空态 + 「查看排名」CTA；③ 小组赛未完成（`remaining > 0`）等既有分支保持原样，保证 V0.2 主链不退化。 |
+| `frontend/src/pages/BigScreenPage.tsx` | 已结束、且本赛事**没有**淘汰赛签表时（例如循环赛：没有决赛，名次即最终成绩），展示后端发布的「赛事排名」；有签表的赛事仍走原有冠军 / 签表分支，行为不变。不计算名次、不补造冠军。 |
+| `start_pingpong.ps1` | 见第 25 节。 |
+| `docs/WORKSTREAM_D.md` | 本节。 |
+
+**未改动**：`backend/app/static_hosting.py`（Day 2 实现已满足三条硬约束，深链接 / `/api` 语义 / dist 缺失降级均有既有测试覆盖）；
+`ConsolePage` / `MobileScorePage` / `ScoreSheet` / `AdminLayout` 等管理端与录分文件（Day3 / C 轨边界）。
+
+## 25. `start_pingpong.ps1` Day 4D 加固明细
+
+| 现场问题 | 加固内容 |
+| --- | --- |
+| 多网卡（Wi-Fi + Ethernet + WSL + VPN + Hyper-V + VMware + Docker） | 新增 `Get-NetAdapterMap`：读取 `Get-NetAdapter` 的 `Virtual` / `Status` 元数据，但**只用于排序与标注，绝不删除候选地址**；`Get-NetAdapter` 不可用时退化为 `Test-VirtualAdapterName` 关键字降权。权重：1 = 物理且 `Up`，2 = 状态未知，3 = 虚拟/隧道或明确未连接。 |
+| 多个私网地址 | 超过 1 个时明确提示「检测到多个局域网地址。请选择与比赛手机所在路由器同网段的地址。」；每个地址附带网卡名与连接状态，虚拟网卡附「（虚拟 / 隧道网卡）」。 |
+| 网段 | 仍只保留 RFC1918：`192.168.x.x` / `10.x.x.x` / `172.16-31.x.x`，排除回环与 APIPA `169.254.x.x`。脚本只**发现并展示**真实地址，不假定 `192.168.50.10`。 |
+| Public 示例里的赛事 id | 新增只读探测：优先 `-TournamentId` 参数；否则用 venv Python 以 `mode=ro` 只读打开本机 SQLite（尊重 `PINGPONG_DB_PATH` / `DEMO_DB_PATH`，默认 `backend/data/demo.db`）取最小真实赛事 id；**读不到就只展示 base URL**。绝不假定「赛事 id 永远是 12」，也不匿名调用需要登录态的 `GET /api/tournaments`。 |
+| 启动输出 | 收口为「本机 / 局域网 / 手机使用（1-2-3 步）/ Public 示例」四段；Public 示例同时提示 `/live` 可换成 `/schedule`、`/rankings`、`/bracket`、`/champion`。 |
+| 深链接 | 除 `/` 之外，新增 `/public/t/<tid>/live` 探测：必须 200 且返回 SPA（`id="root"`），证明刷新 / 直接粘贴链接不 404。 |
+| 防火墙 | 只读提示：`Get-NetFirewallProfile` 在 `try/catch` 中读取，命中「启用且入站默认阻止」时打印配置文件名单；**不申请管理员权限、不新增/修改/删除规则、不关闭防火墙、不改网卡 IP / 路由器 / DNS**。 |
+| 误判风险 | 明确写出「同一台电脑访问本机 LAN 地址不代表手机能访问（不经过防火墙入站路径），必须用真实手机验证」。 |
+
+⚠️ **文件编码约束（Day 2 §17.4 的延续）**：本机 `pwsh` 实为 Windows PowerShell 5.1，会把**无 BOM** 的 `.ps1` 按 ANSI 读取。
+修改 `start_pingpong.ps1` 后**必须**回写 UTF-8 BOM，否则中文提示会乱码甚至触发伪语法错误。
+本轮已用 `[System.Management.Automation.Language.Parser]::ParseFile` 复验解析错误数 = 0，并确认首字节为 `EF BB BF`。
+
+## 26. 部署灵活性（为切云服务器 / 公网域名预留）
+
+* `frontend/src` 全量扫描结果：**0 处** `127.0.0.1` / `localhost` / `192.168.*` / `10.*` / `172.16-31.*` / `:8000` / `http(s)://`；
+* `api.ts` 的每个请求路径都是同源相对路径 `/api/...`，因此同一份 production build：
+  * 现场：`http://192.168.50.10:8000` → `/api/health` 同源；
+  * 云服务器：`http://<云 IP>:8000` → 无需改代码；
+  * 正式域名：`https://pingpong.example.com` → 天然变成 `https://pingpong.example.com/api/...`；
+* 新增 `backend/tests/test_deployment_address_policy.py` 把这条约束变成**持续回归**：
+  一旦有人把部署环境写进前端运行时源码，测试立即失败；
+* 未实现（且本轮明确不做）：云服务器部署、公网穿透、DDNS、TLS 自动签发、mDNS / 自建 DNS、路由器配置程序。
+
+## 27. LAN 验收（真实执行）
+
+真实运行 `.\start_pingpong.ps1 -SkipBuild -NoBrowser`（先 `pnpm build`），实测结果：
+
+| 项 | 结果 |
+| --- | --- |
+| production 单服务 | FastAPI 单进程同时提供 `/api/*` 与 `frontend/dist` SPA（`/api/health` OK，`/` 返回 SPA） |
+| 本机 | `http://127.0.0.1:8000` → `/` 200 SPA、`/api/health` 200、`/public/t/1/live` 200 SPA |
+| LAN IP | `http://192.168.68.150:8000`（WLAN · Up）→ `/api/health` 200、`/public/t/1/live` 200 SPA |
+| 多网卡 | 同时检测到 `192.168.68.150 [WLAN · Up]` 与 `192.168.56.1 [以太网 2 · Up]（虚拟 / 隧道网卡）`，已提示选择同网段地址 |
+| 真实 tid | 脚本从本机库读到赛事 id = 1（**不是** 12），并打印 `http://192.168.68.150:8000/public/t/1/live` |
+| SPA 深链接 | `/public/t/1/live`、`/public/t/1/rankings`、`/public/t/1/bracket` 均 200 + SPA，刷新不 404 |
+| 相对 `/api` | 前端全部请求落在同源 `/api/...`（无跨主机、无 CORS 需求） |
+| 防火墙行为 | 只读检测 + 人工提示；未申请管理员权限、未改动任何规则 |
+| 未验收 | **无第二台真实手机**，因此本机 LAN 地址 HTTP 验证通过 ≠ 跨设备验收通过；真机跨设备验收留 Day6 |
+
+## 28. 测试
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd backend && pytest` | **863 passed, 30 skipped, 4 warnings**（master baseline 为 860 passed / 30 skipped，本 PR 新增 3 条全绿） |
+| `cd frontend && pnpm install --frozen-lockfile` | 退出码 0 |
+| `cd frontend && pnpm exec tsc --noEmit` | 退出码 0 |
+| `cd frontend && pnpm test` | 3 个文件 / **29 passed**（master baseline 17 条 + 本 PR 新增 12 条） |
+| `cd frontend && pnpm build` | 退出码 0（`dist/assets/index-Xa3elwSW.css` + `index-C55edmh9.js`） |
+| `pnpm contract:check` | **失败，但为 master baseline 漂移，与本 PR 无关**：已用 `git stash push -u` 把本 PR 全部改动移出工作区后在**纯 master 状态**复跑，得到同样的退出码 1；本 PR 未触碰 `docs/openapi-v0.2.json` 与 `frontend/src/generated/openapi.d.ts`（`git diff --name-only` 两者均为空），也未升级 `openapi-typescript`。真实原因：master 上 `docs/openapi-v0.2.json` 已更新，但 `frontend/src/generated/openapi.d.ts` 长期未重新生成（漂移约 +965 行）。**本轮未重新生成、未修改 snapshot 掩盖问题**，交由 A 轨 / 维护者决定何时统一刷新。 |
+
+前端测试用例矩阵（`PublicViewStates.test.tsx`）：
+
+| 场景 | 断言 |
+| --- | --- |
+| 排名页无排名行 | 出现「暂无赛事排名」+「查看签表」指向 `/public/t/12/bracket` |
+| 排名页 Public 标题 | h2 含「赛事排名」、不含「小组排名」 |
+| 签表页无签表无小组 | 出现「暂无淘汰赛签表」+「查看排名」指向 `/public/t/12/rankings`；旧文案不再出现 |
+| 空态副作用 | 不调用 `generate-knockout` / `/score` / `finish-group-stage` |
+| 空态 + localStorage 陷阱 | 不出现另一场赛事的链接或请求 |
+| 有排名数据 | 正常渲染名次表，空态不出现 |
+| 有签表数据 | 正常渲染签表，空态不出现，且无「录入大比分」/「生成淘汰赛签表」按钮 |
+| Public 排名页 | 无 `/console`、`/players`… 管理端链接，无指向 `/` 的返回，有「返回实况」 |
+| Public 签表页 | 无管理端链接、无「冠军之路」/「打印秩序册」 |
+| 未知 Public 子路径 | 落到本赛事实况页（发 `/dashboard` 请求） |
+| 大屏 FINISHED 且无签表 | 出现「赛事排名」+ 后端名次行 + 「比赛进度」 |
+| 大屏 FINISHED 且有冠军 | 渲染冠军，且不叠加「赛事排名」 |
+
+## 29. 尚未完成 / 外部阻塞（必须显式记录，不得虚报）
+
+| 项 | 状态 | 归属 |
+| --- | --- | --- |
+| Public 多赛制接线（`format_code` → 导航可见性 / 空态 / 不适用页） | **未做**：等 #47 / #48 进入 master | D（下一轮） |
+| Public 导航按赛制隐藏「签表 / 排名 / 冠军」入口 | **未做**：同上 | D |
+| 扫码/深链接进入 `bracket` 时针对 SINGLE_ELIMINATION 的「不设循环赛排名」专用文案 | 目前用**中性空态**覆盖（对三种赛制都成立），专项文案等契约 | D |
+| ROUND_ROBIN 大屏「不展示淘汰赛区域」的显式判定 | 目前只在「已结束且无签表」时展示赛事排名；显式判定等契约 | D |
+| PR #45（手机录分）未合并 | 外部阻塞，本 D 轮无法推进 | A/C/维护者 |
+| PublicLayout 的「赛事首页」仍指向 `/?tid=<tid>`（= 管理端首页，且当前无 AuthGuard） | **本轮未改**：这是 Day 2 的既定设计（记为“普通导航”），但观众点进去会看到管理界面。已在本轮新增测试中**只**断言“不出现 `/console`、`/players` 等管理页面链接”，未对该链接下断言。建议与 A 轨 AuthGuard / C 轨 IA 一并决策：要么隐藏，要么在未登录时改指向 `/public/t/:tid/live`。 | D + A + C（需产品决策） |
+| LAN 跨设备验收（真实手机） | 无第二台设备，未验收 | 现场 / Day6 |
+| Day5 报名确认 / 二维码 / Organization / Venue | 本轮冻结范围内**不做** | Day5+ |
+
+## 30. 多赛制接线接入点（给下一轮的确切位置）
+
+#47 / #48 进入 master 后，只需在**一个**位置接线，其余全部复用本轮成果：
+
+1. `git fetch origin && git merge origin/master`；
+2. `pnpm contract:generate` 重新生成 `frontend/src/generated/openapi.d.ts`，
+   确认 `TournamentOut.format_code`（及 `rule_config` / `rule_version`）已出现；
+3. 新增 `frontend/src/publicCapabilities.ts`：`getPublicCapabilities(formatCode)` 返回
+   `{ showRankings, showBracket, showChampion }`。**只返回 UI capability**，
+   不计算参赛者 / 晋级者 / BYE / 排名 / 对阵 / 完赛状态；枚举值必须取自 generated DTO，
+   不新建第二套 enum；
+4. `PublicLayout.tsx` 的 `NAV_ITEMS` 用该 helper 过滤（实况 / 赛程恒显示；
+   GROUP_KNOCKOUT 增排名+签表+冠军；ROUND_ROBIN 增排名；SINGLE_ELIMINATION 增签表+冠军）；
+5. `PublicRoutes.tsx` 的三个 adapter 把对应 capability 作为 prop 传入
+   `RankingsPage` / `KnockoutPage`，页面在「不适用」时渲染**已有的** `PublicEmptyState`
+   （文案按赛制专项化：循环赛 → 不设淘汰签表；单淘汰 → 不设循环赛排名）；
+6. `BigScreenPage.tsx` 用同一 helper 决定是否渲染「小组排名（出线区）」与签表区域。
+
+这样 Public 页面不需要新增第二套“前端赛制引擎”，也不会与 B 轨 Handler 出现两个真相源。
+
+## 31. 多赛制行为矩阵：现状（本轮）vs 目标（#47 / #48 之后）
+
+**现状（本轮真实行为，与赛制无关）**：因为 master 上没有 `TournamentOut.format_code`，
+Public 端**不做任何赛制判定**，一律“有数据就展示、没数据就空态”，因此三种赛制下表内结果相同。
+这也是本轮唯一诚实可行的口径 —— 任何按赛制隐藏入口的实现都必须先有权威字段。
+
+| 视图 | 现状（本轮 Day4D） | 目标（GROUP_KNOCKOUT） | 目标（ROUND_ROBIN） | 目标（SINGLE_ELIMINATION） |
+| --- | --- | --- | --- | --- |
+| 实况 `/live` | 恒显示；FINAL 且无签表时展示后端「赛事排名」 | 同现状（签表 + 冠军 + 出线区） | 展示当前比赛 / 进度 / 赛事排名，不展示淘汰赛区域 | 展示当前比赛 / 进度 / 签表（BYE 按后端签表渲染）/ 冠军 |
+| 赛程 `/schedule` | 恒显示（复用 SchedulePage） | 恒显示 | 恒显示 | 恒显示 |
+| 排名 `/rankings` | 导航恒显示；无排名行 → 中性空态「暂无赛事排名」+ 查看签表 | 小组排名 | 赛事排名（后端 RR 名次） | 导航隐藏；直链 → 空态「本赛事不设置循环赛排名」+ 查看签表 |
+| 签表 `/bracket` | 导航恒显示；无签表 → 中性空态「暂无淘汰赛签表」+ 查看排名 | 淘汰签表 | 导航隐藏；直链 → 空态「本赛事不设淘汰赛签表」+ 查看排名 | 签表（非 2 次幂 / BYE / 待定 slot 全部按后端数据渲染） |
+| 冠军 `/champion` | 导航恒显示（复用 ChampionJourneyPage） | 冠军之路 | 视后端是否有可展示结果（否则隐藏） | 冠军之路 |
+| 报名 `/register` | legacy 兼容页（V0.2 行为，已显式标注） | 待 Day5 Registration contract | 待 Day5 | 待 Day5 |
+
+上表的「目标」列**本轮未实现**，已按第 30 节写成可直接落地的接入点。
+
+---
+
+# D 轨 Day4D · PR #50 Review Rework
+
+> Review 结论：`REQUEST CHANGES`，唯一合并阻断 = **P1 相对数据库路径的解析基准不一致**
+> 修复前 Head：`02891ef895977ee47bb2059f41ac90306ae40e05`
+> 目标：只关闭该 P1 + 处理一项非阻断测试边界问题，**不扩大 Day4D 范围**。
+
+## 32. P1 根因：探测器解析 DB 的基准 ≠ 真实后端解析 DB 的基准
+
+`start_pingpong.ps1::Get-PublicTournamentId` 用只读 SQLite 取一个真实赛事 id，用于打印
+`http://<LAN-IP>:<port>/public/t/<真实赛事ID>/live`。修复前它把路径**原样交给 Python probe**，
+而 probe 又自己读了一遍环境变量：
+
+```python
+db = os.environ.get("PINGPONG_DB_PATH") or os.environ.get("DEMO_DB_PATH") or sys.argv[1]
+```
+
+于是相对路径按 **probe 进程的 CWD**（= 调用脚本时的目录）解析；但真实后端是
+`Set-Location $backend; python -m uvicorn app.main:app ...`，而
+`backend/app/db.py::_db_path()` 对覆盖值直接 `Path(override)`，
+所以 `PINGPONG_DB_PATH=data\demo.db` 的真实含义是 **`<repo>\backend\data\demo.db`**。
+
+两类后果（reviewer 指出的 B 类是阻断原因）：
+
+| 类别 | 现象 | 严重度 |
+| --- | --- | --- |
+| A | 解析出的文件不存在 → probe 静默失败 → 只打印 base URL | 启动信息退化 |
+| B | 解析出的路径恰好存在另一份 SQLite → 打印**指向错误赛事**的链接（例如打印 `/public/t/77/live`，而真实 FastAPI 服务的是赛事 41） | **P1 阻断** |
+
+## 33. 修复内容
+
+`start_pingpong.ps1`（唯一生产代码改动，其余都是测试与文档）：
+
+1. **PowerShell 侧解析出唯一绝对路径**（与 `db.py::_db_path()` 同序）：
+   `PINGPONG_DB_PATH` → `DEMO_DB_PATH` → `$backend\data\demo.db`；
+2. 相对 override 用 **`Join-Path $backend`** 拼接（不是 `$root`、不是调用方 CWD），
+   再 `[System.IO.Path]::GetFullPath()` 规范化；
+3. 只把**绝对路径**作为 argv 传给 probe；
+4. **probe 不再读任何环境变量**，只用 `db = sys.argv[1]`
+   （否则进程里的原始相对 env 会覆盖已规范化的 argv，修复失效）；
+5. probe 仍是 `mode=ro`：不建库、不迁移、不写库、不需要管理员权限；
+6. 临时 probe 文件仍在 `finally` 中删除，探测失败一律静默降级为 base URL。
+
+**路径解析规则（最终语义）**
+
+| 场景 | effective DB |
+| --- | --- |
+| 未设置覆盖变量 | `<repo>\backend\data\demo.db` |
+| `PINGPONG_DB_PATH=data\x.db`（相对） | `<repo>\backend\data\x.db` |
+| `DEMO_DB_PATH=data\x.db`（相对，legacy） | `<repo>\backend\data\x.db` |
+| `PINGPONG_DB_PATH=C:\y\z.db`（绝对） | `C:\y\z.db`（不再二次拼接） |
+
+未改后端 `db.py`：后端当前行为是事实基准，启动脚本向其对齐，而不是反过来。
+
+## 34. 验收证据
+
+### 34.1 「修复前 vs 修复后」对照（含诱饵库，证明 B 类风险真实存在）
+
+在 `<repo>\data\review_relative.db` 放入一个**诱饵库**（唯一赛事 id = **77**），
+`backend\data\review_relative.db` 放真实库（唯一赛事 id = **41**），
+`PINGPONG_DB_PATH=data\review_relative.db`，从**仓库根目录**执行：
+
+| 语义 | probe 实际读取 | 解析出的 tid | 结论 |
+| --- | --- | --- | --- |
+| 修复前（env 优先，按 CWD 解析） | `data\review_relative.db` → `<repo>\data\review_relative.db` | **77** | 与 FastAPI 实际服务的 41 **不一致** → 会打印错误赛事链接 |
+| 修复后（绝对 argv） | `<repo>\backend\data\review_relative.db` | **41** | 与 FastAPI 一致 |
+
+并且**在诱饵库仍然存在**的情况下，真实运行修复后的脚本（从仓库根目录）打印
+`/public/t/41/live`，同时 `GET /api/tournaments/41` 返回 `review-relative-41`：
+证明「脚本打印的 id」与「FastAPI 实际使用的库」是同一个。
+
+### 34.2 跨目录 × 4 个 DB 路径场景 smoke（真实运行脚本）
+
+每个场景都真实执行 `start_pingpong.ps1 -SkipBuild -NoBrowser`，并额外用
+`GET /api/tournaments/<打印出的 id>` 回查运行中的后端，确认该赛事**确实存在于被服务的库里**：
+
+| 场景 | 工作目录 | 环境变量 | 打印 tid | 期望 | 后端回查 name | 结果 |
+| --- | --- | --- | --- | --- | --- | --- |
+| A 默认库 | 仓库根 | 无 | 1 | 1 | `1` | PASS |
+| A 默认库 | `frontend\` | 无 | 1 | 1 | `1` | PASS |
+| B 相对 `PINGPONG_DB_PATH` | 仓库根 | `data\review_relative.db` | 41 | 41 | `review-relative-41` | PASS |
+| B 相对 `PINGPONG_DB_PATH` | `frontend\` | `data\review_relative.db` | 41 | 41 | `review-relative-41` | PASS |
+| C 相对 `DEMO_DB_PATH` | 仓库根 | `data\review_demo_relative.db` | 42 | 42 | `review-demo-relative-42` | PASS |
+| C 相对 `DEMO_DB_PATH` | `frontend\` | `data\review_demo_relative.db` | 42 | 42 | `review-demo-relative-42` | PASS |
+| D 绝对 `PINGPONG_DB_PATH` | 仓库根 | `%TEMP%\review_abs_d4d.db` | 43 | 43 | `review-abs-43` | PASS |
+| D 绝对 `PINGPONG_DB_PATH` | `frontend\` | `%TEMP%\review_abs_d4d.db` | 43 | 43 | `review-abs-43` | PASS |
+
+**TOTAL=8 PASS=8**，调用目录不影响结果；smoke 夹具（`backend/data/review_*.db`、
+`%TEMP%\review_abs_d4d.db`、临时 `<repo>\data\`）已全部删除，未进入版本库。
+
+## 35. 测试补充与收窄
+
+### 35.1 新增 `backend/tests/test_start_pingpong_script.py`（8 条静态契约回归）
+
+无 Pester、不引入新依赖，用读文件 + 结构断言锁住那些“写错了也不报错、但会静默出错”的语义：
+
+* 相对 override 必须以 `Join-Path $backend` 为基准，且 `IsPathRooted` 先于 `GetFullPath`；
+* 优先级 `PINGPONG_DB_PATH > DEMO_DB_PATH > backend\data\demo.db` 与后端一致；
+* probe 必须 `db = sys.argv[1]`，且**不含** `os.environ` / 两个环境变量名；
+* probe 只读（`mode=ro`）且不含 INSERT/UPDATE/DELETE/CREATE/DROP/ALTER/ATTACH/PRAGMA；
+* 临时 probe 文件在 `finally` 中清理；
+* 脚本保留 UTF-8 BOM（§17.4 的坑）；
+* 脚本**永不**调用 `New/Set/Remove-NetFirewallRule`、`Set-NetFirewallProfile`、
+  `netsh advfirewall set`、`New/Set-NetIPAddress`、`route add` 等改系统命令；
+* Day4D 既有能力标记不缺失（虚拟网卡降权、多地址提示、防火墙只读、`-TournamentId`、
+  无赛事降级、深链接、`Sort-Object Rank` 只排序不删除、逐个展示全部候选地址）。
+
+### 35.2 收窄 `backend/tests/test_deployment_address_policy.py`（review 非阻断建议）
+
+| 项 | 修复前 | 现在 |
+| --- | --- | --- |
+| `https?://` | 全局禁止（会误伤帮助文档 / 隐私政策 / 官网 / 未来 OAuth 跳转等合法外部链接） | **不再全局禁止** |
+| `:8000` | 全局禁止（本身不等于部署耦合） | **不再全局禁止** |
+| 回环 / RFC1918（`127.x`、`localhost`、`192.168.x.x`、`10.x.x.x`、`172.16-31.x.x`） | 禁止 | **保持禁止**（runtime source 扫描） |
+| API 同源相对路径 | 精确断言 | **保持**，并新增 `api.ts` 不得出现任何绝对 URL 的兜底断言（只限 transport 层） |
+| dist hash 文件名 | 禁止 | **保持** |
+
+职责现在是清晰的「部署环境地址禁止」+「API transport 必须同源」两条精确规则，
+不会再误伤业务页面里合法的外部 HTTPS 链接。
+
+## 36. 本轮回归结果
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd backend && pytest` | **872 passed, 30 skipped**（rework 前 863 → 净增 9 条：部署策略测试 +1、启动脚本静态契约测试 +8） |
+| `cd frontend && pnpm install --frozen-lockfile` | 退出码 0 |
+| `pnpm exec tsc --noEmit` | 退出码 0 |
+| `pnpm test` | 3 files / 29 passed（本轮未改前端） |
+| `pnpm build` | 退出码 0 |
+| `pnpm contract:check` | 仍失败：**master baseline OpenAPI 漂移**，与 PR #50 无关（输入未变，未改 snapshot） |
+| PowerShell `Parser::ParseFile` | parse errors = **0** |
+| UTF-8 BOM | 首字节 `EF BB BF` |
+
+## 37. 本轮明确未改（避免范围扩张）
+
+`RankingsPage.tsx` / `KnockoutPage.tsx` / `BigScreenPage.tsx` / `PublicRoutes.tsx` /
+`PublicLayout.tsx` / `publicTournament.ts` / `backend/app/static_hosting.py` / `db.py`
+均未改动；未接入 `format_code`、未 merge / cherry-pick #47 与 #48、未重做 LAN 地址枚举、
+未引入新依赖、未做 Day5。
+
+---
+
+# D 轨 Day4D · 赛制契约接线轮（PR #50 第二轮 review）
+
+> 触发：`#45` / `#47` / `#48` 已全部进入 master，PR #50 原先「等待 Tournament 赛制契约」的前提失效。
+> 本轮把 Public / BigScreen 从「中性数据驱动」升级为**由后端 `format_code` 驱动的多赛制展示**。
+
+## 38. 同步 master 与冲突解决
+
+| 项 | 值 |
+| --- | --- |
+| merge 前 PR50 head | `64f067d0783c5ac268cb3d6b1b37136d2a724be6` |
+| 实际 merge 的 master | `37a751aa3323f7bf9877262df503e001bc07f9dc`（含 #45 / #47 `76302df` / #48 `04ca855` / #52 / #53） |
+| 方式 | `git merge origin/master`（**merge，不 rebase**，不 force push，不新开 PR） |
+| 冲突文件 | 仅 `docs/WORKSTREAM_D.md` |
+| 解决方式 | 用脚本按「公共前缀 + master(Day3 记录) + PR50(Day4D 记录)」重排，**两侧内容全部保留**，没有整文件选 ours/theirs；自动合并的 `api.ts` / `generated/openapi.d.ts` 等未手工逐行合并 |
+
+冲突后校验：无 `<<<<<<<` / `=======` / `>>>>>>>` 残留，且同时包含
+「# D 轨 Day 3 实施结果」「# D 轨 Day 4D 实施结果」「D 轨 Day4D · PR #50 Review Rework」三处标题。
+
+## 39. Contract 同步（本轮主目标之一）
+
+| 步骤 | 结果 |
+| --- | --- |
+| `cd backend && python export_openapi.py --check` | **PASS**（`OpenAPI snapshot is up to date`）→ 未修改 `docs/openapi-v0.2.json` |
+| `cd frontend && pnpm contract:generate` | 重新生成 `src/generated/openapi.d.ts`（openapi-typescript 7.13.0） |
+| `pnpm contract:check` | **PASS（退出码 0）** |
+
+生成的 contract 中确认存在：
+
+```text
+TournamentFormat: "ROUND_ROBIN" | "SINGLE_ELIMINATION" | "GROUP_KNOCKOUT"
+TournamentOut.format_code?: TournamentFormat | null
+TournamentOut.rule_config?: { [key: string]: unknown }
+TournamentOut.rule_version?: number | null
+```
+
+**类型来源（无第二套 enum、无 `as any`）**：
+
+- `frontend/src/api.ts` 只新增一行 `export type TournamentFormat = Schemas['TournamentFormat']`；
+- `publicFormat.ts` 的入参类型统一写成 `Tournament['format_code']`（即 generated DTO 的字段类型），
+  不手写 `'ROUND_ROBIN' | ...` 联合类型；
+- 页面里没有任何 `(tournament as any).format_code`。
+
+## 40. 唯一 capability helper：`frontend/src/publicFormat.ts`
+
+职责只有「某赛制展示哪些 Public 模块」，返回三个 UI 开关，**不计算任何业务结果**
+（排名 / 晋级 / BYE / 种子 / 抽签 / 完赛状态 / 阶段推进一律不碰）。
+
+| 赛制 | showRankings | showBracket | showChampion |
+| --- | --- | --- | --- |
+| `ROUND_ROBIN` | ✅ | ❌ | ❌ |
+| `SINGLE_ELIMINATION` | ❌ | ✅ | ✅ |
+| `GROUP_KNOCKOUT` | ✅ | ✅ | ✅ |
+| `null` / 字段缺失（legacy） | ✅ | ✅ | ✅ |
+
+`live` / `schedule` / `register` 始终可见，不受本 helper 控制。
+
+**legacy 策略（D4A 冻结）**：`format_code == null` 时**不推断赛制**、不默认成 `GROUP_KNOCKOUT`，
+一律返回「全部可见 + 数据驱动」：
+有数据就展示，没数据由页面给出中性空态 —— 这样既不会破坏 V0.2 旧赛事，也不会凭猜测隐藏入口。
+历史赛事「到底属于哪种赛制」是后端事实，前端只消费 `format_code` 本身，
+不看 `stage`、不看有没有 group、不看有没有 knockout tree。
+
+另外两个纯展示映射：
+
+- `getRankingsTitle(format_code)`：只有明确 `GROUP_KNOCKOUT` 才叫「小组排名」，
+  循环赛与 legacy 用中性的「赛事排名」；
+- `getPublicStageLabel(format_code, stage)`：修掉「纯循环赛赛事因为库里也用
+  `stage = GROUP_STAGE` 而被显示成小组赛」的误导（RR → 循环赛，SE → 单淘汰，
+  GK / legacy 保持原有 小组赛 / 淘汰赛）。只做文案映射，不做状态机。
+
+## 41. 接线明细
+
+| 文件 | 改动 |
+| --- | --- |
+| `frontend/src/layouts/PublicLayout.tsx` | `NAV_ITEMS` 增加 `capability` 标记，按 `getPublicCapabilities(tournament.format_code)` 过滤「排名 / 签表 / 冠军」；阶段徽标改用 `getPublicStageLabel`。权限判断只在这一处。 |
+| `frontend/src/pages/RankingsPage.tsx` | Public 先 `getTournament` 拿权威 `format_code`：`showRankings=false`（单淘汰）时**不请求** `/rankings` 与 GROUP 完赛查询，直接渲染只读「本赛事采用单淘汰赛制，不设置循环赛排名。」+「查看签表」CTA；标题由 `getRankingsTitle` 决定；管理端请求序列与标题完全不变。 |
+| `frontend/src/pages/KnockoutPage.tsx` | Public 先拿 `format_code`：`showBracket=false`（循环赛）时**不请求** `/knockout`，渲染只读「本赛事采用循环赛制，不设置淘汰赛签表。」+「查看排名」CTA；`SINGLE_ELIMINATION` 只请求并渲染后端签表（BYE / 待定 slot 全部按服务端数据渲染），连 `/rankings` 都不请求，因此不会出现「请先完成小组赛 / 每组前 N 名」这类 GK 专属语义；GK 与 legacy 请求序列不变。 |
+| `frontend/src/pages/BigScreenPage.tsx` | 先取 `format_code`，通用数据（tournament / dashboard / players / entries）之后按 capability 决定是否请求 `rankings` / `knockout`；出线区、签表、冠军、结束态排名面板都按 capability 门控；循环赛的排名区标题为「赛事排名」且不显示「出线」勾选；冠军仍只来自后端 `KnockoutTree.champion`。 |
+| `backend/tests/test_start_pingpong_script.py` | 修正文档引用：`docs/D4D_PR50_REVIEW_REWORK.md`（不存在）→ `docs/WORKSTREAM_D.md` 的对应章节，**没有新建重复文档**。 |
+
+**刻意不做的两件事**（避免范围扩张）：不重构 `ChampionJourneyPage`（仅通过导航隐藏 RR 的冠军入口）；
+不动 `backend/app/services/formats.py` / `domain/draw.py` / `services/knockout.py` 等 B 轨算法。
+
+## 42. 本轮新增测试
+
+| 文件 | 条数 | 覆盖 |
+| --- | --- | --- |
+| `frontend/src/__tests__/publicFormat.test.ts` | 12 | helper 纯函数：三种赛制 + legacy 的能力矩阵、legacy 不被识别成 GK、helper 只返回三个开关、标题与阶段文案映射 |
+| `frontend/src/__tests__/PublicFormatMatrix.test.tsx` | 15 | PublicLayout 导航矩阵（RR/SE/GK/null）、`/rankings` SE 不适用态（含「不请求排名数据」「无管理入口」「无写请求」）、`/bracket` RR 不适用态（含不请求 `/knockout`、无 GK 文案）、SE 渲染真实签表（BYE → 待定）、GK/legacy 不退化、BigScreen 四套赛制的区域与请求集合 |
+
+## 43. 本轮回归结果
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd backend && python export_openapi.py --check` | PASS |
+| `cd backend && pytest` | **955 passed, 20 skipped**（含本 PR 的 12 条：部署地址策略 4 + 启动脚本静态契约 8） |
+| `cd frontend && pnpm install --frozen-lockfile` | 退出码 0 |
+| `pnpm contract:generate` / `pnpm contract:check` | 生成成功 / **PASS（退出码 0）** |
+| `pnpm exec tsc --noEmit` | 退出码 0 |
+| `pnpm test` | **10 files / 138 passed**（master 合入的 MobileScore* / ConsoleScoreWorkflow / ApiErrorParsing / TournamentSettingsPage 全部继续通过） |
+| `pnpm build` | 退出码 0 |
+| PowerShell `Parser::ParseFile` | parse errors = **0** |
+| UTF-8 BOM | 首字节 `EF BB BF` |
+
+## 44. LAN smoke（真实执行 `start_pingpong.ps1`）
+
+### 44.1 上一轮 P1 回归：数据库路径（8/8 PASS）
+
+| 场景 | 工作目录 | 环境变量 | 打印 tid | 期望 | 后端回查 name |
+| --- | --- | --- | --- | --- | --- |
+| A 默认库 | 仓库根 / `frontend\` | 无 | 1 | 1 | `1` |
+| B 相对 `PINGPONG_DB_PATH` | 仓库根 / `frontend\` | `data\review_relative.db` | 41 | 41 | `review-relative-41` |
+| C 相对 `DEMO_DB_PATH` | 仓库根 / `frontend\` | `data\review_demo_relative.db` | 42 | 42 | `review-demo-relative-42` |
+| D 绝对 `PINGPONG_DB_PATH` | 仓库根 / `frontend\` | `%TEMP%\review_abs_d4d.db` | 43 | 43 | `review-abs-43` |
+
+### 44.2 三赛制 deep-link（同一库内 3 个赛事，14/14 PASS）
+
+库内：`41 = ROUND_ROBIN`、`42 = SINGLE_ELIMINATION`、`43 = GROUP_KNOCKOUT`。
+
+| 检查 | 结果 |
+| --- | --- |
+| `/api/health`、`/` | 200 |
+| `/public/t/41/{live,rankings,bracket}` | 均 200 + SPA（刷新不 404） |
+| `/public/t/42/{live,rankings,bracket}` | 均 200 + SPA |
+| `/public/t/43/{live,rankings,bracket}` | 均 200 + SPA |
+| `GET /api/tournaments/{41,42,43}.format_code` | 分别返回 `ROUND_ROBIN` / `SINGLE_ELIMINATION` / `GROUP_KNOCKOUT`（证明契约真的在服务端生效） |
+
+**TOTAL=22 PASS=22 FAIL=0**（8 条数据库路径 + 9 条 deep link + 3 条 format 契约 + 2 条 health/root）。
+HTTP 层只能证明「SPA 正常返回」；**「不适用空态」本身由 15 条 jsdom 集成测试断言**
+（见 §42），二者互补。smoke 夹具已全部删除，未污染版本库，端口已释放。
+
+## 45. 本轮明确未做
+
+未实现 Day5 报名 / 二维码 / Organization / Venue；未复制任何 B 轨规则
+（BYE / seed / 抽签 / ranking / advance / completion 全部仍由后端决定）；
+未重构 `ChampionJourneyPage`；未引入新依赖；未修改 `docs/openapi-v0.2.json`。
+
+已知取舍：`PublicLayout` 在赛事数据到达前按「全部可见」渲染导航，因此存在极短的
+「全量导航 → 按赛制收敛」过渡帧。这是刻意选择 —— 赛制未知时隐藏入口，风险高于多显示一帧。
+
+---
+
+# D 轨 Day4D · 第三轮收口（PR #50 最终 review）
+
+> 触发：reviewer 确认上一轮主阻断（master 同步 / `format_code` 接线 / generated contract /
+> `contract:check` / Rankings / Bracket / BigScreen 主体 / LAN DB path）已关闭，本轮只剩 2 个 P1 + 1 个非阻断项。
+> 范围：**小补丁收口**，不动 contract、不动 Rankings / Bracket / LAN 主方案。
+
+## 46. master 同步判定
+
+| 项 | 值 |
+| --- | --- |
+| 本轮开始时 PR50 head | `3aed9aef50e525614bb4bcc738cf2354fb158691` |
+| `git fetch origin` 后的 `origin/master` | `37a751aa3323f7bf9877262df503e001bc07f9dc`（**未前进**） |
+| `git merge-base HEAD origin/master` | 同上（= base） |
+| behind / ahead | `0 / 7` |
+| 结论 | **不制造空 merge**，直接在当前 head 上收口 |
+
+## 47. P1-A：Public `/champion` 缺少 capability guard + 返回地址错误
+
+### 47.1 根因
+
+`ChampionJourneyPage` 内部**无条件**执行 `setTree(await api.getKnockout(tid))`，
+而 Public adapter 直接把它挂到 `/public/t/:tid/champion`：
+
+```text
+ROUND_ROBIN 赛事（没有淘汰阶段）
+  -> 访问 /public/t/<tid>/champion
+  -> 仍然进入淘汰赛 / 冠军逻辑，并发出一次无意义的 /knockout 请求
+```
+
+同一页面的「返回签表」写死为 `to={`/knockout?tid=${tid}`}` —— 那是**管理端路由**，
+Public 观众一点就会掉出 Public shell。
+
+### 47.2 修复（最小改动，不重构页面）
+
+1. `frontend/src/PublicRoutes.tsx` 新增 `PublicChampionView`：先 `api.getTournament(tid)`
+   拿权威 `format_code`，再用 `getPublicCapabilities(...).showChampion` 决定走向；
+2. `ROUND_ROBIN` → 不渲染 `ChampionJourneyPage`、不请求 `/knockout`，改为复用既有
+   `PublicEmptyState`：标题「本赛事不设冠军之路」，说明「本赛事采用循环赛制，最终名次以赛事排名为准。」，
+   CTA「查看排名」→ `/public/t/:tid/rankings`；
+3. `ChampionJourneyPage` 新增**精确的** `backTo?: string` prop（默认值仍是管理端
+   `/knockout?tid=<tid>`）；Public adapter 传 `/public/t/<tid>/bracket`。
+   刻意不加模糊的 `readOnly`，也不重构页面行为。
+
+| format_code | `/public/t/:tid/champion` |
+| --- | --- |
+| `ROUND_ROBIN` | 只读空态；**0 次** `/knockout` 请求；CTA → `/rankings` |
+| `SINGLE_ELIMINATION` | 进入冠军之路；「返回签表」→ `/public/t/:tid/bracket` |
+| `GROUP_KNOCKOUT` | 同上 |
+| `null` / 字段缺失（legacy） | 同上（不默认成 GK，也不显示不适用空态） |
+
+Public 页面**不再出现任何 `/knockout?tid=` 管理端 href**。
+
+## 48. P1-B：ROUND_ROBIN 大屏比赛卡文案自相矛盾
+
+### 48.1 根因
+
+大屏顶部已用 `getPublicStageLabel()` 把 RR 显示成「循环赛」，
+但「正在进行」的比赛卡仍写死 `tb.match.stage === 'GROUP' ? '小组赛' : '淘汰赛'`。
+纯循环赛在领域模型里本来就是 `Match.stage = GROUP`（既有后端事实），于是同一场比赛出现两个说法：
+
+```text
+顶部：循环赛
+比赛卡：小组赛
+```
+
+### 48.2 修复
+
+在 `frontend/src/publicFormat.ts` 增加纯展示 helper：
+
+```text
+getPublicMatchStageLabel(formatCode, matchStage)
+  ROUND_ROBIN + GROUP              -> 循环赛
+  GROUP_KNOCKOUT / null + GROUP    -> 小组赛
+  任意 + KNOCKOUT                   -> 淘汰赛
+```
+
+`BigScreenPage` 的比赛卡统一调用该 helper，**不再在 JSX 内复制赛制判断**。
+**未修改** `TournamentStage` / `MatchStage` 枚举、DB CHECK、任何 Format Handler。
+
+## 49. 本轮新增测试（全部非空洞）
+
+| 文件 | 新增 | 要点 |
+| --- | --- | --- |
+| `frontend/src/__tests__/publicFormat.test.ts` | +6（合计 18） | `getPublicMatchStageLabel`：RR+GROUP → 循环赛；GK+GROUP / legacy+GROUP → 小组赛；任意 + KNOCKOUT → 淘汰赛；空 stage → 空串 |
+| `frontend/src/__tests__/PublicFormatMatrix.test.tsx` | +6（合计 21） | Champion 深链 4 例（RR / SE / GK / legacy）、RR 比赛卡 1 例、GK 比赛卡 1 例 |
+
+**非空洞性**（reviewer 明确要求）：
+
+- RR 大屏 fixture 真的包含 `table.status = OCCUPIED` + `match.status = PLAYING` + `match.stage = GROUP`；
+  断言用 `within(document.querySelector('.bigscreen-table'))` **定位到比赛卡**：
+  卡内必须有「循环赛」、必须没有「小组赛」—— 只断言页面顶部会虚假通过，因此没有那样写；
+- Champion 断言检查**真实 `href`**（`/public/t/12/bracket`），并反向断言不存在 `/knockout?tid=`；
+- RR Champion 断言 `/knockout` 请求数为 **0**；
+- jsdom 无 `ResizeObserver`（冠军之路在有签表时会用它测量连线），测试内做环境 shim，不改组件行为。
+
+## 50. 本轮回归结果
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd backend && python export_openapi.py --check` | **PASS** |
+| `cd backend && pytest` | **955 passed, 20 skipped** |
+| `frontend: pnpm exec tsc --noEmit` | 退出码 0 |
+| `frontend: pnpm test` | **10 files / 150 passed**（上一轮 138 → +12） |
+| `frontend: pnpm build` | 退出码 0 |
+| `frontend: pnpm contract:check` | **PASS（退出码 0）** |
+| `start_pingpong.ps1` Parser / BOM | parse errors = 0 / `EF BB BF`（本轮未改该脚本） |
+
+## 51. Champion deep-link smoke（production 单服务）
+
+真实执行 `start_pingpong.ps1`，用同一库内的 `41 = ROUND_ROBIN` / `42 = SINGLE_ELIMINATION` /
+`43 = GROUP_KNOCKOUT` 三个赛事验证：
+
+| 深链接 | 结果 |
+| --- | --- |
+| `/public/t/41/champion`、`/public/t/42/champion`、`/public/t/43/champion` | 均 **200 + SPA root、刷新不 404** |
+| `/api/health`、`/` | 200 |
+
+语义层（RR 不请求 `/knockout`、SE/GK/legacy 返回 Public bracket、无管理端 href）
+由 §49 的 jsdom 集成测试断言，二者互补。夹具已删除，端口已释放。
+
+## 52. 本轮明确未做
+
+未重新修改 `frontend/src/generated/openapi.d.ts`、`docs/openapi-v0.2.json`、
+`RankingsPage.tsx`、`KnockoutPage.tsx`、`start_pingpong.ps1`、
+`backend/tests/test_deployment_address_policy.py`、`backend/tests/test_start_pingpong_script.py`；
+未触碰 `backend/app/services/formats.py`、`backend/app/domain/draw.py`、
+`backend/app/services/knockout.py` 及 ranking / seed / BYE / qualification 逻辑；
+未做 Day5（报名 / 二维码 / Organization / Venue）；未引入新依赖。
+

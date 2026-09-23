@@ -1,5 +1,5 @@
 /**
- * Public 端布局（D 轨 Day 2）。
+ * Public 端布局（D 轨 Day 2，Day4D 接线赛制）。
  *
  * 与 C 轨 AdminLayout 完全分离：
  *
@@ -10,7 +10,18 @@
  *
  * 1. 赛事 id 只来自 path param（`/public/t/:tid/...`），不读 localStorage；
  * 2. 不出现任何录分 / 删除 / 改规则 / 抽签 / 管理员操作入口；
- * 3. 手机优先：360 / 375 / 390 / 430px 无横向溢出，触摸目标足够大。
+ * 3. 手机优先：360 / 375 / 390 / 430px 无横向溢出，触摸目标足够大；
+ * 4. 导航可见性由**后端返回的 `Tournament.format_code`** 决定（唯一来源），
+ *    不按 stage / 有没有 group / 有没有 knockout tree 反推赛制。
+ *
+ * ## 赛制 → 导航（Day4D）
+ *
+ * - `GROUP_KNOCKOUT`：实况 / 赛程 / 排名 / 签表 / 冠军 / 报名
+ * - `ROUND_ROBIN`：实况 / 赛程 / 排名 / 报名（不显示签表与冠军）
+ * - `SINGLE_ELIMINATION`：实况 / 赛程 / 签表 / 冠军 / 报名（不显示排名）
+ * - `format_code == null`（legacy）：全部保留，数据驱动，不做推断
+ *
+ * 权限判断只在这一处（`getPublicCapabilities`），不下沉到各个页面重复实现。
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -18,33 +29,35 @@ import { Link, NavLink, Outlet } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import type { Tournament } from '../api'
 import { useTidFromPath } from '../publicTournament'
+import { getPublicCapabilities, getPublicStageLabel } from '../publicFormat'
 import './PublicLayout.css'
 
-/** 赛事阶段 -> 中文展示名（仅展示映射，不复制任何业务状态机） */
-const STAGE_LABELS: Record<string, string> = {
-  REGISTRATION: '报名中',
-  GROUP_STAGE: '小组赛',
-  KNOCKOUT: '淘汰赛',
-  FINISHED: '已结束',
-}
-
-function StageBadge({ stage }: { stage: string | null | undefined }) {
+/** 阶段徽标：文案由 `getPublicStageLabel` 按赛制给出，颜色 class 仍按 stage（保持既有配色） */
+function StageBadge({
+  stage,
+  formatCode,
+}: {
+  stage: Tournament['stage'] | null | undefined
+  formatCode: Tournament['format_code']
+}) {
   if (!stage) return null
-  return (
-    <span className={`pub-stage pub-stage--${stage.toLowerCase()}`}>
-      {STAGE_LABELS[stage] ?? stage}
-    </span>
-  )
+  const label = getPublicStageLabel(formatCode, stage)
+  if (!label) return null
+  return <span className={`pub-stage pub-stage--${stage.toLowerCase()}`}>{label}</span>
 }
 
-/** Public 主导航项（顺序即信息架构：实况 → 赛程 → 排名 → 签表 → 冠军 → 报名） */
+/**
+ * Public 主导航项（顺序即信息架构：实况 → 赛程 → 排名 → 签表 → 冠军 → 报名）。
+ *
+ * `capability` 为 null 表示「不受赛制控制，始终显示」（实况 / 赛程 / 报名）。
+ */
 const NAV_ITEMS = [
-  { key: 'live', label: '实况' },
-  { key: 'schedule', label: '赛程' },
-  { key: 'rankings', label: '排名' },
-  { key: 'bracket', label: '签表' },
-  { key: 'champion', label: '冠军' },
-  { key: 'register', label: '报名' },
+  { key: 'live', label: '实况', capability: null },
+  { key: 'schedule', label: '赛程', capability: null },
+  { key: 'rankings', label: '排名', capability: 'showRankings' },
+  { key: 'bracket', label: '签表', capability: 'showBracket' },
+  { key: 'champion', label: '冠军', capability: 'showChampion' },
+  { key: 'register', label: '报名', capability: null },
 ] as const
 
 export default function PublicLayout() {
@@ -110,6 +123,12 @@ export default function PublicLayout() {
     )
   }
 
+  // 赛制未知（尚未加载到赛事 / 历史赛事 null）时按“全部可见”渲染，避免导航闪烁或误隐藏。
+  const capabilities = getPublicCapabilities(tournament?.format_code)
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) => item.capability === null || capabilities[item.capability],
+  )
+
   return (
     <div className="pub-shell">
       <header className="pub-header">
@@ -125,7 +144,7 @@ export default function PublicLayout() {
           </div>
 
           <div className="pub-header-meta">
-            <StageBadge stage={tournament?.stage} />
+            <StageBadge formatCode={tournament?.format_code} stage={tournament?.stage} />
             {tid !== null && <span className="pub-event-id">#{tid}</span>}
             {/* 公开页面只提供“回赛事首页”的普通导航，不暴露任何管理功能或管理导航 */}
             <Link className="pub-home-link" to={tid !== null ? `/?tid=${tid}` : '/'}>
@@ -137,7 +156,7 @@ export default function PublicLayout() {
 
       <nav className="pub-nav" aria-label="公开赛事导航">
         <div className="pub-nav-inner">
-          {NAV_ITEMS.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink
               className={({ isActive }) => `pub-nav-item${isActive ? ' is-active' : ''}`}
               key={item.key}

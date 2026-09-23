@@ -3,6 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, KnockoutMatch, KnockoutTree, normalizePlacementMatches, PlacementMatch, RankingsResult, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import KnockoutBracket from '../components/KnockoutBracket'
+import PublicEmptyState from '../components/PublicEmptyState'
+import { getPublicCapabilities, isSingleElimination } from '../publicFormat'
 import ScoreSheet from '../components/ScoreSheet'
 
 type PlacementItem = PlacementMatch
@@ -22,6 +24,22 @@ function placementRoundLabel(item: PlacementItem) {
  * D 轨 Day 2：新增可选 `readOnly`。Public 路由（`/public/t/:tid/bracket`）以只读方式复用本页，
  * 只屏蔽**写操作与管理入口**（录入大比分、生成淘汰赛签表、季军赛录分、指向管理页的链接），
  * 签表结构与晋级展示完全沿用后端结果，不复制任何淘汰赛推进算法。
+ *
+ * D 轨 Day 4D：
+ *
+ * - Public 只读视图的「返回」不再指向管理端 `/`，改为回到本赛事的公开实况页；
+ * - 「这里什么都没有」时给出可理解的空态 + CTA，而不是一句只对小组+淘汰赛成立的
+ *   “小组赛对阵尚未发布”；
+ * - 仍然只渲染后端返回的 `KnockoutTree`：不自己算 BYE / 种子 / 下一轮对阵 / 胜者晋级。
+ *
+ * D 轨 Day4D 接线轮（PR #50 review）：
+ *
+ * - Public 端先取 `getTournament(tid)` 拿到**后端权威的** `format_code`：
+ *   `ROUND_ROBIN` 根本没有淘汰阶段，直接显示只读「不适用」状态，
+ *   并且**不发** `/knockout` 请求；
+ * - `SINGLE_ELIMINATION`：只渲染后端签表；它没有小组，因此连 `/rankings` 也不请求，
+ *   也就不会出现「请先完成小组赛 / 每组前 N 名」这类只对 GROUP_KNOCKOUT 成立的文案；
+ * - `GROUP_KNOCKOUT` 与 legacy(`null`)：请求序列与既有主链保持一致，行为不退化。
  */
 export default function KnockoutPage({
   tid: tidProp,
@@ -45,17 +63,52 @@ export default function KnockoutPage({
 
   const load = useCallback(async () => {
     if (tid === null) return
-    const [t, k, r] = await Promise.all([
-      api.getTournament(tid),
-      api.getKnockout(tid),
-      api.getRankings(tid),
-    ])
+
+    // 管理端：请求序列与既有实现完全一致，不因赛制变化而改动
+    if (!readOnly) {
+      const [t, k, r] = await Promise.all([
+        api.getTournament(tid),
+        api.getKnockout(tid),
+        api.getRankings(tid),
+      ])
+      setTournament(t)
+      setTree(k)
+      setRankings(r)
+      setBracketError(null)
+      setLoaded(true)
+      return
+    }
+
+    // Public 只读：先拿权威 format_code，再决定请求哪些数据
+    const t = await api.getTournament(tid)
     setTournament(t)
+    const capabilities = getPublicCapabilities(t.format_code)
+
+    if (!capabilities.showBracket) {
+      // 不适用：本赛事没有淘汰阶段，不请求 /knockout，也不伪造空签表
+      setTree(null)
+      setRankings(null)
+      setBracketError(null)
+      setLoaded(true)
+      return
+    }
+
+    if (!capabilities.showRankings) {
+      // 单淘汰：签表要拉，但没有小组，因此不请求 /rankings（避免 GK 专属文案与无意义请求）
+      const k = await api.getKnockout(tid)
+      setTree(k)
+      setRankings(null)
+      setBracketError(null)
+      setLoaded(true)
+      return
+    }
+
+    const [k, r] = await Promise.all([api.getKnockout(tid), api.getRankings(tid)])
     setTree(k)
     setRankings(r)
     setBracketError(null)
     setLoaded(true)
-  }, [tid])
+  }, [tid, readOnly])
 
   useEffect(() => {
     if (tid !== null) {
@@ -128,6 +181,34 @@ export default function KnockoutPage({
     )
   }
 
+  // Public 只读 + 本赛事没有淘汰阶段（ROUND_ROBIN）：这是「不适用」，不是「还没有数据」。
+  // 不渲染任何小组赛 / 晋级名额文案，也不伪造空签表。
+  const capabilities = getPublicCapabilities(tournament?.format_code)
+  const bracketNotApplicable = readOnly && tournament !== null && !capabilities.showBracket
+  // 单淘汰赛制没有小组：禁止出现「请先完成小组赛」「每组前 N 名晋级」这类 GK 专属语义。
+  const singleElimination = readOnly && isSingleElimination(tournament?.format_code)
+
+  if (bracketNotApplicable) {
+    return (
+      <div className="page">
+        <div className="card">
+          <h2>
+            {tournament ? tournament.name : '赛事'} · 淘汰赛
+            <Link className="btn small float-right" to={`/public/t/${tid}/live`}>
+              ← 返回实况
+            </Link>
+          </h2>
+        </div>
+        <PublicEmptyState
+          title="本赛事采用循环赛制，不设置淘汰赛签表。"
+          actions={[{ label: '查看排名', to: `/public/t/${tid}/rankings` }]}
+        >
+          <p>请查看赛事排名了解当前名次。</p>
+        </PublicEmptyState>
+      </div>
+    )
+  }
+
   // 小组赛完成 = 已分组、每组都有比赛、且每组所有比赛都已结束
   // （rankings 只统计 GROUP 赛段的比赛，淘汰赛生成后这个判定依然成立）
   const groupsAllDone =
@@ -181,8 +262,12 @@ export default function KnockoutPage({
       <div className="card">
         <h2>
           {tournament ? tournament.name : '赛事'} · 淘汰赛
-          <Link className="btn small float-right" to="/">
-            ← 返回首页
+          {/* Public 只读视图不得把“返回首页”指向管理端 `/`（管理员控制台入口）。 */}
+          <Link
+            className="btn small float-right"
+            to={readOnly ? `/public/t/${tid}/live` : '/'}
+          >
+            {readOnly ? '← 返回实况' : '← 返回首页'}
           </Link>
         </h2>
         {tournament && (
@@ -271,31 +356,52 @@ export default function KnockoutPage({
         </div>
       )}
 
-      {/* 状态 A：小组赛尚未完成 → 只显示剩余场次，不提供生成入口 */}
+      {/* 状态 A：还没有可展示的签表（小组赛未完成，或本赛事压根没有小组） */}
       {!knockoutReady && !groupsAllDone && (
-        <div className="card">
-          <p className="muted">小组赛尚未完成</p>
-          {remainingGroupMatches > 0 ? (
-            readOnly ? (
-              <p className="muted">
-                剩余 {remainingGroupMatches} 场比赛。全部结束后即进入淘汰赛阶段。
-              </p>
+        singleElimination ? (
+          /* 单淘汰：没有小组，因此**不**说“小组赛尚未完成 / 每组前 N 名”，
+             也不给“查看排名”这种指向不适用的 CTA（SE 没有循环赛排名）。 */
+          <PublicEmptyState title="淘汰赛签表尚未发布">
+            <p>本赛事采用单淘汰赛制，签表由裁判组生成后本页会自动显示。</p>
+          </PublicEmptyState>
+        ) : readOnly && remainingGroupMatches === 0 ? (
+          /* Public 只读空态：此时本页一个字节的内容都没有。
+             旧文案只说“小组赛对阵尚未发布”，而 V0.3 的循环赛 / 单淘汰赛事根本没有小组 ——
+             这里刻意不推断赛制，只说明“本页暂无签表”，并给出仍然可用的替代视图。
+             注意：不显示任何“生成签表”类入口，也不调用任何写接口。 */
+          <PublicEmptyState
+            title="暂无淘汰赛签表"
+            hint="本赛事目前没有可展示的淘汰赛签表。"
+            actions={[{ label: '查看排名', to: `/public/t/${tid}/rankings` }]}
+          >
+            <p>
+              如果本赛事采用循环赛等不设淘汰赛的赛制，请以赛事排名为准；
+              签表由裁判组发布后本页会自动显示。
+            </p>
+          </PublicEmptyState>
+        ) : (
+          <div className="card">
+            <p className="muted">小组赛尚未完成</p>
+            {remainingGroupMatches > 0 ? (
+              readOnly ? (
+                <p className="muted">
+                  剩余 {remainingGroupMatches} 场比赛。全部结束后即进入淘汰赛阶段。
+                </p>
+              ) : (
+                <p className="muted">
+                  剩余 {remainingGroupMatches} 场比赛。请先在
+                  <Link to={`/console?tid=${tid}`}> 比赛控制台 </Link>
+                  录入比分，完成后即可生成淘汰赛。
+                </p>
+              )
             ) : (
               <p className="muted">
-                剩余 {remainingGroupMatches} 场比赛。请先在
-                <Link to={`/console?tid=${tid}`}> 比赛控制台 </Link>
-                录入比分，完成后即可生成淘汰赛。
+                请先在<Link to={`/players?tid=${tid}`}> 选手与分组 </Link>
+                页完成分组并生成小组赛，再在<Link to={`/console?tid=${tid}`}> 比赛控制台 </Link>录入比分。
               </p>
-            )
-          ) : readOnly ? (
-            <p className="muted">小组赛对阵尚未发布，请稍后再查看。</p>
-          ) : (
-            <p className="muted">
-              请先在<Link to={`/players?tid=${tid}`}> 选手与分组 </Link>
-              页完成分组并生成小组赛，再在<Link to={`/console?tid=${tid}`}> 比赛控制台 </Link>录入比分。
-            </p>
-          )}
-        </div>
+            )}
+          </div>
+        )
       )}
 
       {modal && tournament && !readOnly && <ScoreSheet
