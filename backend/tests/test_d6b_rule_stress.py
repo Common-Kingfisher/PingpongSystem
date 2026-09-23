@@ -10,11 +10,23 @@ from app.services import formats
 from app.services import entries as entries_service
 from app.services import groups as groups_service
 from app.services import knockout as knockout_service
+from app.services import qualification_decisions as decision_service
 from app.services import scheduling as scheduling_service
 from app.services import scores as scores_service
 
 
 DRAW_SEED = 20260923
+MATCH_FACT_FIELDS = (
+    "id",
+    "status",
+    "entry_a_id",
+    "entry_b_id",
+    "winner_entry_id",
+    "player_a_score",
+    "player_b_score",
+    "result_type",
+    "table_id",
+)
 
 
 def _create_group_knockout_tournament(conn, *, players: int, group_count: int, qualify: int) -> int:
@@ -94,6 +106,15 @@ def _normalized_first_round(conn, tournament_id: int) -> list[tuple[int | None, 
     ]
 
 
+def _main_bracket_fact_snapshot(conn, tournament_id: int) -> dict[int, dict]:
+    """保存改分被拒绝时不得变化的淘汰赛业务事实。"""
+    return {
+        match["id"]: {field: match[field] for field in MATCH_FACT_FIELDS}
+        for match in repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value)
+        if match["bracket"] == MatchBracket.MAIN.value
+    }
+
+
 def _assign_and_record(conn, match_id: int, score_a: int, score_b: int) -> None:
     table = next(table for table in repo.list_tables(conn, repo.get_match(conn, match_id)["tournament_id"])
                  if table["status"] == "FREE")
@@ -126,7 +147,9 @@ def test_64_player_group_knockout_completes_without_duplicate_qualification(conn
 
     generation = handler.generate_matches(conn, tournament_id)
     assert generation.matches_generated == 96
-    assert generation.per_group == {f"{chr(65 + index)}组": 6 for index in range(16)}
+    assert len(generation.per_group) == 16
+    assert set(generation.per_group.values()) == {6}
+    assert sum(generation.per_group.values()) == 96
 
     _finish_scheduled_matches(conn, tournament_id)
 
@@ -201,10 +224,13 @@ def test_non_power_of_two_single_elimination_has_one_path_per_entry_and_one_cham
 
     assert len(main_matches) == bracket_size - 1
     assert len(first_round) == bracket_size // 2
-    assert len([match for match in first_round if match["result_type"] == "WALKOVER"]) == expected_byes
+    first_round_walkover_ids = {
+        match["id"] for match in first_round if match["result_type"] == ResultType.WALKOVER.value
+    }
+    assert len(first_round_walkover_ids) == expected_byes
     assert first_round_entry_ids == list(dict.fromkeys(first_round_entry_ids))
     assert set(first_round_entry_ids) == active_entry_ids
-    assert handler.handle_bye(conn, tournament_id)["walkover_match_ids"]
+    assert set(handler.handle_bye(conn, tournament_id)["walkover_match_ids"]) == first_round_walkover_ids
 
     replay_tournament_id, replay_handler = _create_single_elimination_tournament(conn, players=players)
     replay_handler.generate_matches(conn, replay_tournament_id)
@@ -267,15 +293,17 @@ def test_first_round_winner_change_is_atomic_when_deep_downstream_is_finished(co
         for match in repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value)
         if match["bracket"] == MatchBracket.MAIN.value and match["round"] == 5
     )
-    before_upstream = repo.get_match(conn, first_match["id"])
-    before_final = repo.get_match(conn, final["id"])
+    before_matches = _main_bracket_fact_snapshot(conn, tournament_id)
+    before_upstream = before_matches[first_match["id"]]
+    before_final = before_matches[final["id"]]
     reversal = (0, 2) if before_upstream["winner_entry_id"] == first_match["entry_a_id"] else (2, 0)
 
     with pytest.raises(scores_service.ScoreError, match="影响后续比赛"):
         scores_service.revise_score(conn, first_match["id"], *reversal)
 
-    assert repo.get_match(conn, first_match["id"]) == before_upstream
-    assert repo.get_match(conn, final["id"]) == before_final
+    assert _main_bracket_fact_snapshot(conn, tournament_id) == before_matches
+    assert _main_bracket_fact_snapshot(conn, tournament_id)[first_match["id"]] == before_upstream
+    assert _main_bracket_fact_snapshot(conn, tournament_id)[final["id"]] == before_final
     assert handler.get_completion_state(conn, tournament_id)["state"] == "COMPLETED"
 
 
@@ -427,7 +455,7 @@ def test_group_withdrawal_stress_preserves_history_and_excludes_withdrawn_entry(
     ]
     finished = involved[0]
     scores_service.record_score(
-        conn, finished["id"], *( (2, 0) if finished["entry_a_id"] == withdrawn_id else (0, 2) )
+        conn, finished["id"], *((2, 0) if finished["entry_a_id"] == withdrawn_id else (0, 2))
     )
     playing = involved[1]
     table = next(table for table in repo.list_tables(conn, tournament_id) if table["status"] == TableStatus.FREE.value)
@@ -438,6 +466,7 @@ def test_group_withdrawal_stress_preserves_history_and_excludes_withdrawn_entry(
 
     assert repo.get_match(conn, finished["id"]) == before_finished
     assert repo.get_table(conn, table["id"])["status"] == TableStatus.FREE.value
+    assert repo.get_entry(conn, withdrawn_id)["status"] == "WITHDRAWN"
     for match in involved[1:]:
         actual = repo.get_match(conn, match["id"])
         assert actual["status"] == MatchStatus.FINISHED.value
@@ -446,6 +475,10 @@ def test_group_withdrawal_stress_preserves_history_and_excludes_withdrawn_entry(
         assert actual["finished_at"]
     _finish_scheduled_matches(conn, tournament_id)
     rankings = handler.calculate_ranking(conn, tournament_id)
+    withdrawn_group = next(
+        group for group in rankings if any(entry["entry_id"] == withdrawn_id for entry in group["entries"])
+    )
+    assert len([entry for entry in withdrawn_group["entries"] if entry["qualified"]]) == 2
     assert all(
         not entry["qualified"]
         for group in rankings
@@ -453,9 +486,59 @@ def test_group_withdrawal_stress_preserves_history_and_excludes_withdrawn_entry(
         if entry["entry_id"] == withdrawn_id
     )
     handler.advance_participants(conn, tournament_id)
-    assert withdrawn_id not in {
+    first_round_entry_ids = [
         entry_id
         for match in repo.list_matches(conn, tournament_id, MatchStage.KNOCKOUT.value)
+        if match["bracket"] == MatchBracket.MAIN.value and match["round"] == 1
         for entry_id in (match["entry_a_id"], match["entry_b_id"])
         if entry_id is not None
+    ]
+    assert withdrawn_id not in first_round_entry_ids
+    assert len(first_round_entry_ids) == len(set(first_round_entry_ids))
+
+
+def test_tie_stress_moves_from_missing_points_to_manual_resolution(conn):
+    """同分不可猜测：缺小分阻断，补齐后仍不可解才允许人工裁定。"""
+    tournament = repo.create_tournament(conn, "D6B同分压力", "2026-09-23", 2, 1, 1)
+    repo.create_tables_for_tournament(conn, tournament["id"], 2)
+    for name in ("甲", "乙", "丙"):
+        repo.add_player(conn, tournament["id"], name, "D6B")
+    groups_service.auto_group_tournament(conn, tournament["id"], rng=random.Random(DRAW_SEED))
+    handler = formats.resolve_format_handler(formats.GROUP_KNOCKOUT)
+    handler.generate_matches(conn, tournament["id"])
+    entries = sorted(repo.list_entries(conn, tournament["id"]), key=lambda entry: entry["id"])
+    first, second, third = [entry["id"] for entry in entries]
+    winners = {
+        frozenset((first, second)): first,
+        frozenset((second, third)): second,
+        frozenset((first, third)): third,
     }
+    for match in repo.list_matches(conn, tournament["id"]):
+        winner = winners[frozenset((match["entry_a_id"], match["entry_b_id"]))]
+        scores_service.record_score(
+            conn, match["id"], *((2, 0) if winner == match["entry_a_id"] else (0, 2))
+        )
+
+    missing = handler.calculate_ranking(conn, tournament["id"])[0]
+    assert missing["ambiguous_qualification"] is True
+    assert missing["needs_point_scores"] is True
+    assert set(missing["manual_candidate_entry_ids"]) == {first, second, third}
+    assert set(missing["point_score_match_ids"]) == {match["id"] for match in repo.list_matches(conn, tournament["id"])}
+
+    for match in repo.list_matches(conn, tournament["id"]):
+        winner = winners[frozenset((match["entry_a_id"], match["entry_b_id"]))]
+        games = [(11, 5), (11, 5)] if winner == match["entry_a_id"] else [(5, 11), (5, 11)]
+        scores_service.revise_score(conn, match["id"], None, None, games=games)
+
+    unresolved = handler.calculate_ranking(conn, tournament["id"])[0]
+    assert unresolved["needs_point_scores"] is False
+    assert unresolved["ambiguous_qualification"] is True
+    assert unresolved["manual_slots_remaining"] == 1
+    selected = unresolved["manual_candidate_entry_ids"][0]
+    decision_service.create_decision(
+        conn, tournament["id"], unresolved["group_id"], [selected], "D6B现场裁定", "D6B主裁"
+    )
+    resolved = handler.calculate_ranking(conn, tournament["id"])[0]
+    assert resolved["manually_resolved"] is True
+    assert resolved["ambiguous_qualification"] is False
+    assert [entry["entry_id"] for entry in resolved["entries"] if entry["qualified"]] == [selected]
