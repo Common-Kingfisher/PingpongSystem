@@ -1,5 +1,9 @@
 # B 工作线：现场 UI 加固
 
+> **历史工作线说明**
+>
+> 本文记录的是 V0.2／旧 Dev B“现场 UI 加固”工作线，已结束。V0.3 新版 B 轨为“规则／比赛引擎”，其 Release Candidate 冻结说明见 [D7B_RULE_FREEZE.md](D7B_RULE_FREEZE.md)。
+
 基线：`develop/field-demo-v02`，并依赖 A2 Match Timing 的 `/schedule-estimates` 只读接口。
 本工作线只做现场操作与打印体验，不复制后端规则或 DTO。
 
