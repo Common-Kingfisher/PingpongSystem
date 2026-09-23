@@ -2423,4 +2423,3 @@ getPublicMatchStageLabel(formatCode, matchStage)
 未触碰 `backend/app/services/formats.py`、`backend/app/domain/draw.py`、
 `backend/app/services/knockout.py` 及 ranking / seed / BYE / qualification 逻辑；
 未做 Day5（报名 / 二维码 / Organization / Venue）；未引入新依赖。
-

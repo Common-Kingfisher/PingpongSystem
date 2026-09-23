@@ -331,6 +331,94 @@ export interface paths {
         patch: operations["update_player_api_tournaments__tournament_id__players__player_id__patch"];
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Registration Setting */
+        put: operations["update_registration_setting_api_tournaments__tournament_id__registration_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Registrations */
+        get: operations["list_registrations_api_tournaments__tournament_id__registrations_get"];
+        put?: never;
+        /** Submit Registration */
+        post: operations["submit_registration_api_tournaments__tournament_id__registrations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/registrations/{registration_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Registration */
+        post: operations["confirm_registration_api_tournaments__tournament_id__registrations__registration_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Organization */
+        get: operations["get_organization_api_tournaments__tournament_id__organization_get"];
+        /** Upsert Organization */
+        put: operations["upsert_organization_api_tournaments__tournament_id__organization_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournament_id}/venue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Venue */
+        get: operations["get_venue_api_tournaments__tournament_id__venue_get"];
+        /** Upsert Venue */
+        put: operations["upsert_venue_api_tournaments__tournament_id__venue_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}/entries": {
         parameters: {
             query?: never;
@@ -1833,6 +1921,36 @@ export interface components {
             matches: components["schemas"]["MatchOut"][];
             dashboard: components["schemas"]["Dashboard"];
         };
+        /** OrganizationOut */
+        OrganizationOut: {
+            /** Name */
+            name: string;
+            /** Contact Name */
+            contact_name?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** OrganizationUpsert */
+        OrganizationUpsert: {
+            /** Name */
+            name: string;
+            /** Contact Name */
+            contact_name?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /** Note */
+            note?: string | null;
+        };
         /** PairingRequest */
         PairingRequest: {
             /** Pairing Seed */
@@ -2074,6 +2192,67 @@ export interface components {
             /** Rankings */
             rankings: components["schemas"]["GroupRankingOut"][];
         };
+        /** RegistrationAdminOut */
+        RegistrationAdminOut: {
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            /** Name */
+            name: string;
+            /** Affiliation */
+            affiliation: string | null;
+            /** Contact */
+            contact: string | null;
+            /** Rating Points */
+            rating_points: number;
+            status: components["schemas"]["RegistrationStatus"];
+            /** Confirmed Player Id */
+            confirmed_player_id: number | null;
+            /** Confirmed By User Id */
+            confirmed_by_user_id: number | null;
+            /** Confirmed At */
+            confirmed_at: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** RegistrationConfirmResult */
+        RegistrationConfirmResult: {
+            registration: components["schemas"]["RegistrationAdminOut"];
+            player: components["schemas"]["PlayerOut"];
+        };
+        /** RegistrationCreate */
+        RegistrationCreate: {
+            /** Name */
+            name: string;
+            /** Affiliation */
+            affiliation?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /**
+             * Rating Points
+             * @default 1000
+             */
+            rating_points: number;
+        };
+        /** RegistrationPublicOut */
+        RegistrationPublicOut: {
+            /** Registration Id */
+            registration_id: number;
+            status: components["schemas"]["RegistrationStatus"];
+            /** Name */
+            name: string;
+            /** Created At */
+            created_at: string;
+        };
+        /**
+         * RegistrationStatus
+         * @description 公开报名的最小状态机：仅允许待确认到已确认。
+         * @enum {string}
+         */
+        RegistrationStatus: "PENDING" | "CONFIRMED";
         /**
          * ResultType
          * @enum {string}
@@ -3020,6 +3199,11 @@ export interface components {
             points_to_win: number;
             /** @default LIVE */
             operation_mode: components["schemas"]["TournamentMode"];
+            /**
+             * Registration Enabled
+             * @default false
+             */
+            registration_enabled: boolean;
             format_code?: components["schemas"]["TournamentFormat"] | null;
             /** Rule Config */
             rule_config?: {
@@ -3142,6 +3326,11 @@ export interface components {
             confirmed_at?: string | null;
             /** @default LIVE */
             operation_mode: components["schemas"]["TournamentMode"];
+            /**
+             * Registration Enabled
+             * @default false
+             */
+            registration_enabled: boolean;
             format_code?: components["schemas"]["TournamentFormat"] | null;
             /** Rule Config */
             rule_config?: {
@@ -3149,6 +3338,11 @@ export interface components {
             };
             /** Rule Version */
             rule_version?: number | null;
+        };
+        /** TournamentRegistrationUpdate */
+        TournamentRegistrationUpdate: {
+            /** Enabled */
+            enabled: boolean;
         };
         /**
          * TournamentRole
@@ -3174,6 +3368,40 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** VenueOut */
+        VenueOut: {
+            /** Name */
+            name: string;
+            /** Address */
+            address?: string | null;
+            /** Contact Name */
+            contact_name?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Id */
+            id: number;
+            /** Tournament Id */
+            tournament_id: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** VenueUpsert */
+        VenueUpsert: {
+            /** Name */
+            name: string;
+            /** Address */
+            address?: string | null;
+            /** Contact Name */
+            contact_name?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /** Note */
+            note?: string | null;
         };
     };
     responses: never;
@@ -4181,6 +4409,273 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlayerOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_registration_setting_api_tournaments__tournament_id__registration_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TournamentRegistrationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TournamentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_registrations_api_tournaments__tournament_id__registrations_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["RegistrationStatus"] | null;
+            };
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationAdminOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_registration_api_tournaments__tournament_id__registrations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationPublicOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_registration_api_tournaments__tournament_id__registrations__registration_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+                registration_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationConfirmResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_organization_api_tournaments__tournament_id__organization_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_organization_api_tournaments__tournament_id__organization_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationUpsert"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_venue_api_tournaments__tournament_id__venue_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_venue_api_tournaments__tournament_id__venue_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VenueUpsert"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueOut"];
                 };
             };
             /** @description Validation Error */

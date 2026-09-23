@@ -43,6 +43,7 @@ def create_tournament(
             owner_user_id=int(context.user["id"]),
             format_code=payload.format_code.value if payload.format_code else None,
             rule_config=payload.rule_config,
+            registration_enabled=payload.registration_enabled,
         )
     except tournament_service.TournamentFormatError as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc))

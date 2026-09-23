@@ -39,6 +39,13 @@ class TournamentFormat(str, Enum):
     GROUP_KNOCKOUT = "GROUP_KNOCKOUT"
 
 
+class RegistrationStatus(str, Enum):
+    """公开报名的最小状态机：仅允许待确认到已确认。"""
+
+    PENDING = "PENDING"
+    CONFIRMED = "CONFIRMED"
+
+
 class SystemRole(str, Enum):
     """系统级账号角色。"""
 

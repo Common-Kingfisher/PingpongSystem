@@ -44,6 +44,8 @@ def delete_player(conn: sqlite3.Connection, tournament_id: int, player_id: int) 
         player = repo.get_player(conn, player_id)
         if player is None:
             raise PlayerError("选手不存在", 404)
+        if repo.count_confirmed_registrations_for_player(conn, player_id):
+            raise PlayerError("该选手由已确认报名创建，不能直接删除", 409)
         if player["group_id"] is not None:
             raise PlayerError("选手已分组，请先解除分组后再删除", 409)
         repo.delete_player(conn, player_id)

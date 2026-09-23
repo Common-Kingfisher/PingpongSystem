@@ -30,6 +30,7 @@ TOURNAMENTS_TABLE_SQL = """CREATE TABLE IF NOT EXISTS tournaments (
     roster_confirmed INTEGER NOT NULL DEFAULT 0 CHECK (roster_confirmed IN (0,1)),
     confirmed_at TEXT,
     operation_mode TEXT NOT NULL DEFAULT 'LIVE' CHECK (operation_mode IN ('LIVE','DEMO')),
+    registration_enabled INTEGER NOT NULL DEFAULT 0 CHECK (registration_enabled IN (0,1)),
     format_code TEXT CHECK (format_code IS NULL OR format_code IN ('ROUND_ROBIN','SINGLE_ELIMINATION','GROUP_KNOCKOUT')),
     rule_config TEXT,
     rule_version INTEGER CHECK (rule_version IS NULL OR rule_version >= 1),
@@ -113,6 +114,58 @@ CREATE TABLE IF NOT EXISTS players (
     seed_no INTEGER,
     rating_points INTEGER NOT NULL DEFAULT 1000 CHECK (rating_points >= 0),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS organizations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER NOT NULL UNIQUE
+        REFERENCES tournaments(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    contact_name TEXT,
+    contact TEXT,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS venues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER NOT NULL UNIQUE
+        REFERENCES tournaments(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    address TEXT,
+    contact_name TEXT,
+    contact TEXT,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    affiliation TEXT,
+    contact TEXT,
+    rating_points INTEGER NOT NULL DEFAULT 1000
+        CHECK (rating_points BETWEEN 0 AND 99999),
+    status TEXT NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING','CONFIRMED')),
+    confirmed_player_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+    confirmed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    confirmed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (
+        (status = 'PENDING'
+            AND confirmed_player_id IS NULL
+            AND confirmed_by_user_id IS NULL
+            AND confirmed_at IS NULL)
+        OR
+        (status = 'CONFIRMED'
+            AND confirmed_player_id IS NOT NULL
+            AND confirmed_at IS NOT NULL)
+    )
 );
 
 {ENTRIES_TABLE_SQL}
@@ -253,6 +306,8 @@ CREATE TABLE IF NOT EXISTS team_ties (
 {TEAM_RUBBERS_TABLE_SQL}
 
 CREATE INDEX IF NOT EXISTS idx_players_tournament ON players(tournament_id);
+CREATE INDEX IF NOT EXISTS idx_registrations_tournament_status
+    ON registrations(tournament_id, status, id);
 CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
 CREATE INDEX IF NOT EXISTS idx_entries_tournament ON entries(tournament_id);
