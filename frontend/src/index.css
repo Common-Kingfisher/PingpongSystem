@@ -1403,6 +1403,8 @@ body {
 .waiting-match-card > span { color: #98a2b3; font: 700 9px Bahnschrift, sans-serif; }
 .waiting-match-card > strong { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .waiting-match-card > i { color: var(--magenta); font-size: 8px; font-style: normal; font-weight: 800; }
+/* D 轨 Day 3：手机录分入口。独占一行，不挤压 4 列对阵网格。 */
+.waiting-match-card > .waiting-match-mobile { grid-column: 1 / -1; justify-self: start; margin-top: 2px; }
 .data-table td:last-child .btn + .btn { margin-left: 7px; }
 
 /* ---------------- Demo 标识 & 演示 Modal ---------------- */
