@@ -16,6 +16,7 @@ const tournament: Tournament = {
 beforeEach(() => {
   localStorage.clear()
   vi.restoreAllMocks()
+  vi.spyOn(api, 'getGroups').mockResolvedValue({ groups: [] })
 })
 afterEach(cleanup)
 
@@ -92,6 +93,27 @@ describe('赛事设置真实契约', () => {
     expect(screen.getByRole('heading', { name: '球台设置' })).toBeTruthy()
     expect(screen.getByText(/后端暂未提供本阶段可用的球台设置接口/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: '保存赛事事实' })).toBeNull()
+  })
+
+  it('在赛制与规则中通过真实接口保存逐组晋级人数', async () => {
+    vi.mocked(api.getGroups).mockResolvedValue({ groups: [{
+      id: 31, name: 'A组', sort_order: 0, qualify_count: 2,
+      players: [
+        { id: 1, name: '甲', college: null }, { id: 2, name: '乙', college: null },
+        { id: 3, name: '丙', college: null }, { id: 4, name: '丁', college: null },
+      ], entries: [],
+    }] })
+    const save = vi.spyOn(api, 'setGroupQualification').mockResolvedValue({
+      id: 31, name: 'A组', sort_order: 0, qualify_count: 3,
+      players: [], entries: [],
+    })
+    render(<TournamentSettingsPage tournament={tournament} />)
+    const input = await screen.findByLabelText('A组晋级人数')
+    expect((input as HTMLInputElement).value).toBe('2')
+    fireEvent.change(input, { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存A组' }))
+    await waitFor(() => expect(save).toHaveBeenCalledWith(12, 31, 3))
+    expect(await screen.findByText('A组晋级人数已保存。')).toBeTruthy()
   })
 
   it('organization 与 venue 分别调用 generated-contract wrapper 保存', async () => {

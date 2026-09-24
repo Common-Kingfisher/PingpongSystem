@@ -123,7 +123,10 @@ describe('参赛名单与待确认报名', () => {
     expect(screen.getByText(/用于同单位抽签规避/)).toBeTruthy()
     expect(RECOMMENDED_ROSTER_CSV).toContain('李四,自动化学院,\n')
     expect(RECOMMENDED_ROSTER_CSV).not.toContain('李四,,')
-    expect(screen.getByText(/未填写时后端可能使用兼容默认值 1000/)).toBeTruthy()
+    const rating = screen.getByLabelText('运动员积分') as HTMLInputElement
+    expect(rating.value).toBe('1000')
+    expect(rating.required).toBe(true)
+    expect(screen.getByText(/手工录入的运动员积分默认填写 1000；CSV 导入时积分可留空/)).toBeTruthy()
   })
 
   it('名单确认后冻结 CRUD、报名确认和重复确认', async () => {

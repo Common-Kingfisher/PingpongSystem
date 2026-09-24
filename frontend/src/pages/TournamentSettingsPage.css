@@ -56,5 +56,12 @@
 .public-url code { flex: 1; overflow: auto; padding: 12px; color: #23425e; background: #f1f5f8; border: 1px solid #d8e2ea; white-space: nowrap; }
 .danger-zone { border-top: 4px solid #d84a4a; }
 .contract-waiting { border-left: 4px solid #b58a32; background: #fffdf7; }
+.group-qualification-settings { margin-top: 15px; }
+.group-qualification-grid { display: grid; gap: 10px; margin-top: 16px; }
+.group-qualification-row { display: grid; grid-template-columns: minmax(180px,1fr) 150px auto; gap: 14px; align-items: end; padding: 14px; background: #f7fafc; border: 1px solid #dbe5ed; }
+.group-qualification-row > div { display: grid; gap: 4px; }
+.group-qualification-row small { color: #6d8295; }
+.group-qualification-row label { display: grid; gap: 5px; color: #526b82; font-size: 11px; font-weight: 700; }
+.group-qualification-row input { box-sizing: border-box; width: 100%; padding: 9px 10px; border: 1px solid #c6d3df; font: inherit; }
 @media(max-width:1000px) { .settings-fact-grid, .format-card-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-@media(max-width:700px) { .settings-two-column, .settings-form, .format-card-grid, .settings-fact-grid { grid-template-columns: 1fr; } .public-url { align-items: stretch; flex-direction: column; } }
+@media(max-width:700px) { .settings-two-column, .settings-form, .format-card-grid, .settings-fact-grid, .group-qualification-row { grid-template-columns: 1fr; } .public-url { align-items: stretch; flex-direction: column; } }

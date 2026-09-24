@@ -146,10 +146,10 @@ export default function PlayersPage() {
         <form className="inline-form" onSubmit={addPlayer}>
           <input required value={name} disabled={locked || busy} onChange={(e) => setName(e.target.value)} placeholder="姓名（必填）" />
           <input aria-label="所属单位" value={college} disabled={locked || busy} onChange={(e) => setCollege(e.target.value)} placeholder="所属单位" />
-          <input type="number" min={0} value={ratingPoints} disabled={locked || busy} onChange={(e) => setRatingPoints(Number(e.target.value))} aria-label="运动员积分" />
+          <input required type="number" min={0} value={ratingPoints} disabled={locked || busy} onChange={(e) => setRatingPoints(Number(e.target.value))} aria-label="运动员积分" />
           <button className="btn primary" disabled={locked || busy || !name.trim()} type="submit">添加到名单</button>
         </form>
-        <p className="muted">所属单位用于同单位抽签规避；当前后端仍兼容历史缺失数据。运动员积分是可选参考数据；未填写时后端可能使用兼容默认值 1000，该值不代表真实水平。</p>
+        <p className="muted">所属单位用于同单位抽签规避；当前后端仍兼容历史缺失数据。手工录入的运动员积分默认填写 1000；CSV 导入时积分可留空并由后端使用兼容默认值 1000。默认值不代表真实水平。</p>
         {!locked && <div className="button-row"><button className="btn" type="button" onClick={() => setImportOpen(true)}>Excel / CSV 导入</button>{tournament?.operation_mode === 'DEMO' && <button className="btn" type="button" onClick={generateDemo}>生成演示名单</button>}</div>}
       </section>
 
