@@ -88,6 +88,50 @@ def test_registration_enabled_round_trip_and_persisted(client, conn):
     ] == 0
 
 
+def test_registration_cannot_reopen_after_roster_confirmation_or_stage_change(client, conn):
+    confirmed = _create_tournament(client, "已确认名单禁止开启报名")
+    conn.execute(
+        "UPDATE tournaments SET roster_confirmed = 1 WHERE id = ?", (confirmed["id"],)
+    )
+    conn.commit()
+    locked = client.put(
+        f"/api/tournaments/{confirmed['id']}/registration", json={"enabled": True}
+    )
+    assert locked.status_code == 409, locked.text
+    assert locked.json()["detail"] == {
+        "code": "REGISTRATION_CLOSED",
+        "message": "参赛名单已确认，报名已关闭",
+    }
+
+    started = _create_tournament(client, "已开赛禁止开启报名")
+    repo.update_tournament_stage(conn, started["id"], TournamentStage.GROUP_STAGE.value)
+    conn.commit()
+    staged = client.put(
+        f"/api/tournaments/{started['id']}/registration", json={"enabled": True}
+    )
+    assert staged.status_code == 409, staged.text
+    assert staged.json()["detail"] == {
+        "code": "REGISTRATION_CLOSED",
+        "message": "赛事已开赛，报名已关闭",
+    }
+
+
+def test_registration_can_clear_stale_enabled_flag_after_roster_confirmation(client, conn):
+    tournament = _create_tournament(
+        client, "清理历史报名开关", registration_enabled=True
+    )
+    conn.execute(
+        "UPDATE tournaments SET roster_confirmed = 1 WHERE id = ?", (tournament["id"],)
+    )
+    conn.commit()
+
+    response = client.put(
+        f"/api/tournaments/{tournament['id']}/registration", json={"enabled": False}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["registration_enabled"] is False
+
+
 def test_public_submit_only_creates_pending_and_hides_contact(client, conn):
     enabled = _create_tournament(
         client, "公开报名隐私赛事", registration_enabled=True

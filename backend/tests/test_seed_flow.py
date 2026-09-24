@@ -38,35 +38,18 @@ def _assert_singles_entry_seeds_match_players(conn, tid):
             assert entry["seed_no"] == seed_of[entry["members"][0]["player_id"]]
 
 
-def test_demo_generated_seeds_stay_in_sync_with_entries(conn):
-    """DEMO 生成演示选手（自动种子）：Entry 不得残留旧种子，重新确认名单后按新种子分散。"""
+def test_demo_generation_is_rejected_after_roster_confirmation(conn):
+    """演示数据也是真实选手写入；名单确认后不能用 DEMO 入口绕过写锁。"""
     tid, players = _tournament(conn, players=8, ratings=[1000 + index for index in range(8)])
     entries_service.confirm_roster(conn, tid)
     players_service.set_seeds(conn, tid, [p["id"] for p in players[:4]])
     assert _entry_seed_by_player(conn, tid)[players[0]["id"]] == 1
 
-    players_service.generate_demo_players(conn, tid, 4, True)
+    with pytest.raises(players_service.PlayerError, match="参赛名单已确认"):
+        players_service.generate_demo_players(conn, tid, 4, True)
 
-    seed_of = {p["id"]: p["seed_no"] for p in repo.list_players(conn, tid)}
-    old_ids = {p["id"] for p in players}
-    seeded = sorted(
-        (pid for pid, seed in seed_of.items() if seed is not None),
-        key=lambda pid: seed_of[pid],
-    )
-    assert len(seeded) == 4
-    assert all(seed_of[pid] is None for pid in old_ids)          # 旧选手种子被清空
-    _assert_singles_entry_seeds_match_players(conn, tid)          # 旧 Entry 种子不得残留
-
-    # 名单重新确认 → Entry 按新种子重建 → 自动分组使用新种子
-    entries_service.confirm_roster(conn, tid)
+    assert len(repo.list_players(conn, tid)) == 8
     _assert_singles_entry_seeds_match_players(conn, tid)
-    entry_seeds = _entry_seed_by_player(conn, tid)
-    assert [entry_seeds[pid] for pid in seeded] == [1, 2, 3, 4]
-
-    groups = groups_service.auto_group_tournament(conn, tid)
-    name_of = {group["id"]: group["name"] for group in groups}
-    group_of = {p["id"]: p["group_id"] for p in repo.list_players(conn, tid)}
-    assert [name_of[group_of[pid]] for pid in seeded] == ["A组", "B组", "C组", "D组"]
 
 
 def test_seed_change_after_roster_confirmation_is_used_by_grouping(conn):

@@ -24,9 +24,38 @@ class RegistrationError(Exception):
 def _closed_message(tournament: dict) -> str:
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         return "赛事已开赛，报名已关闭"
-    if tournament["event_type"] == EventType.TEAM.value and tournament["roster_confirmed"]:
-        return "团体赛名单已锁定，报名已关闭"
+    if tournament["roster_confirmed"]:
+        return "参赛名单已确认，报名已关闭"
     return "赛事报名未开启"
+
+
+def update_registration_setting(
+    conn: sqlite3.Connection, tournament_id: int, *, enabled: bool
+) -> dict:
+    """修改公开报名开关。
+
+    开启操作必须与名单确认/阶段变更串行化，避免过期页面绕过前端禁用态。
+    关闭始终允许，便于清理历史上留下的原始开启标记。
+    """
+    try:
+        with write_transaction(conn, busy_message="报名设置繁忙，请稍后重试"):
+            tournament = repo.get_tournament(conn, tournament_id)
+            if tournament is None:
+                raise RegistrationError(404, "RESOURCE_NOT_FOUND", "资源不存在")
+            if enabled and (
+                tournament["stage"] != TournamentStage.REGISTRATION.value
+                or tournament["roster_confirmed"]
+            ):
+                raise RegistrationError(
+                    409, "REGISTRATION_CLOSED", _closed_message(tournament)
+                )
+            updated = repo.set_tournament_registration_enabled(
+                conn, tournament_id, enabled
+            )
+            assert updated is not None
+            return updated
+    except TransactionBusyError as exc:
+        raise RegistrationError(409, "TRANSACTION_BUSY", str(exc)) from None
 
 
 def create_pending_registration(

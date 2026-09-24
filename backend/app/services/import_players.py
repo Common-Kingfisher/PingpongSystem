@@ -106,8 +106,10 @@ def _import_players_file_unlocked(
         raise ImportFileError("赛事不存在", 404)
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise ImportFileError("赛事已进入比赛阶段，选手名单已锁定", 409)
-    if tournament["event_type"] == EventType.TEAM.value and tournament["roster_confirmed"]:
-        raise ImportFileError("团体赛名单已确认并冻结，请先撤销冻结后再导入选手", 409)
+    if tournament["roster_confirmed"]:
+        if tournament["event_type"] == EventType.TEAM.value:
+            raise ImportFileError("团体赛名单已确认并冻结，请先撤销冻结后再导入选手", 409)
+        raise ImportFileError("参赛名单已确认，不能再导入运动员", 409)
 
     lower = filename.lower()
     if lower.endswith(".csv"):

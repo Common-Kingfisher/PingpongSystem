@@ -15,8 +15,7 @@ export default function RosterLaunch({
   const [unpaired, setUnpaired] = useState<Player[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showDraw, setShowDraw] = useState(false)
-  const [motionDone, setMotionDone] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
 
   useEffect(() => {
     api.listEntries(tournament.id).then(setEntries).catch(() => setEntries([]))
@@ -42,26 +41,19 @@ export default function RosterLaunch({
     }
   }
 
-  const confirmAndDraw = async () => {
+  const confirmRoster = async () => {
     setBusy(true)
     setError(null)
     try {
       const confirmed = await api.confirmRoster(tournament.id)
       setEntries(confirmed.entries)
-      await api.autoGroup(tournament.id)
-      setShowDraw(true)
-      window.setTimeout(() => setMotionDone(true), 2600)
+      setConfirmed(true)
+      await onComplete()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '确认名单失败')
     } finally {
       setBusy(false)
     }
-  }
-
-  const closeDraw = async () => {
-    setShowDraw(false)
-    setMotionDone(false)
-    await onComplete()
   }
 
   if (tournament.stage !== 'REGISTRATION') return null
@@ -86,13 +78,26 @@ export default function RosterLaunch({
     )
   }
 
+  if (tournament.roster_confirmed || confirmed) {
+    return (
+      <section className="card launch-card">
+        <div className="section-heading">
+          <div><span className="eyebrow">ROSTER LOCKED</span><h3>参赛名单已确认</h3></div>
+          <span className="readiness ready">结构已冻结</span>
+        </div>
+        <p className="muted">系统已经建立正式参赛位。当前后端尚无原子撤销确认接口，因此不能再次确认或修改名单。</p>
+        <div className="button-row"><Link className="btn primary" to={`/draw?tid=${tournament.id}`}>进入抽签与编排 →</Link></div>
+      </section>
+    )
+  }
+
   return (
     <>
       <section className="card launch-card">
         <div className="section-heading">
           <div>
             <span className="eyebrow">ROSTER LOCK</span>
-            <h3>{tournament.event_type === 'DOUBLES' ? '先组成搭档，再确认名单' : '确认名单，开始抽签'}</h3>
+            <h3>{tournament.event_type === 'DOUBLES' ? '先组成搭档，再确认名单' : '确认正式参赛名单'}</h3>
           </div>
           <span className={`readiness ${ready ? 'ready' : ''}`}>{ready ? '可以确认' : '等待名单完整'}</span>
         </div>
@@ -122,37 +127,13 @@ export default function RosterLaunch({
             <strong>{tournament.event_type === 'DOUBLES' ? entries.length : players.length}</strong>
             <span>{tournament.event_type === 'DOUBLES' ? ' 组参赛组合' : ' 名参赛运动员'}</span>
           </div>
-          <button className="btn primary launch-button" onClick={confirmAndDraw} disabled={!ready || busy}>
-            {busy ? '正在确认…' : '确认名单并开始抽签'}
+          <button className="btn primary launch-button" onClick={confirmRoster} disabled={!ready || busy}>
+            {busy ? '正在确认…' : '确认参赛名单'}
           </button>
         </div>
+        {confirmed && <p className="status-ok">名单已确认。下一步请前往<Link to={`/draw?tid=${tournament.id}`}>抽签与编排</Link>。</p>}
         {error && <p className="status-error">{error}</p>}
       </section>
-
-      {showDraw && (
-        <div className="draw-overlay" role="dialog" aria-modal="true" aria-label="抽签结果动画">
-          <button className="draw-skip" onClick={closeDraw}>跳过动画</button>
-          <div className="draw-orbit" aria-hidden="true"><i /></div>
-          <span className="draw-kicker">DRAWING CEREMONY</span>
-          <h2>{tournament.name}</h2>
-          <p>{tournament.event_type === 'DOUBLES' ? '双打组合正在进入签位' : '参赛选手正在进入签位'}</p>
-          <div className="flying-names">
-            {(entries.length ? entries.map((entry) => entry.display_name) : players.map((player) => player.name)).map((name, index) => (
-              <div
-                key={`${name}-${index}`}
-                className="flying-name"
-                style={{ '--fly-index': index, '--fly-group': index % tournament.group_count } as React.CSSProperties}
-              >
-                <small>{String.fromCharCode(65 + (index % tournament.group_count))}组</small>
-                <strong>{name}</strong>
-              </div>
-            ))}
-          </div>
-          <button className="btn draw-confirm" onClick={closeDraw} disabled={!motionDone}>
-            {motionDone ? '查看分组结果' : '正在生成签位…'}
-          </button>
-        </div>
-      )}
     </>
   )
 }
