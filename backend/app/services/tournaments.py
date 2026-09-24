@@ -4,7 +4,7 @@ import sqlite3
 from typing import Any
 
 from .. import repository as repo
-from ..models import TournamentRole
+from ..models import EventType, TournamentRole
 from . import formats
 from .transaction import TransactionBusyError, write_transaction
 
@@ -73,6 +73,16 @@ def _create_tournament_with_tables_locked(
     registration_enabled: bool = False,
 ) -> dict:
     """在同一个事务中创建赛事、赛事 Owner 授权和球台。"""
+    # 公开报名开关的跨字段业务约束（不是 schema 约束）：
+    # TEAM 赛事不支持当前的个人公开报名链路，`POST /api/tournaments/{tid}/registrations`
+    # 对 TEAM 固定返回 UNSUPPORTED_REGISTRATION_EVENT_TYPE。如果允许创建时写入
+    # `registration_enabled=1`，就会出现「flag 显示已开启、实际永远提交不进去」的双状态。
+    # 因此这里与 `PUT /api/tournaments/{tid}/registration` 保持同一语义：明确拒绝，
+    # 而不是静默把 true 改写成 false（静默改写会让调用方以为参数被接受）。
+    # 位置必须在任何数据库副作用之前：此时尚未创建 Tournament / Owner 授权 / 球台。
+    if event_type == EventType.TEAM.value and registration_enabled:
+        raise TournamentFormatError("团体赛暂不支持公开个人报名", 409)
+
     handler = formats.resolve_format_handler(format_code) if format_code else None
     if format_code is None and rule_config not in (None, {}):
         raise TournamentFormatError("未指定 format_code 时不能写入 rule_config", 422)

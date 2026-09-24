@@ -14,7 +14,7 @@ const formats: Array<{ code: TournamentFormat; name: string; caption: string; fl
 
 const eventNames = { SINGLES: '单打', DOUBLES: '双打', TEAM: '团体' } as const
 const operationNames = { LIVE: '正式赛事', DEMO: '演示赛事' } as const
-const canOpenRegistration = (tournament: Tournament) => tournament.stage === 'REGISTRATION' && !tournament.roster_confirmed
+const canOpenRegistration = (tournament: Tournament) => tournament.event_type !== 'TEAM' && tournament.stage === 'REGISTRATION' && !tournament.roster_confirmed
 const effectiveRegistrationEnabled = (tournament: Tournament) => tournament.registration_enabled && canOpenRegistration(tournament)
 
 export interface TournamentSettingsPageProps { tournament?: Tournament | null }
@@ -107,7 +107,7 @@ export default function TournamentSettingsPage({ tournament: suppliedTournament 
   const registrationChanged = Boolean(tournament && registrationDraft !== tournament.registration_enabled)
   const registrationCanOpen = Boolean(tournament && canOpenRegistration(tournament))
   const registrationIsEffective = Boolean(tournament && effectiveRegistrationEnabled(tournament))
-  const registrationClosedReason = tournament?.roster_confirmed ? '参赛名单已确认，报名已关闭。' : tournament?.stage !== 'REGISTRATION' ? '赛事已开始，报名已关闭。' : null
+  const registrationClosedReason = tournament?.event_type === 'TEAM' ? '团体赛当前不支持公开个人报名。' : tournament?.roster_confirmed ? '参赛名单已确认，报名已关闭。' : tournament?.stage !== 'REGISTRATION' ? '赛事已开始，报名已关闭。' : null
   const publicUrl = tournament ? `${window.location.origin}/public/t/${tournament.id}/live` : ''
 
   return <div className="tournament-settings">

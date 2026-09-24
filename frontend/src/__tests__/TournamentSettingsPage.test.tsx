@@ -85,6 +85,33 @@ describe('赛事设置真实契约', () => {
     expect(screen.queryByRole('button', { name: '保存设置' })).toBeNull()
   })
 
+  it('TEAM 赛事报名开关保持只读，且历史开启标记可以保存清理', async () => {
+    // 历史脏数据：TEAM + raw registration_enabled=true（正常创建路径已在后端封住，
+    // 这里只能来自旧数据）。开关必须只读，但「保存报名设置」必须可用，
+    // 以便管理员真正把 raw flag 清成 false。
+    const update = vi.spyOn(api, 'updateTournamentRegistration').mockResolvedValue({
+      ...tournament, event_type: 'TEAM', registration_enabled: false,
+    })
+    render(<TournamentSettingsPage tournament={{ ...tournament, event_type: 'TEAM', registration_enabled: true }} />)
+    fireEvent.click(screen.getByRole('tab', { name: '报名设置' }))
+    const toggle = screen.getByRole('checkbox') as HTMLInputElement
+    expect(toggle.checked).toBe(false)
+    expect(toggle.disabled).toBe(true)
+    expect(screen.getByText('报名已关闭')).toBeTruthy()
+    expect(screen.getByText('团体赛当前不支持公开个人报名。')).toBeTruthy()
+    expect(screen.getByText(/历史开启标记/)).toBeTruthy()
+
+    const save = screen.getByRole('button', { name: '保存报名设置' }) as HTMLButtonElement
+    expect(save.disabled).toBe(false)
+    fireEvent.click(save)
+
+    // 必须真的调用正式接口写回 false，而不是只在本地把开关置灰
+    await waitFor(() => expect(update).toHaveBeenCalledWith(12, false))
+    // UI 刷新到服务端返回状态：清理完成提示出现，历史开启标记消失
+    await screen.findByText('线上报名已关闭。')
+    await waitFor(() => expect(screen.queryByText(/历史开启标记/)).toBeNull())
+  })
+
   it('organization 与 venue 分别调用 generated-contract wrapper 保存', async () => {
     const saveOrg = vi.spyOn(api, 'upsertOrganization').mockResolvedValue({ id: 1, tournament_id: 12, name: '组委会', contact_name: null, contact: null, note: null, created_at: '', updated_at: '' })
     const saveVenue = vi.spyOn(api, 'upsertVenue').mockResolvedValue({ id: 1, tournament_id: 12, name: '体育馆', address: null, contact_name: null, contact: null, note: null, created_at: '', updated_at: '' })
