@@ -42,6 +42,12 @@ def update_registration_setting(
             tournament = repo.get_tournament(conn, tournament_id)
             if tournament is None:
                 raise RegistrationError(404, "RESOURCE_NOT_FOUND", "资源不存在")
+            if enabled and tournament["event_type"] == EventType.TEAM.value:
+                raise RegistrationError(
+                    409,
+                    "UNSUPPORTED_REGISTRATION_EVENT_TYPE",
+                    "团体赛暂不支持公开个人报名",
+                )
             if enabled and (
                 tournament["stage"] != TournamentStage.REGISTRATION.value
                 or tournament["roster_confirmed"]
