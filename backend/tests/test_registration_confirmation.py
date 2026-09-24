@@ -194,14 +194,19 @@ def test_concurrent_confirm_serializes_and_creates_only_one_player(client, conn)
 
 
 def test_confirm_respects_locked_team_roster(client, conn):
+    # TEAM 不能携带 registration_enabled=true 创建（公开报名对 TEAM 固定 409），
+    # 因此这里按合法参数创建；本用例只关心「名单已确认后的确认入赛」，
+    # 报名记录直接由 repo 落库，不依赖公开报名开关。
+    payload = {k: v for k, v in TOURNAMENT_PAYLOAD.items() if k != "registration_enabled"}
     tournament = client.post(
         "/api/tournaments",
         json={
-            **TOURNAMENT_PAYLOAD,
+            **payload,
             "name": "团体锁定报名确认",
             "event_type": "TEAM",
         },
     ).json()
+    assert tournament["registration_enabled"] is False
     registration = repo.create_registration(
         conn,
         tournament["id"],
