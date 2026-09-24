@@ -1,6 +1,6 @@
 // 赛制文案：局制（三局两胜 / 五局三胜 / 七局四胜）与每局目标分统一从这里读取，
 // 页面不得写死"三局两胜"或"11 分"。
-import type { EventType } from './api'
+import type { EventType, TournamentFormat, TournamentStage } from './api'
 
 const chineseNumber = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
 
@@ -38,5 +38,35 @@ export function eventTypeLabel(eventType: EventType): string {
       return '双打'
     case 'TEAM':
       return '团体赛'
+  }
+}
+
+export function tournamentFormatLabel(format: TournamentFormat | null | undefined): string {
+  switch (format) {
+    case 'ROUND_ROBIN':
+      return '循环赛'
+    case 'SINGLE_ELIMINATION':
+      return '单淘汰赛'
+    case 'GROUP_KNOCKOUT':
+      return '小组赛 + 淘汰赛'
+    default:
+      return '赛制待设置'
+  }
+}
+
+/** 只负责用户可读文案；赛事阶段推进仍完全由后端负责。 */
+export function tournamentStageLabel(
+  stage: TournamentStage,
+  format: TournamentFormat | null | undefined,
+): string {
+  switch (stage) {
+    case 'REGISTRATION':
+      return '报名与赛前准备'
+    case 'GROUP_STAGE':
+      return format === 'ROUND_ROBIN' ? '循环赛阶段' : '小组赛阶段'
+    case 'KNOCKOUT':
+      return '淘汰赛阶段'
+    case 'FINISHED':
+      return '赛事已结束'
   }
 }
