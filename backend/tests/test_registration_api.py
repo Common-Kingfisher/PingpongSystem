@@ -132,6 +132,34 @@ def test_registration_can_clear_stale_enabled_flag_after_roster_confirmation(cli
     assert response.json()["registration_enabled"] is False
 
 
+def test_team_registration_toggle_cannot_enable_but_can_clear_stale_flag(client, conn):
+    team = _create_tournament(
+        client,
+        "团体赛报名开关守卫",
+        event_type=EventType.TEAM.value,
+    )
+    enabled = client.put(
+        f"/api/tournaments/{team['id']}/registration", json={"enabled": True}
+    )
+    assert enabled.status_code == 409, enabled.text
+    assert enabled.json()["detail"] == {
+        "code": "UNSUPPORTED_REGISTRATION_EVENT_TYPE",
+        "message": "团体赛暂不支持公开个人报名",
+    }
+    assert repo.get_tournament(conn, team["id"])["registration_enabled"] == 0
+
+    conn.execute(
+        "UPDATE tournaments SET registration_enabled = 1 WHERE id = ?", (team["id"],)
+    )
+    conn.commit()
+    disabled = client.put(
+        f"/api/tournaments/{team['id']}/registration", json={"enabled": False}
+    )
+    assert disabled.status_code == 200, disabled.text
+    assert disabled.json()["registration_enabled"] is False
+    assert repo.get_tournament(conn, team["id"])["registration_enabled"] == 0
+
+
 def test_public_submit_only_creates_pending_and_hides_contact(client, conn):
     enabled = _create_tournament(
         client, "公开报名隐私赛事", registration_enabled=True
