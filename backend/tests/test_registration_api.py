@@ -214,6 +214,21 @@ def test_team_tournament_creation_without_registration_flag_is_unaffected(client
     assert created.json()["registration_enabled"] is False
 
 
+def test_doubles_tournament_can_still_be_created_with_registration_enabled(client):
+    """守卫只针对 TEAM：双打（与单打）创建时开启公开报名仍然合法。"""
+    created = client.post(
+        "/api/tournaments",
+        json={
+            **TOURNAMENT_PAYLOAD,
+            "name": "双打开启报名",
+            "event_type": EventType.DOUBLES.value,
+            "registration_enabled": True,
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["registration_enabled"] is True
+
+
 def test_public_submit_only_creates_pending_and_hides_contact(client, conn):
     enabled = _create_tournament(
         client, "公开报名隐私赛事", registration_enabled=True
