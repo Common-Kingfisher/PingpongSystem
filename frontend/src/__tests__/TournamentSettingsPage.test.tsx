@@ -85,6 +85,17 @@ describe('赛事设置真实契约', () => {
     expect(screen.queryByRole('button', { name: '保存设置' })).toBeNull()
   })
 
+  it('TEAM 赛事报名开关保持只读，且显示不支持公开个人报名', () => {
+    render(<TournamentSettingsPage tournament={{ ...tournament, event_type: 'TEAM', registration_enabled: true }} />)
+    fireEvent.click(screen.getByRole('tab', { name: '报名设置' }))
+    const toggle = screen.getByRole('checkbox') as HTMLInputElement
+    expect(toggle.checked).toBe(false)
+    expect(toggle.disabled).toBe(true)
+    expect(screen.getByText('报名已关闭')).toBeTruthy()
+    expect(screen.getByText('团体赛当前不支持公开个人报名。')).toBeTruthy()
+    expect(screen.getByText(/历史开启标记/)).toBeTruthy()
+  })
+
   it('organization 与 venue 分别调用 generated-contract wrapper 保存', async () => {
     const saveOrg = vi.spyOn(api, 'upsertOrganization').mockResolvedValue({ id: 1, tournament_id: 12, name: '组委会', contact_name: null, contact: null, note: null, created_at: '', updated_at: '' })
     const saveVenue = vi.spyOn(api, 'upsertVenue').mockResolvedValue({ id: 1, tournament_id: 12, name: '体育馆', address: null, contact_name: null, contact: null, note: null, created_at: '', updated_at: '' })
