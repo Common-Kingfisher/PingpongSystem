@@ -160,6 +160,60 @@ def test_team_registration_toggle_cannot_enable_but_can_clear_stale_flag(client,
     assert repo.get_tournament(conn, team["id"])["registration_enabled"] == 0
 
 
+def _side_effect_counts(conn) -> tuple[int, int, int]:
+    """赛事创建的所有落库副作用的行数快照：Tournament / Tables / Owner 授权。"""
+    return (
+        conn.execute("SELECT COUNT(*) FROM tournaments").fetchone()[0],
+        conn.execute("SELECT COUNT(*) FROM tables").fetchone()[0],
+        conn.execute("SELECT COUNT(*) FROM tournament_admins").fetchone()[0],
+    )
+
+
+def test_team_tournament_cannot_be_created_with_public_registration_enabled(client, conn):
+    """TEAM + registration_enabled=true 必须在赛事创建 service 边界被明确拒绝。
+
+    否则 `POST /api/tournaments` 会写入 `registration_enabled=1`，而
+    `POST /api/tournaments/{tid}/registrations` 对 TEAM 固定返回
+    `UNSUPPORTED_REGISTRATION_EVENT_TYPE`，形成「flag 显示已开启、实际永远提交不进去」的双状态。
+    """
+    before = _side_effect_counts(conn)
+
+    response = client.post(
+        "/api/tournaments",
+        json={
+            **TOURNAMENT_PAYLOAD,
+            "name": "团体赛创建时开启公开报名",
+            "event_type": EventType.TEAM.value,
+            "registration_enabled": True,
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    # 遵循当前 TournamentFormatError 的 router mapping：纯文本 detail，不新增结构化 DTO
+    assert response.json()["detail"] == "团体赛暂不支持公开个人报名"
+
+    # 失败必须发生在任何数据库副作用之前：Tournament / Tables / Owner 授权都不得残留
+    assert _side_effect_counts(conn) == before
+    assert conn.execute(
+        "SELECT COUNT(*) FROM tournaments WHERE name = ?",
+        ("团体赛创建时开启公开报名",),
+    ).fetchone()[0] == 0
+
+
+def test_team_tournament_creation_without_registration_flag_is_unaffected(client):
+    """守卫只针对 TEAM + true：缺省 / false 的团体赛创建不得被误伤。"""
+    created = client.post(
+        "/api/tournaments",
+        json={
+            **TOURNAMENT_PAYLOAD,
+            "name": "团体赛正常创建",
+            "event_type": EventType.TEAM.value,
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["registration_enabled"] is False
+
+
 def test_public_submit_only_creates_pending_and_hides_contact(client, conn):
     enabled = _create_tournament(
         client, "公开报名隐私赛事", registration_enabled=True
@@ -226,7 +280,6 @@ def test_registration_closed_after_stage_and_for_team_event(client, conn):
     team = _create_tournament(
         client,
         "团体赛公开报名拒绝",
-        registration_enabled=True,
         event_type=EventType.TEAM.value,
     )
     unsupported = client.post(
