@@ -93,8 +93,6 @@ export type RegistrationStatus = Schemas['RegistrationStatus']
 export type RegistrationSubmitRequest = Schemas['RegistrationCreate']
 /** 公开报名回执（`RegistrationPublicOut`）：只含 registration_id / status / name / created_at，**不含**联系方式。 */
 export type RegistrationPublicResult = Schemas['RegistrationPublicOut']
-/** 赛事级报名开关请求体（`TournamentRegistrationUpdate`）：`{ enabled: boolean }`。 */
-export type TournamentRegistrationUpdate = Schemas['TournamentRegistrationUpdate']
 
 export type Match = Schemas['MatchOut']
 export type TableWithMatch = Schemas['TableWithMatch']
@@ -270,19 +268,6 @@ export const api = {
   upsertVenue: (id: number, body: VenueUpsert) =>
     request<Venue>(`/api/tournaments/${id}/venue`, {
       method: 'PUT', body: JSON.stringify(body),
-    }),
-
-  // 赛事级报名开关（A 轨 D5 正式契约）：管理端**唯一**的报名开关写入通道。
-  //
-  //   EVENT_ADMIN → PUT /api/tournaments/{tid}/registration → 权威 TournamentOut
-  //
-  // 返回的 `TournamentOut.registration_enabled` 是唯一事实源：
-  // 调用方必须用**服务端返回值**更新 UI，不能点击后自己乐观置位；
-  // 写入受赛事写权限保护（401 / 403 / 404 / 409 的语义由后端决定，前端只展示可读 message）。
-  setRegistrationEnabled: (tournamentId: number, body: TournamentRegistrationUpdate) =>
-    request<Tournament>(`/api/tournaments/${tournamentId}/registration`, {
-      method: 'PUT',
-      body: JSON.stringify(body),
     }),
 
   listPlayers: (tournamentId: number) =>

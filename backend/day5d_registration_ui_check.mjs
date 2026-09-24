@@ -78,7 +78,10 @@ async function loginBearer() {
   return (await r.json()).access_token
 }
 
-async function setRegistrationEnabled(token, tournamentId, enabled) {
+// 本脚本自己的 smoke 辅助函数（直接打正式 endpoint），与前端 api helper 无关；
+// 不要用 `setRegistrationEnabled` 这个名字：那是 PR #58 早期在 api.ts 里的重复实现，
+// 已按 ownership 删除，管理端唯一入口是 master 的 `api.updateTournamentRegistration()`。
+async function putRegistrationSetting(token, tournamentId, enabled) {
   const r = await fetch(`${baseUrl}/api/tournaments/${tournamentId}/registration`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -191,13 +194,13 @@ async function main() {
   console.log('# 已登录（bearer）')
 
   // 主赛事：开启报名
-  check('后端开启报名（PUT /registration）', (await setRegistrationEnabled(token, tid, true)) === 200, `tid=${tid}`)
+  check('后端开启报名（PUT /registration）', (await putRegistrationSetting(token, tid, true)) === 200, `tid=${tid}`)
 
   // 后端 TournamentCreate.name 上限 100 字符：这里构造一个「合法但极长」的名字（96 字符），
   // 用来验证超长赛事名不会把 Public 报名页撑破。
   const longName = `D5D ${'超长赛事名称'.repeat(10)}${'LONGNAME'.repeat(4)}`
   const longTid = await createTournament(token, longName)
-  await setRegistrationEnabled(token, longTid, true)
+  await putRegistrationSetting(token, longTid, true)
 
   const version = await httpJson('/json/version')
   lines.push(`# chrome: ${version.Browser}`)
@@ -300,7 +303,7 @@ async function main() {
   }
 
   // ------------------------------------------------- C 关闭报名后的只读态
-  await setRegistrationEnabled(token, tid, false)
+  await putRegistrationSetting(token, tid, false)
   const closed = await goto(`/public/t/${tid}/register`, `!!document.querySelector('.reg-closed')`, '报名关闭态')
   const closedState = closed ? await evaluate(MEASURE) : null
   check(

@@ -2463,7 +2463,7 @@ Gate 通过，因此本轮**没有**发生任务书 §0 中禁止的任何一件
 | 交付项 | 状态 |
 | --- | --- |
 | Public 报名改走正式 Registration（PENDING） | ✅ |
-| `registration_enabled` 报名开关接线（含只读关闭态） | ✅ |
+| `registration_enabled` **读取**（Public 单一事实源，含只读关闭态） | ✅ 仅读侧；管理端写侧由 C 轨 / master 提供（见 §75） |
 | 联系方式隐私（可选字段 + 隐私说明 + 全程不回显） | ✅ |
 | 提交成功后的正确语义（待确认，而非已参赛） | ✅ |
 | 防重复提交（同步 ref 锁） | ✅ |
@@ -2717,9 +2717,11 @@ C  关闭报名后刷新 → 「当前赛事暂未开放报名」、无表单、
 2. **真机扫码未验证**：本轮验证的是“地址字符串正确 + 该地址在浏览器里打开的是同一报名页”，
    没有用实体手机摄像头扫码。
 3. **未做公网部署验证**：地址策略支持域名 origin（有单元断言），但本轮没有真实公网环境。
-4. **C5 管理端未接入**：待确认列表 / 确认按钮 / 拒绝 / 组织方与场馆后台均由 C5 承接，
-   本轮 D 侧只做 Public 提交与展示。
-5. **E5 全链未执行**：`Public submit → PENDING → C5 confirm → Player → Entry → Match → 比赛`
+4. ~~**C5 管理端未接入**~~ → **已由 C 轨补齐，本条已过期**：管理端 `/settings`（赛事设置 → 报名设置）
+   与报名待确认列表 / 确认入赛已在 master 提供（PR #61 C-D4：`PlayersPage` 消费
+   `listRegistrations()` / `confirmRegistration()`，`TournamentSettingsPage` 提供报名开关与组织方 / 场馆编辑）。
+   注意状态机仍只有 `PENDING → CONFIRMED`，**没有“拒绝”状态**，因此“拒绝报名”不是缺口而是契约不存在。
+5. **E5 全链未执行**：`Public submit → PENDING → 管理端 confirm → Player → Entry → Match → 比赛`
    的独立端到端验收尚未运行。
 6. 浏览器验收脚本结束时会把验收赛事的 `registration_enabled` 置为 `false`（即场景 C 的终态），
    重跑脚本会先重新开启，不影响结论。
@@ -2727,13 +2729,13 @@ C  关闭报名后刷新 → 「当前赛事暂未开放报名」、无表单、
 ## 65. 剩余 Gate（不得宣称 Day5 已完成）
 
 ```text
-C5：管理端报名待确认列表 UI、管理员确认 / 拒绝、Organization / Venue 最小设置后台 —— 未完成
+管理端：已由 PR #61（/settings + 报名设置 + 待确认/确认）与 PR #63（TEAM 报名不变量）并入 master，不再是缺口
 E5：报名 → 确认 → Player → Entry → Match → 比赛 的全链独立 E2E —— 未执行
 发布侧：无可用 GitHub Actions / status check 作为独立复验结果
 ```
 
-本轮只能声明：**D 轨负责的 Public 侧交付完成并通过本地证据验证**，
-Day5 总 Gate 仍需 C5 + E5 独立复验。
+本轮只能声明：**D 轨负责的 Public 侧交付完成并通过本地证据验证**；
+Day5 总 Gate 仍需 E5 独立复验。
 
 ---
 
@@ -2795,15 +2797,19 @@ PR #58 只实现了「Public 读 registration_enabled」这一半：
       整条 Public 报名链路在真实产品里无法走通。
 ```
 
-## 69. 修复内容（仅 2 个源文件）
+## 69. 当时的修复内容（⚠️ 该 D 轨临时实现已在 §75 中删除）
 
-| 文件 | 改动 |
-| --- | --- |
-| `frontend/src/api.ts` | 新增 `TournamentRegistrationUpdate = Schemas['TournamentRegistrationUpdate']` 与 `api.setRegistrationEnabled(tournamentId, body)` → `PUT /api/tournaments/{tid}/registration`，返回权威 `TournamentOut`。没有手写 `interface RegistrationSetting`，也没有乐观置位 |
-| `frontend/src/pages/TournamentSettingsPage.tsx` | 「报名设置」从占位页变成 `RegistrationSettings` 控制面：`[开启报名] / [关闭报名]` → `PUT` → **UI 状态 = `response.registration_enabled`** |
-| `frontend/src/pages/TournamentSettingsPage.css` | 状态点 / 开关按钮 / 提示 / 错误条的样式（复用既有色板与紧凑排版） |
+> 历史记录：当时为了不阻塞 #58，D 轨临时在管理端写了一版报名开关。
+> PR #61 合入 master 后，这套实现成为**重复实现**，已在「Day5D 最终去重轮」（§75 起）删除。
+> 当前管理端报名开关的唯一实现来自 master（`TournamentSettingsPage` + `api.updateTournamentRegistration()`）。
 
-**没有**新增页面、路由、Layout；**没有**实现报名列表 / 确认 / 拒绝 / 批量操作（属 C5）；
+| 文件 | 改动 | 现状 |
+| --- | --- | --- |
+| `frontend/src/api.ts` | 新增 `TournamentRegistrationUpdate` 与 `api.setRegistrationEnabled(tournamentId, body)` | `setRegistrationEnabled` 与重复的 `TournamentRegistrationUpdate` **已删除**（§76） |
+| `frontend/src/pages/TournamentSettingsPage.tsx` | 「报名设置」从占位页变成 `RegistrationSettings` 控制面 | 该文件**已整体回归 master 版本**（§76） |
+| `frontend/src/pages/TournamentSettingsPage.css` | 状态点 / 开关按钮 / 提示 / 错误条样式 | 同上 |
+
+**没有**新增页面、路由、Layout；**没有**实现报名列表 / 确认 / 拒绝 / 批量操作；
 **backend 0 业务改动**（`router` / `service` / `schema` / `migration` / `models` / 权限依赖全部未触碰）。
 
 ```text
@@ -2891,43 +2897,174 @@ PR #58 原有验收在 merge master 后重新执行，未退化：
 | `backend/day5d_registration_smoke.py` | **16/16 PASS**（含 `Player / Entry / Match` 数量 before=after=(0,0,0)） |
 | `backend/day5d_registration_ui_check.mjs`（真实 Chrome CDP） | **56/56 PASS**（360/375/390/430 断点、超长赛事名、深链接、关闭态） |
 
-## 73. 本轮明确未做 / 残留（含一条必须显式记录的接线缺口）
+## 73. 当时的缺口与后续收口（现已闭环）
 
-1. **`/settings` 管理端 route 仍未接入（C 轨）**：
-   `TournamentSettingsPage` 目前**没有任何 route 引用它**，因此它被 Vite tree-shake 掉、
-   **不在 production bundle 内**。实测证据（构建产物文本检索）：
-
-   ```text
-   dist/assets/*.js 中 '开启报名'      → 0 次
-   dist/assets/*.css 中 'settings-toggle' → 0 次
-   对照：dist/assets/*.js 中 '当前赛事暂未开放报名' → 1 次（Public 页在 bundle 内）
-   ```
-
-   按本轮 review 指令「不要新建新的 route / Layout、范围只有报名设置 Tab + 报名开关 API」，
-   且 `frontend/src/App.tsx` 不在推荐修改范围内，D 轨**刻意没有**接线该 route ——
-   它属于 C 轨信息架构（`docs/V03_C_D2_AUTH_ROUTING.md` §5 已把 `/settings` 归入
-   `RequireAuth → RequireTournamentAccess`），而这两个 guard 目前**尚未进入 master**。
-   因此本轮的「EVENT_ADMIN 开关」是通过**组件级真实 fetch 测试**（16 例）+ 契约层真实 HTTP
-   验证的，而不是通过点开产品页面验证的；一旦 C 轨接上 `/settings` 与 guard，
-   本组件无需再改即可生效。
-2. 未实现报名待确认列表 / 确认 / 拒绝 / 批量操作（C5）。
-3. 未实现 Organization / Venue 后台（C5）。
-4. 未实现赛制设置 / 高级设置（C 轨）。
-5. E5 全链独立 E2E（`Public submit → PENDING → C5 confirm → Player → Entry → Match → 比赛`）未执行。
-6. 未新增二维码管理系统（reviewer 已明确本轮不需要）。
+1. **`/settings` 管理端 route（当时未接 → 已由 master 收口）**：当时 D 轨按 review 指令
+   「不要新建新的 route / Layout、范围只有报名设置 Tab + 报名开关 API」刻意没有接线，
+   `TournamentSettingsPage` 当时被 tree-shake、不在 production bundle 内。
+   **该缺口已由 master 关闭**：`frontend/src/App.tsx` 现已声明
+   `<Route path="/settings" element={<TournamentSettingsPage />} />`（PR #61 C-D4），
+   页面因此进入 production bundle。当前构建产物实测：
+   `dist/assets/*.js` 含「保存报名设置」1 次（此前“0 次”的证据已失效）。
+   本轮另补真实 App 路由级验收（见 §79）。
+2. 报名待确认列表 / 确认：**已由 master 提供**（`PlayersPage` 消费
+   `api.listRegistrations()` / `api.confirmRegistration()`）；状态机只有
+   `PENDING → CONFIRMED`，不存在“拒绝”状态，因此“拒绝报名”不是缺口。
+3. Organization / Venue：**已由 master 的 `TournamentSettingsPage` 提供**。
+4. 赛制设置 / 高级设置：master 提供。
+5. E5 全链独立 E2E 未执行。
+6. 未新增二维码管理系统（reviewer 已明确不需要）。
 
 ## 74. PR 描述修正（替换旧完成度表述）
 
-旧的「报名开关接线 ✅」只覆盖 Public 读侧，容易读成端到端已通，本轮修正为：
+旧的「报名开关接线 ✅」只覆盖 Public 读侧，容易读成端到端已通，修正为：
 
 ```text
-报名开关（双向）✅
-  EVENT_ADMIN：赛事设置 → 报名设置 → [开启报名] / [关闭报名]
+报名开关（双向）
+  EVENT_ADMIN：赛事设置（/settings）→ 报名设置 → 保存
                → PUT /api/tournaments/{tid}/registration → 服务端权威 TournamentOut
-  Public：只读同一个 registration_enabled → 开放表单 / 只读关闭态
+               —— 由 master / C 轨提供（PR #61），TEAM 不变量由 PR #63 收口
+  Public：只读同一个 registration_enabled → 开放表单 / 只读关闭态 —— D 轨（本 PR）
 
 仍未完成（不得声明 Day5 总 Gate PASS）：
-  - `/settings` 管理端 route 与 RequireAuth / RequireTournamentAccess 接线（C 轨）
-  - C5 报名待确认管理（列表 / 确认 / 拒绝）
   - E5 全链独立端到端验收
 ```
+
+---
+
+# D 轨 Day5D · PR #58 最终去重轮（merge master + ownership 去重）
+
+## 75. 触发条件与真实基线
+
+```text
+PR #58 旧 head   1911712d79b7093f0f2cea05d6e331cb45980eb2（ahead 8 / behind 17，diverged）
+origin/master    59c11d7826cd17faf3cedadc3f3b521f30f86fb5（Merge PR #63）
+merge 方式       git merge origin/master（**不 rebase、不 force push、不 reset --hard**）
+merge commit     217507d24ac9e1c7b0da72c348e0ef54d7506e0b
+merge 后         behind 0（不再落后 master）
+```
+
+master 这一轮带来的 C 轨能力（本 PR 必须让位）：`/settings` route、`TournamentSettingsPage`
+（赛制 / 报名设置 / 组织方 / 场馆 / 高级操作）、`api.updateTournamentRegistration` /
+`listRegistrations` / `confirmRegistration`、`PlayersPage` 待确认列表与确认入赛、
+roster_confirmed 服务端冻结、effective registration state、TEAM 报名守卫、TEAM 创建拒绝、
+TEAM 历史 raw flag 清理。
+
+## 76. Merge 与 ownership 冲突解决（逐文件）
+
+| 文件 | 冲突 | 解决 |
+| --- | --- | --- |
+| `frontend/src/pages/TournamentSettingsPage.tsx` | content conflict | **MASTER won**（`git checkout --theirs`）：D 版临时管理端开关整体丢弃 |
+| `frontend/src/pages/TournamentSettingsPage.css` | content conflict | **MASTER won** |
+| `frontend/src/__tests__/TournamentSettingsPage.test.tsx` | content conflict | **MASTER won** |
+| `frontend/src/api.ts` | auto-merge 后产生**重复声明** | **manual merge**：保留 master 全部 C/A 契约 + D 的 Public 三类型与 `submitRegistration`；删除 D 重复的 `TournamentRegistrationUpdate` 与 `setRegistrationEnabled`（§77） |
+| 其余 master 改动（`App.tsx` / `AdminLayout` / `PlayersPage` / `DrawPage` / `RosterLaunch` / `index.css` / backend / docs 等） | 无冲突 | 直接采用 master |
+
+§16 硬性检查（真实执行，输出为空）：
+
+```bash
+git diff origin/master -- frontend/src/pages/TournamentSettingsPage.tsx \
+  frontend/src/pages/TournamentSettingsPage.css \
+  frontend/src/__tests__/TournamentSettingsPage.test.tsx
+# → 无输出（D 轨零差异）
+```
+
+## 77. 删除的重复实现
+
+| 删除项 | 位置 | 说明 |
+| --- | --- | --- |
+| `api.setRegistrationEnabled(tournamentId, body)` | `frontend/src/api.ts` | 与 master 的 `api.updateTournamentRegistration(id, enabled)` 打同一个 `PUT /api/tournaments/{tid}/registration`，属重复实现 |
+| 重复的 `TournamentRegistrationUpdate` 类型导出 | `frontend/src/api.ts` | 只保留 master 的唯一一处（master 的 `updateTournamentRegistration` 内部 `satisfies` 使用它） |
+| D 版「报名设置」控制面 | `frontend/src/pages/TournamentSettingsPage.tsx` | 整体回归 master 版本 |
+| D 版对应样式 | `frontend/src/pages/TournamentSettingsPage.css` | 同上 |
+| D 版组件级测试（16 例） | `frontend/src/__tests__/TournamentSettingsPage.test.tsx` | 同上 |
+| 跨页场景 8（在 Public 测试里复刻管理端 UI） | `frontend/src/__tests__/PublicRegistrationFlow.test.tsx` | 该用例依赖 D 版“开启报名”按钮，已与 master 的「checkbox + 保存报名设置」契约漂移；管理端行为改由 master 测试 + 新增路由级测试覆盖 |
+| smoke 脚本内的同名局部 helper | `backend/day5d_registration_ui_check.mjs` | 原局部函数名 `setRegistrationEnabled` 易与已删除的 api helper 混淆，重命名为 `putRegistrationSetting` |
+
+`setRegistrationEnabled` 现在只作为历史说明出现在 smoke 脚本注释里，无任何调用点。
+
+## 78. 保留的 D 轨能力
+
+| 能力 | 文件 |
+| --- | --- |
+| Public 报名正式链路（`submitRegistration` → PENDING） | `frontend/src/api.ts`（仅 3 个类型 + 1 个方法）、`frontend/src/pages/RegisterPage.tsx` |
+| Public 只读 `registration_enabled` 与只读关闭态 | `frontend/src/pages/RegisterPage.tsx` |
+| 联系方式隐私（回执不回显 contact、不读管理端列表 / confirm） | `frontend/src/pages/RegisterPage.tsx` |
+| Public 路由 adapter（tid 来自 path param，不回退 localStorage） | `frontend/src/PublicRoutes.tsx` |
+| 二维码 + 同源地址 + 复制链接 | `frontend/src/components/RegistrationQr.tsx` / `.css`、`frontend/src/publicUrls.ts` |
+| 依赖 | `frontend/package.json` / `pnpm-lock.yaml`（`qrcode.react@4.2.0`） |
+| Public 回归 + 防回退静态守卫 | `__tests__/PublicRegistrationFlow.test.tsx`、`__tests__/PublicRegistrationPolicy.test.ts` |
+| 契约层 / 浏览器层 smoke | `backend/day5d_registration_smoke.py`、`backend/day5d_registration_ui_check.mjs` |
+
+最终 diff vs master（§22 真实输出）恰好只含 D 轨文件：
+
+```text
+A backend/day5d_registration_smoke.py
+A backend/day5d_registration_ui_check.mjs
+M docs/WORKSTREAM_D.md
+M frontend/package.json
+M frontend/pnpm-lock.yaml
+M frontend/src/PublicRoutes.tsx
+M frontend/src/api.ts
+M frontend/src/pages/RegisterPage.tsx
+A frontend/src/pages/RegisterPage.css
+A frontend/src/components/RegistrationQr.tsx
+A frontend/src/components/RegistrationQr.css
+A frontend/src/publicUrls.ts
+A frontend/src/__tests__/PublicRegistrationFlow.test.tsx
+A frontend/src/__tests__/PublicRegistrationPolicy.test.ts
+A frontend/src/__tests__/AdminSettingsRouteAcceptance.test.tsx
+```
+
+`frontend/src/pages/TournamentSettingsPage.*` 与 `__tests__/TournamentSettingsPage.test.tsx`
+**不在其中**（§16 通过）。
+
+## 79. Reviewer 原 P1 的闭环证据（真实 App 路由级验收）
+
+新增 `frontend/src/__tests__/AdminSettingsRouteAcceptance.test.tsx`（1 例，最小，不复制 C 轨组件测试）：
+
+```text
+render(<MemoryRouter initialEntries={['/settings?tid=12']}><App /></MemoryRouter>)
+  → 真实路由渲染「赛事设置」（App.tsx 的 /settings → TournamentSettingsPage）
+  → AdminShell 用 ?tid= 解析赛事（断言 api.getTournament(12) 被调用）
+  → 进入「报名设置」
+  → 勾选报名（断言此刻 0 次写请求）
+  → 「保存报名设置」
+  → 断言 api.updateTournamentRegistration(12, true) 恰好 1 次
+  → 断言 UI 刷新到服务端返回的开启状态
+```
+
+## 80. 负向校准（两项，均已恢复）
+
+| 注入的回归 | 结果 |
+| --- | --- |
+| 把 Public 提交临时改回 `api.addPlayer(...)` | `PublicRegistrationFlow` + `PublicRegistrationPolicy` **9 例失败**（含静态守卫与请求形态断言）；恢复后 PASS |
+| 临时移除 `App.tsx` 的 `/settings` route | `AdminSettingsRouteAcceptance` **1 例失败**（`Unable to find role="heading" and name "赛事设置"`）；恢复后 PASS |
+
+最终代码无 calibration 残留（残留检索计数 0；`App.tsx` / `RegisterPage.tsx` 与 HEAD 零差异）。
+
+## 81. 本轮真实回归数字（不引用历史常数）
+
+| 命令 | 结果 |
+| --- | --- |
+| `backend: pytest` | **1037 passed** |
+| `backend: python export_openapi.py --check` | `OpenAPI snapshot is up to date`（0 drift） |
+| `frontend: pnpm install --frozen-lockfile` | `Already up to date` |
+| `frontend: pnpm test` | **14 files / 189 passed** |
+| `frontend: pnpm exec tsc --noEmit` | 退出码 0 |
+| `frontend: pnpm build` | 退出码 0 |
+| `frontend: pnpm contract:check` | 退出码 0 |
+| `backend/day5d_registration_smoke.py` | **16/16 PASS** |
+| `backend/day5d_registration_ui_check.mjs`（真实 Chrome CDP） | **56/56 PASS** |
+| `git diff --check` | clean |
+
+## 82. PR #58 最终 scope
+
+PR #58 只声明 D 轨 scope：Public Registration 正式 PENDING 链路、只读
+`registration_enabled`、contact 隐私边界、二维码与同源 URL、移动端 / Public UX、回归与 smoke。
+管理端报名开关由 master / C 轨提供（PR #61；TEAM 不变量由 PR #63 收口）。
+
+## 83. 剩余 Gate
+
+E5 全链独立 E2E（`Public submit → PENDING → 管理端 confirm → Player → Entry → Match → 比赛`）
+仍未执行。
