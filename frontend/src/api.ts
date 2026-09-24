@@ -85,6 +85,15 @@ export type KnockoutRound = Schemas['KnockoutRoundOut']
 export type ScheduleEstimateMatch = Schemas['ScheduleEstimateMatch']
 export type ScheduleEstimates = Schemas['ScheduleEstimates']
 
+// Public 报名（A 轨 D5 冻结契约，随 PR #51 进入 master）。
+// 唯一类型来源仍是 generated contract：页面**不得**手写第二套 Registration interface，
+// 也不得用 `as any` / `as unknown as` / `@ts-ignore` 绕过。
+export type RegistrationStatus = Schemas['RegistrationStatus']
+/** 公开报名请求体（`RegistrationCreate`）：姓名 + 单位/联系方式/积分。 */
+export type RegistrationSubmitRequest = Schemas['RegistrationCreate']
+/** 公开报名回执（`RegistrationPublicOut`）：只含 registration_id / status / name / created_at，**不含**联系方式。 */
+export type RegistrationPublicResult = Schemas['RegistrationPublicOut']
+
 export type Match = Schemas['MatchOut']
 export type TableWithMatch = Schemas['TableWithMatch']
 export type Dashboard = Schemas['Dashboard']
@@ -275,6 +284,18 @@ export const api = {
     }),
   deletePlayer: (tournamentId: number, playerId: number) =>
     request<void>(`/api/tournaments/${tournamentId}/players/${playerId}`, { method: 'DELETE' }),
+
+  // Public 报名（V0.3 正式链路，A 轨 D5 契约）：
+  //
+  //   PUBLIC → POST registrations → PENDING → 等 EVENT_ADMIN 确认 → Player
+  //
+  // ⚠️ 这不是 `addPlayer` 的别名，两者语义**不同**：`addPlayer` 直接创建正式 Player，
+  // 仍允许管理端手工添加选手使用；公开报名**只能**落 PENDING 台账，绝不创建 Player/Entry。
+  submitRegistration: (tournamentId: number, body: RegistrationSubmitRequest) =>
+    request<RegistrationPublicResult>(`/api/tournaments/${tournamentId}/registrations`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   setSeeds: (tournamentId: number, playerIds: number[]) =>
     request<Player[]>(`/api/tournaments/${tournamentId}/seeds`, {
