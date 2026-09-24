@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, Player, Registration, Tournament } from '../api'
 import DrawPage from '../pages/DrawPage'
-import PlayersPage from '../pages/PlayersPage'
+import PlayersPage, { RECOMMENDED_ROSTER_CSV } from '../pages/PlayersPage'
 
 const baseTournament: Tournament = {
   id: 7, name: '校际乒乓赛', date: '2026-09-23', table_count: 4, group_count: 2,
@@ -29,7 +29,24 @@ describe('抽签与编排按 format 呈现真实能力', () => {
     prepareDraw('GROUP_KNOCKOUT')
     expect(await screen.findByRole('heading', { name: '种子设置' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: '小组抽签结果' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '生成分组' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /开始小组抽签/ })).toBeNull()
+    expect(screen.getByText(/Draw Revision 契约/)).toBeTruthy()
     expect(screen.getByRole('button', { name: '生成小组比赛' })).toBeTruthy()
+  })
+
+  it('GROUP_KNOCKOUT 只读展示后端 qualify_count，不再在抽签页编辑', async () => {
+    vi.spyOn(api, 'getTournament').mockResolvedValue({ ...baseTournament, format_code: 'GROUP_KNOCKOUT' })
+    vi.spyOn(api, 'listPlayers').mockResolvedValue([player])
+    vi.spyOn(api, 'getGroups').mockResolvedValue({ groups: [{
+      id: 31, name: 'A组', sort_order: 0, qualify_count: 2,
+      players: [{ id: 1, name: '张敏', college: null }], entries: [],
+    }] })
+    render(<MemoryRouter initialEntries={['/draw?tid=7']}><DrawPage /></MemoryRouter>)
+    expect(await screen.findByText('晋级：前 2 名')).toBeTruthy()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.getByRole('button', { name: '重新生成分组' })).toBeTruthy()
+    expect(screen.queryByText(/正式重新抽签已记录/)).toBeNull()
   })
 
   it('ROUND_ROBIN 不展示种子或小组晋级，并明确等待正式接口', async () => {
@@ -43,6 +60,8 @@ describe('抽签与编排按 format 呈现真实能力', () => {
   it('SINGLE_ELIMINATION 允许保存种子，但不伪造淘汰签生成成功', async () => {
     prepareDraw('SINGLE_ELIMINATION')
     expect(await screen.findByRole('heading', { name: '种子设置' })).toBeTruthy()
+    expect(screen.getByText(/正式单淘汰种子落位规则等待后端契约/)).toBeTruthy()
+    expect(screen.queryByText(/ITTF.*已落地/)).toBeNull()
     expect(screen.getByText('等待 · 淘汰签生成')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /生成淘汰/ })).toBeNull()
   })
@@ -91,6 +110,20 @@ describe('参赛名单与待确认报名', () => {
     expect(await screen.findByText('未填写')).toBeTruthy()
     expect(screen.queryByRole('columnheader', { name: '种子' })).toBeNull()
     expect(screen.queryByRole('columnheader', { name: '分组' })).toBeNull()
+  })
+
+  it('所属单位作为推荐抽签信息，CSV 只将积分留空', async () => {
+    vi.spyOn(api, 'getTournament').mockResolvedValue({ ...baseTournament, roster_confirmed: false })
+    vi.spyOn(api, 'listPlayers').mockResolvedValue([])
+    vi.spyOn(api, 'listRegistrations').mockResolvedValue([])
+    vi.spyOn(api, 'listEntries').mockResolvedValue([])
+    render(<MemoryRouter initialEntries={['/players?tid=7']}><PlayersPage /></MemoryRouter>)
+    const affiliation = await screen.findByLabelText('所属单位')
+    expect(affiliation.getAttribute('placeholder')).toBe('所属单位')
+    expect(screen.getByText(/用于同单位抽签规避/)).toBeTruthy()
+    expect(RECOMMENDED_ROSTER_CSV).toContain('李四,自动化学院,\n')
+    expect(RECOMMENDED_ROSTER_CSV).not.toContain('李四,,')
+    expect(screen.getByText(/未填写时后端可能使用兼容默认值 1000/)).toBeTruthy()
   })
 
   it('名单确认后冻结 CRUD、报名确认和重复确认', async () => {

@@ -85,6 +85,15 @@ describe('赛事设置真实契约', () => {
     expect(screen.queryByRole('button', { name: '保存设置' })).toBeNull()
   })
 
+  it('未有写契约的基本信息和球台设置保持只读', () => {
+    render(<TournamentSettingsPage tournament={tournament} />)
+    fireEvent.click(screen.getByRole('tab', { name: '基本信息' }))
+    expect(screen.getByText('以上字段当前为只读；本阶段不伪造尚未存在的修改接口。')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '球台设置' })).toBeTruthy()
+    expect(screen.getByText(/后端暂未提供本阶段可用的球台设置接口/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '保存赛事事实' })).toBeNull()
+  })
+
   it('organization 与 venue 分别调用 generated-contract wrapper 保存', async () => {
     const saveOrg = vi.spyOn(api, 'upsertOrganization').mockResolvedValue({ id: 1, tournament_id: 12, name: '组委会', contact_name: null, contact: null, note: null, created_at: '', updated_at: '' })
     const saveVenue = vi.spyOn(api, 'upsertVenue').mockResolvedValue({ id: 1, tournament_id: 12, name: '体育馆', address: null, contact_name: null, contact: null, note: null, created_at: '', updated_at: '' })

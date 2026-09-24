@@ -14,6 +14,8 @@ import RosterLaunch from '../components/RosterLaunch'
 
 type RosterTab = 'official' | 'pending'
 
+export const RECOMMENDED_ROSTER_CSV = '\uFEFF姓名,所属单位,运动员积分\n张三,信息学院,1200\n李四,自动化学院,\n'
+
 export default function PlayersPage() {
   const [params] = useSearchParams()
   const fromUrl = params.get('tid')
@@ -106,8 +108,7 @@ export default function PlayersPage() {
   }, '确认报名失败')
 
   const downloadTemplate = () => {
-    const csv = '\uFEFF姓名,所属单位,运动员积分\n张三,信息学院,1200\n李四,,\n'
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const url = URL.createObjectURL(new Blob([RECOMMENDED_ROSTER_CSV], { type: 'text/csv;charset=utf-8' }))
     const link = document.createElement('a'); link.href = url; link.download = '参赛名单模板.csv'; link.click(); URL.revokeObjectURL(url)
   }
 
@@ -144,11 +145,11 @@ export default function PlayersPage() {
         <div className="section-heading"><div><span className="eyebrow">DIRECT ENTRY</span><h3>录入运动员</h3></div><span className={`readiness ${locked ? '' : 'ready'}`}>{locked ? '名单已锁定' : '可编辑'}</span></div>
         <form className="inline-form" onSubmit={addPlayer}>
           <input required value={name} disabled={locked || busy} onChange={(e) => setName(e.target.value)} placeholder="姓名（必填）" />
-          <input value={college} disabled={locked || busy} onChange={(e) => setCollege(e.target.value)} placeholder="所属单位（选填）" />
+          <input aria-label="所属单位" value={college} disabled={locked || busy} onChange={(e) => setCollege(e.target.value)} placeholder="所属单位" />
           <input type="number" min={0} value={ratingPoints} disabled={locked || busy} onChange={(e) => setRatingPoints(Number(e.target.value))} aria-label="运动员积分" />
           <button className="btn primary" disabled={locked || busy || !name.trim()} type="submit">添加到名单</button>
         </form>
-        <p className="muted">运动员积分是可选参考数据。后端会为未填写值使用兼容默认值 1000，它不代表真实水平。</p>
+        <p className="muted">所属单位用于同单位抽签规避；当前后端仍兼容历史缺失数据。运动员积分是可选参考数据；未填写时后端可能使用兼容默认值 1000，该值不代表真实水平。</p>
         {!locked && <div className="button-row"><button className="btn" type="button" onClick={() => setImportOpen(true)}>Excel / CSV 导入</button>{tournament?.operation_mode === 'DEMO' && <button className="btn" type="button" onClick={generateDemo}>生成演示名单</button>}</div>}
       </section>
 
@@ -174,7 +175,7 @@ export default function PlayersPage() {
 
     {importOpen && <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="批量导入名单"><div className="modal modal-wide">
       <button className="modal-close" onClick={() => { setImportOpen(false); setImportPreview(null); setImportResult(null); setImportFile(null) }} aria-label="关闭">×</button>
-      <h3>批量导入参赛名单</h3><p className="muted">推荐表头：姓名、所属单位、运动员积分。姓名必填，其他列可选。旧版解析器仍兼容“种子序号”，但本页面不推荐在名单阶段设置种子。</p>
+      <h3>批量导入参赛名单</h3><p className="muted">推荐填写姓名、所属单位；运动员积分可留空。当前后端为兼容旧名单仍可能接受缺失单位的数据，正式服务端必填契约尚未落地。旧版解析器仍兼容“种子序号”，但本页面不推荐在名单阶段设置种子。</p>
       <button className="btn small" onClick={downloadTemplate}>下载推荐 CSV 模板</button>
       <input className="import-file-input" type="file" accept=".xlsx,.csv" onChange={(e) => { setImportFile(e.target.files?.[0] ?? null); setImportPreview(null); setImportResult(null) }} />
       {importPreview && <><p><strong>{importPreview.valid_rows}</strong> 行可导入，{importPreview.skipped} 行跳过。</p><div className="import-preview-table"><table className="data-table"><thead><tr><th>行</th><th>姓名</th><th>单位</th><th>积分</th><th>校验</th></tr></thead><tbody>{importPreview.rows.map((row) => <tr key={row.row}><td>{row.row}</td><td>{row.name || '—'}</td><td>{row.college || '未填写'}</td><td>{row.rating_points}</td><td>{row.message || '可导入'}</td></tr>)}</tbody></table></div></>}
