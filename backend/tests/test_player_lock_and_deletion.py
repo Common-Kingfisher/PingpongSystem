@@ -66,6 +66,48 @@ def test_case4_delete_player_group_stage_409(client):
     assert resp.status_code == 409
 
 
+def test_confirmed_roster_blocks_all_player_mutations_before_stage_change(client):
+    """名单确认和开赛是两道独立写边界；即使仍在 REGISTRATION 也不得绕过前端。"""
+    tid = _create_tournament(client)
+    players = client.get(f"/api/tournaments/{tid}/players").json()
+    confirmed = client.post(f"/api/tournaments/{tid}/confirm-roster")
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["tournament"]["stage"] == "REGISTRATION"
+    assert confirmed.json()["tournament"]["roster_confirmed"] is True
+
+    added = client.post(f"/api/tournaments/{tid}/players", json={"name": "迟到选手"})
+    updated = client.patch(
+        f"/api/tournaments/{tid}/players/{players[0]['id']}", json={"name": "绕过改名"}
+    )
+    deleted = client.delete(f"/api/tournaments/{tid}/players/{players[0]['id']}")
+    repeated = client.post(f"/api/tournaments/{tid}/confirm-roster")
+
+    for response in (added, updated, deleted):
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"] == "参赛名单已确认，不能再修改运动员"
+    assert repeated.status_code == 409, repeated.text
+    assert repeated.json()["detail"] == "参赛名单已确认，不能重复确认或重新配对"
+
+
+def test_player_mutations_cannot_escape_tournament_scope(client):
+    first = _create_tournament(client)
+    second = _create_tournament(client)
+    second_player = client.get(f"/api/tournaments/{second}/players").json()[0]
+
+    updated = client.patch(
+        f"/api/tournaments/{first}/players/{second_player['id']}",
+        json={"name": "跨赛事改名"},
+    )
+    deleted = client.delete(
+        f"/api/tournaments/{first}/players/{second_player['id']}"
+    )
+
+    assert updated.status_code == 404, updated.text
+    assert deleted.status_code == 404, deleted.text
+    persisted = client.get(f"/api/tournaments/{second}/players").json()[0]
+    assert persisted["name"] == second_player["name"]
+
+
 # Case 5：删除赛事 → 级联删除全部关联数据，无孤儿
 def test_case5_delete_tournament_cascades_no_orphans(client):
     tid = _create_tournament(client, n_players=8)

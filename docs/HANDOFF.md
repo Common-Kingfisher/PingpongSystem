@@ -4,6 +4,12 @@
 
 维护规则：每个功能 PR 必须同步更新相关 Markdown、OpenAPI 快照（接口变化时）和 `CHANGELOG.md`；不再把文档集中留到最后补写。
 
+## V0.3 D7B 个人赛规则冻结
+
+新版 B 轨（规则／比赛引擎）已进入 Release Candidate 冻结候选，覆盖 `ROUND_ROBIN`、`SINGLE_ELIMINATION`、`GROUP_KNOCKOUT`、比分与逐局分一致性、异常赛果、改分保护、BYE、种子、Affiliation、同分与人工裁定边界。精确规则与自动化回归入口见 [D7B 规则冻结说明](D7B_RULE_FREEZE.md)。
+
+`WORKSTREAM_B.md` 记录的是已结束的 V0.2／旧 Dev B 现场 UI 工作线，**不等同于**新版 B 轨。
+
 ## 先看结论
 
 当前版本已具有“报名 → 确认名单 → 分组 → 小组比赛 → 排名 → 单淘汰 → 季军/排位 → 冠军展示”的主要链路，是可以继续联调的 Demo 基线，**不是已经通过完整现场验收的 V0.2 发布版**。下一步优先修复规则边界和改分保护，再完善现场调度、秩序册和大规模验证。
@@ -24,7 +30,8 @@
 6. [团体晋级与淘汰签规则 V1](TEAM_QUALIFICATION_KNOCKOUT_V1.md)：团体**晋级判定**与**淘汰签生成**的
    唯一业务规则源（晋级线并列处理、人工确认校验、相邻组交叉配对、复用的数据模型）。
 7. [Team Runtime Contract](TEAM_RUNTIME_CONTRACT.md)：A/B 消费契约（运行态字段、状态机、权限、错误码）。
-8. `PingpongSystem_交接与开发路线.docx`：面向队友的综合阅读版；精确字段和命令以本目录 Markdown、Pydantic 与 OpenAPI 为准。
+8. [V0.3 D7B 规则冻结说明](D7B_RULE_FREEZE.md)：个人赛 Release Candidate 的规则边界与回归入口。
+9. `PingpongSystem_交接与开发路线.docx`：面向队友的综合阅读版；精确字段和命令以本目录 Markdown、Pydantic 与 OpenAPI 为准。
 
 若文档与代码冲突，以 Pydantic/OpenAPI 和已通过的测试为准，并在同一 PR 修正文档，不能长期保留已知过期说明。
 

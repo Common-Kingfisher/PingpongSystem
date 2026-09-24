@@ -109,6 +109,9 @@ def update_player(
     try:
         with teams_service._roster_write_tx(conn):
             players_service.ensure_players_editable(conn, tournament_id)
+            existing = repo.get_player(conn, player_id)
+            if existing is None or existing["tournament_id"] != tournament_id:
+                raise players_service.PlayerError("选手不存在", 404)
             player = repo.update_player(
                 conn, player_id, payload.name, payload.college, payload.rating_points
             )

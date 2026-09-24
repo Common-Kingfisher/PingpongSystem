@@ -194,14 +194,19 @@ def test_concurrent_confirm_serializes_and_creates_only_one_player(client, conn)
 
 
 def test_confirm_respects_locked_team_roster(client, conn):
+    # TEAM 不能携带 registration_enabled=true 创建（公开报名对 TEAM 固定 409），
+    # 因此这里按合法参数创建；本用例只关心「名单已确认后的确认入赛」，
+    # 报名记录直接由 repo 落库，不依赖公开报名开关。
+    payload = {k: v for k, v in TOURNAMENT_PAYLOAD.items() if k != "registration_enabled"}
     tournament = client.post(
         "/api/tournaments",
         json={
-            **TOURNAMENT_PAYLOAD,
+            **payload,
             "name": "团体锁定报名确认",
             "event_type": "TEAM",
         },
     ).json()
+    assert tournament["registration_enabled"] is False
     registration = repo.create_registration(
         conn,
         tournament["id"],
@@ -223,6 +228,28 @@ def test_confirm_respects_locked_team_roster(client, conn):
     )
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["code"] == "ROSTER_LOCKED"
+    assert repo.list_players(conn, tournament["id"]) == []
+
+
+def test_confirm_respects_locked_singles_roster(client, conn):
+    tournament = _create_tournament(client, "单打名单确认后拒绝待审报名")
+    submitted = _submit_registration(client, tournament["id"])
+    conn.execute(
+        "UPDATE tournaments SET roster_confirmed = 1, "
+        "confirmed_at = datetime('now') WHERE id = ?",
+        (tournament["id"],),
+    )
+    conn.commit()
+
+    response = client.post(
+        f"/api/tournaments/{tournament['id']}/registrations/"
+        f"{submitted['registration_id']}/confirm"
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == {
+        "code": "ROSTER_LOCKED",
+        "message": "参赛名单已确认，不能再修改运动员",
+    }
     assert repo.list_players(conn, tournament["id"]) == []
 
 

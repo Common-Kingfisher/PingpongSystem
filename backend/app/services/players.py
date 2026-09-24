@@ -34,15 +34,17 @@ def ensure_players_editable(conn: sqlite3.Connection, tournament_id: int) -> Non
         raise PlayerError("赛事不存在", 404)
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise PlayerError("赛事已进入比赛阶段，选手名单已锁定", 409)
-    if tournament["event_type"] == EventType.TEAM.value and tournament["roster_confirmed"]:
-        raise PlayerError("团体赛名单已确认并冻结，请先撤销冻结后再修改选手", 409)
+    if tournament["roster_confirmed"]:
+        if tournament["event_type"] == EventType.TEAM.value:
+            raise PlayerError("团体赛名单已确认并冻结，请先撤销冻结后再修改选手", 409)
+        raise PlayerError("参赛名单已确认，不能再修改运动员", 409)
 
 
 def delete_player(conn: sqlite3.Connection, tournament_id: int, player_id: int) -> None:
     with teams_service._roster_write_tx(conn):
         ensure_players_editable(conn, tournament_id)
         player = repo.get_player(conn, player_id)
-        if player is None:
+        if player is None or player["tournament_id"] != tournament_id:
             raise PlayerError("选手不存在", 404)
         if repo.count_confirmed_registrations_for_player(conn, player_id):
             raise PlayerError("该选手由已确认报名创建，不能直接删除", 409)

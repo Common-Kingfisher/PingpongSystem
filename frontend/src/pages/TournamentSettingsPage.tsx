@@ -1,204 +1,148 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError } from '../api'
-import type { Tournament } from '../api'
+import { useCallback, useEffect, useState } from 'react'
+import { ApiError, api, OrganizationUpsert, Tournament, TournamentFormat, VenueUpsert } from '../api'
+import { getActiveTournamentId, setActiveTournamentId } from '../activeTournament'
 import './TournamentSettingsPage.css'
 
 const tabs = ['基本信息', '赛制与规则', '报名设置', '公开与展示', '高级操作'] as const
 type SettingsTab = typeof tabs[number]
 
-const eventNames: Record<Tournament['event_type'], string> = {
-  SINGLES: '单打', DOUBLES: '双打', TEAM: '团体',
-}
-const bronzeNames: Record<Tournament['bronze_mode'], string> = {
-  BRONZE_MATCH: '举行季军赛', JOINT_BRONZE: '并列季军',
-}
-const placementNames: Record<Tournament['placement_mode'], string> = {
-  OFF: '不举行名次赛', COMPLETE: '完整名次赛', TIERED: '分层名次赛',
-}
+const formats: Array<{ code: TournamentFormat; name: string; caption: string; flow: string }> = [
+  { code: 'GROUP_KNOCKOUT', name: '小组赛 + 淘汰赛', caption: '先循环排名，再进入淘汰签。', flow: '名单 → 分组 → 小组赛 → 出线 → 淘汰赛' },
+  { code: 'ROUND_ROBIN', name: '全体循环赛', caption: '所有参赛位相互交手，按最终排名结算。', flow: '名单 → 循环对阵 → 排名' },
+  { code: 'SINGLE_ELIMINATION', name: '单淘汰', caption: '一场定去留，直接沿淘汰签晋级。', flow: '名单 → 淘汰签 → 冠军' },
+]
 
-export interface TournamentSettingsPageProps {
-  tournament?: Tournament | null
-}
+const eventNames = { SINGLES: '单打', DOUBLES: '双打', TEAM: '团体' } as const
+const operationNames = { LIVE: '正式赛事', DEMO: '演示赛事' } as const
+const canOpenRegistration = (tournament: Tournament) => tournament.event_type !== 'TEAM' && tournament.stage === 'REGISTRATION' && !tournament.roster_confirmed
+const effectiveRegistrationEnabled = (tournament: Tournament) => tournament.registration_enabled && canOpenRegistration(tournament)
 
-function Fact({ label, value, note }: { label: string; value: string; note?: string }) {
-  return <div className="settings-fact"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div>
-}
+export interface TournamentSettingsPageProps { tournament?: Tournament | null }
 
-type SaveState = 'idle' | 'saving' | 'error'
+const textOrNull = (value: string) => value.trim() || null
 
-/**
- * 「报名设置」= 管理端**唯一**的赛事级报名开关控制面（D 轨 Day5D + PR #58 review 返工）。
- *
- * ## 为什么这一块必须存在
- *
- * PR #58 review 的唯一 P1：Public 端已经能读 `TournamentOut.registration_enabled`，
- * 但 EVENT_ADMIN 没有任何 UI 能真正开启 / 关闭报名 —— 只能手工调
- * `PUT /api/tournaments/{tid}/registration`，于是 Public 永远停在「报名已关闭」。
- * 本组件把这条写入通道接上正式契约。
- *
- * ## 边界（刻意很窄）
- *
- * - 只做**开关**：报名列表 / 确认 / 拒绝 / 批量操作属于 C5，不在这里实现；
- * - 状态**只认服务端**：`PUT` 的响应 `TournamentOut.registration_enabled` 是唯一事实源，
- *   不做「点击后先本地置位」的乐观更新（失败会留下假状态）；
- * - 失败时保持原状态并展示服务端可读 message（401 / 403 / 404 / 409 的语义由后端决定，
- *   前端不按 status code 自己复制业务判断）；
- * - 不新增页面 / 路由 / API：`api.setRegistrationEnabled()` 就是既有的
- *   `PUT /api/tournaments/{tid}/registration`。
- */
-function RegistrationSettings({ tournament }: { tournament: Tournament | null }) {
-  const tid = tournament?.id ?? null
-  const [enabled, setEnabled] = useState(tournament?.registration_enabled ?? false)
-  const [state, setState] = useState<SaveState>('idle')
-  const [errorText, setErrorText] = useState<string | null>(null)
-  /** 同步锁：同一事件循环内的连续点击只放行一次（与 Public 报名页 / MobileScorePage 同一模式）。 */
-  const savingRef = useRef(false)
+export default function TournamentSettingsPage({ tournament: suppliedTournament }: TournamentSettingsPageProps) {
+  const queryTid = Number(new URLSearchParams(window.location.search).get('tid'))
+  const tid = suppliedTournament?.id ?? (Number.isSafeInteger(queryTid) && queryTid > 0 ? queryTid : getActiveTournamentId())
+  const [tournament, setTournament] = useState<Tournament | null>(suppliedTournament ?? null)
+  const [activeTab, setActiveTab] = useState<SettingsTab>('赛制与规则')
+  const [formatDraft, setFormatDraft] = useState<TournamentFormat | null>(suppliedTournament?.format_code ?? null)
+  const [registrationDraft, setRegistrationDraft] = useState(suppliedTournament ? effectiveRegistrationEnabled(suppliedTournament) : false)
+  const [organization, setOrganization] = useState<OrganizationUpsert>({ name: '', contact_name: null, contact: null, note: null })
+  const [venue, setVenue] = useState<VenueUpsert>({ name: '', address: null, contact_name: null, contact: null, note: null })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [confirmFormat, setConfirmFormat] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleteName, setDeleteName] = useState('')
 
-  // 赛事切换（或父级重新拉取赛事）时同步本地状态：
-  // 旧赛事 A 的报名状态绝不能残留到赛事 B。
-  useEffect(() => {
-    setEnabled(tournament?.registration_enabled ?? false)
-    setState('idle')
-    setErrorText(null)
-    savingRef.current = false
-  }, [tid, tournament?.registration_enabled])
-
-  const apply = useCallback(
-    async (next: boolean) => {
-      if (tid === null || savingRef.current) return
-      savingRef.current = true
-      setState('saving')
-      setErrorText(null)
-      try {
-        const updated = await api.setRegistrationEnabled(tid, { enabled: next })
-        setEnabled(updated.registration_enabled)
-        setState('idle')
-      } catch (err) {
-        // 失败：保持原状态，只展示服务端统一解析出的可读 message
-        setState('error')
-        setErrorText(err instanceof ApiError ? err.message : '报名设置保存失败，请稍后重试')
-      } finally {
-        savingRef.current = false
-      }
-    },
-    [tid],
-  )
-
-  if (tournament === null) {
-    return (
-      <section className="settings-registration">
-        <div className="settings-registration-status">
-          <span className="settings-status-dot" aria-hidden="true" />
-          <div>
-            <small>公开报名</small>
-            <strong>等待赛事数据</strong>
-          </div>
-        </div>
-        <p className="settings-registration-note">
-          选择一场赛事后才能开启或关闭公开报名。
-        </p>
-      </section>
-    )
+  const applyTournament = (next: Tournament) => {
+    setTournament(next); setFormatDraft(next.format_code ?? null); setRegistrationDraft(effectiveRegistrationEnabled(next))
   }
 
-  const saving = state === 'saving'
+  const load = useCallback(async () => {
+    if (tid === null) return
+    if (suppliedTournament !== undefined) {
+      if (suppliedTournament) applyTournament(suppliedTournament)
+      return
+    }
+    const current = await api.getTournament(tid)
+    applyTournament(current)
+    const [orgResult, venueResult] = await Promise.allSettled([api.getOrganization(tid), api.getVenue(tid)])
+    if (orgResult.status === 'fulfilled') setOrganization({ name: orgResult.value.name, contact_name: orgResult.value.contact_name, contact: orgResult.value.contact, note: orgResult.value.note })
+    else if (!(orgResult.reason instanceof ApiError && orgResult.reason.status === 404)) throw orgResult.reason
+    if (venueResult.status === 'fulfilled') setVenue({ name: venueResult.value.name, address: venueResult.value.address, contact_name: venueResult.value.contact_name, contact: venueResult.value.contact, note: venueResult.value.note })
+    else if (!(venueResult.reason instanceof ApiError && venueResult.reason.status === 404)) throw venueResult.reason
+  }, [tid, suppliedTournament])
 
-  return (
-    <section className="settings-registration">
-      <div className={enabled ? 'settings-registration-status is-open' : 'settings-registration-status'}>
-        <span className="settings-status-dot" aria-hidden="true" />
-        <div>
-          <small>公开报名</small>
-          <strong>{enabled ? '报名中' : '已关闭'}</strong>
-        </div>
-      </div>
+  useEffect(() => { load().catch((err: unknown) => setError(err instanceof ApiError ? err.message : '赛事设置加载失败')) }, [load])
 
-      <p className="settings-registration-note">
-        {enabled
-          ? '选手可以通过公开报名页面提交报名。报名记录将进入待确认列表。'
-          : '选手当前无法通过公开报名页面提交报名。'}
-      </p>
+  const run = async (work: () => Promise<void>, fallback: string) => {
+    setBusy(true); setError(null); setNotice(null)
+    try { await work() } catch (err) { setError(err instanceof ApiError ? err.message : fallback) } finally { setBusy(false) }
+  }
 
-      <div className="settings-registration-actions">
-        <button
-          className={enabled ? 'settings-toggle is-close' : 'settings-toggle is-open'}
-          disabled={saving}
-          onClick={() => apply(!enabled)}
-          type="button"
-        >
-          {saving ? (enabled ? '正在关闭…' : '正在开启…') : enabled ? '关闭报名' : '开启报名'}
-        </button>
-        <span className="settings-toggle-hint">
-          {enabled
-            ? '关闭后公开报名页立即变为只读，选手无法再提交报名。'
-            : '报名开启后，公开报名页面将允许选手提交报名申请。提交后不会直接成为正式参赛选手，仍需赛事管理员确认。'}
-        </span>
-      </div>
+  const saveFormat = () => {
+    if (!tournament || !formatDraft || formatDraft === tournament.format_code) return
+    setConfirmFormat(true)
+  }
+  const confirmFormatChange = () => void run(async () => {
+    if (!tournament || !formatDraft) return
+    const next = await api.updateTournamentFormat(tournament.id, { format_code: formatDraft, rule_config: {} })
+    applyTournament(next); setConfirmFormat(false); setNotice('赛制已保存。后续页面将按新赛制显示适用能力。')
+  }, '保存赛制失败')
+  const saveRegistration = () => void run(async () => {
+    if (!tournament) return
+    if (registrationDraft && !canOpenRegistration(tournament)) throw new Error('参赛名单已确认或赛事已开始，不能再开启报名。')
+    const next = await api.updateTournamentRegistration(tournament.id, registrationDraft)
+    applyTournament(next); setNotice(registrationDraft ? '线上报名已开启。' : '线上报名已关闭。')
+  }, '保存报名设置失败')
+  const saveOrganization = () => void run(async () => {
+    if (!tournament || !organization.name.trim()) return
+    await api.upsertOrganization(tournament.id, { ...organization, name: organization.name.trim(), contact_name: textOrNull(organization.contact_name ?? ''), contact: textOrNull(organization.contact ?? ''), note: textOrNull(organization.note ?? '') })
+    setNotice('组织方信息已保存。')
+  }, '保存组织方失败')
+  const saveVenue = () => void run(async () => {
+    if (!tournament || !venue.name.trim()) return
+    await api.upsertVenue(tournament.id, { ...venue, name: venue.name.trim(), address: textOrNull(venue.address ?? ''), contact_name: textOrNull(venue.contact_name ?? ''), contact: textOrNull(venue.contact ?? ''), note: textOrNull(venue.note ?? '') })
+    setNotice('场馆信息已保存。')
+  }, '保存场馆失败')
+  const exportData = () => void run(async () => {
+    if (!tournament) return
+    const data = await api.exportTournament(tournament.id)
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
+    const link = document.createElement('a'); link.href = url; link.download = `${tournament.name.replace(/[\\/:*?"<>|]/g, '_')}-export.json`; link.click(); URL.revokeObjectURL(url)
+    setNotice('赛事 JSON 已导出。')
+  }, '导出赛事失败')
+  const deleteTournament = () => void run(async () => {
+    if (!tournament) return
+    await api.deleteTournament(tournament.id, tournament.operation_mode === 'LIVE' ? deleteName : undefined)
+    setActiveTournamentId(null); window.location.assign('/')
+  }, '删除赛事失败')
 
-      {errorText && (
-        <p className="settings-registration-error" role="alert">{errorText}</p>
-      )}
-    </section>
-  )
-}
+  if (tid === null && !tournament) return <div className="card"><h2>赛事设置</h2><p className="muted">请先选择一场赛事。</p></div>
 
-export default function TournamentSettingsPage({ tournament = null }: TournamentSettingsPageProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('赛制与规则')
+  const changedFormat = Boolean(tournament && formatDraft && formatDraft !== tournament.format_code)
+  const registrationChanged = Boolean(tournament && registrationDraft !== tournament.registration_enabled)
+  const registrationCanOpen = Boolean(tournament && canOpenRegistration(tournament))
+  const registrationIsEffective = Boolean(tournament && effectiveRegistrationEnabled(tournament))
+  const registrationClosedReason = tournament?.event_type === 'TEAM' ? '团体赛当前不支持公开个人报名。' : tournament?.roster_confirmed ? '参赛名单已确认，报名已关闭。' : tournament?.stage !== 'REGISTRATION' ? '赛事已开始，报名已关闭。' : null
+  const publicUrl = tournament ? `${window.location.origin}/public/t/${tournament.id}/live` : ''
 
   return <div className="tournament-settings">
-    <header className="settings-heading">
-      <div><span>TOURNAMENT SETTINGS</span><h1>赛事设置</h1><p>核对当前规则。编辑能力将在后端规则契约就绪后开放。</p></div>
-      <div className="settings-heading-mark" aria-hidden="true">TT<span>规则档案</span></div>
-    </header>
-    <div className="settings-tabs" role="tablist" aria-label="赛事设置分类">
-      {tabs.map((tab) => <button
-        id={`settings-tab-${tabs.indexOf(tab)}`}
-        key={tab}
-        type="button"
-        role="tab"
-        aria-selected={activeTab === tab}
-        aria-controls="settings-panel"
-        className={activeTab === tab ? 'is-active' : ''}
-        onClick={() => setActiveTab(tab)}
-      >{tab}</button>)}
+    <header className="settings-heading"><div><span>TOURNAMENT SETTINGS</span><h1>赛事设置</h1><p>只展示当前后端已经能够保存和执行的设置。</p></div><div className="settings-heading-mark" aria-hidden="true">TT<span>规则档案</span></div></header>
+    {error && <p className="status-error" role="alert">{error}</p>}{notice && <p className="status-ok" role="status">{notice}</p>}
+    <div className="settings-tabs" role="tablist" aria-label="赛事设置分类">{tabs.map((tab, index) => <button id={`settings-tab-${index}`} key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'is-active' : ''} onClick={() => { setActiveTab(tab); setError(null); setNotice(null) }}>{tab}</button>)}</div>
+
+    <div className="settings-panel" role="tabpanel">
+      {activeTab === '基本信息' && <>
+        <section className="settings-section"><header><span>01 / EVENT FACTS</span><h2>赛事事实</h2></header><div className="settings-fact-grid"><Fact label="赛事名称" value={tournament?.name ?? '—'} /><Fact label="比赛日期" value={tournament?.date ?? '—'} /><Fact label="项目" value={tournament ? eventNames[tournament.event_type] : '—'} /><Fact label="运行模式" value={tournament ? operationNames[tournament.operation_mode] : '—'} /></div><p className="muted">以上字段当前为只读；本阶段不伪造尚未存在的修改接口。</p></section>
+        <div className="settings-two-column"><Editor title="组织方" kicker="ORGANIZATION" onSave={saveOrganization} disabled={busy || !organization.name.trim()}><TextField label="组织方名称" value={organization.name} onChange={(value) => setOrganization({ ...organization, name: value })} /><TextField label="联系人" value={organization.contact_name ?? ''} onChange={(value) => setOrganization({ ...organization, contact_name: value })} /><TextField label="联系方式" value={organization.contact ?? ''} onChange={(value) => setOrganization({ ...organization, contact: value })} /><TextField label="备注" value={organization.note ?? ''} onChange={(value) => setOrganization({ ...organization, note: value })} /></Editor>
+        <Editor title="比赛场馆" kicker="VENUE" onSave={saveVenue} disabled={busy || !venue.name.trim()}><TextField label="场馆名称" value={venue.name} onChange={(value) => setVenue({ ...venue, name: value })} /><TextField label="地址" value={venue.address ?? ''} onChange={(value) => setVenue({ ...venue, address: value })} /><TextField label="联系人" value={venue.contact_name ?? ''} onChange={(value) => setVenue({ ...venue, contact_name: value })} /><TextField label="联系方式" value={venue.contact ?? ''} onChange={(value) => setVenue({ ...venue, contact: value })} /></Editor></div>
+        <section className="settings-section contract-waiting"><h2>球台设置</h2><p>当前球台数量：<strong>{tournament?.table_count ?? '—'}</strong>。后端暂未提供本阶段可用的球台设置接口，因此保持只读。</p></section>
+      </>}
+
+      {activeTab === '赛制与规则' && <>
+        {tournament?.event_type === 'TEAM' ? <section className="settings-section contract-waiting"><header><span>TEAM FORMAT</span><h2>团体赛使用独立赛制流程</h2></header><p>当前三个 format 均为个人赛处理器，后端会明确拒绝团体赛事保存。请在“队伍与名单 / 团体对抗 / 团体淘汰签”中管理团体流程。</p></section> : <>
+          <section className="settings-section"><header><span>01 / FORMAT</span><h2>选择赛事赛制</h2></header><div className="format-card-grid">{formats.map((format) => <button key={format.code} type="button" className={`format-card${formatDraft === format.code ? ' is-selected' : ''}`} onClick={() => setFormatDraft(format.code)}><span>{format.code}</span><strong>{format.name}</strong><p>{format.caption}</p><small>{format.flow}</small></button>)}</div></section>
+          <section className="settings-section"><header><span>02 / APPLICABLE RULES</span><h2>当前适用规则</h2></header>{formatDraft === 'GROUP_KNOCKOUT' ? <div className="settings-fact-grid"><Fact label="小组数量" value={`${tournament?.group_count ?? '—'} 组`} /><Fact label="每组晋级" value={`前 ${tournament?.qualify_per_group ?? '—'} 名`} /><Fact label="比赛局制" value={tournament ? `${tournament.games_to_win * 2 - 1} 局 ${tournament.games_to_win} 胜` : '—'} /><Fact label="每局目标分" value={`${tournament?.points_to_win ?? '—'} 分`} /></div> : formatDraft === 'ROUND_ROBIN' ? <div className="settings-fact-grid"><Fact label="排名范围" value="全部参赛位" /><Fact label="比赛局制" value={tournament ? `${tournament.games_to_win * 2 - 1} 局 ${tournament.games_to_win} 胜` : '—'} /></div> : formatDraft === 'SINGLE_ELIMINATION' ? <div className="settings-fact-grid"><Fact label="淘汰方式" value="单败淘汰" /><Fact label="比赛局制" value={tournament ? `${tournament.games_to_win * 2 - 1} 局 ${tournament.games_to_win} 胜` : '—'} /></div> : <p className="muted">尚未选择赛制。</p>}<p className="muted">不适用于当前赛制的规则不会显示。小组数、晋级数、局制和名次规则等待统一规则更新接口；不提供原始 rule_config 编辑器。</p></section>
+          <footer className="settings-actions"><span>{changedFormat ? '存在未保存的赛制变更' : '当前配置已保存'}</span><button type="button" disabled={!changedFormat || busy} onClick={() => setFormatDraft(tournament?.format_code ?? null)}>取消修改</button><button className="primary" disabled={!changedFormat || busy} type="button" onClick={saveFormat}>保存设置</button></footer>
+        </>}
+      </>}
+
+      {activeTab === '报名设置' && <section className="settings-section registration-setting"><header><span>REGISTRATION</span><h2>线上报名</h2></header><label className="setting-switch"><input type="checkbox" checked={registrationDraft} disabled={!registrationCanOpen} onChange={(event) => setRegistrationDraft(event.target.checked)} /><span><strong>{registrationCanOpen ? (registrationDraft ? '允许提交报名' : '暂停接收报名') : '报名已关闭'}</strong><small>{registrationClosedReason ?? '提交后状态为 PENDING，主裁在“参赛名单”确认后才会创建运动员。'}</small></span></label>{!registrationCanOpen && tournament?.registration_enabled && <p className="status-warn">数据中保留了历史开启标记，但当前报名已实际关闭；保存可清理该标记。</p>}<p className="muted">当前状态机只有 PENDING → CONFIRMED，没有“拒绝”状态。</p><footer className="settings-actions"><button disabled={!registrationCanOpen || !registrationChanged || busy} onClick={() => setRegistrationDraft(tournament ? effectiveRegistrationEnabled(tournament) : false)}>取消修改</button><button className="primary" disabled={!registrationChanged || busy} onClick={saveRegistration}>保存报名设置</button></footer></section>}
+
+      {activeTab === '公开与展示' && <section className="settings-section"><header><span>PUBLIC DISPLAY</span><h2>公开赛事页面</h2></header><div className="public-url"><code>{publicUrl || '等待赛事数据'}</code><button className="btn" disabled={!publicUrl} onClick={() => void navigator.clipboard.writeText(publicUrl)}>复制链接</button><a className="btn primary" href={publicUrl || undefined} target="_blank" rel="noreferrer" aria-disabled={!publicUrl}>打开页面</a></div><div className="settings-fact-grid"><Fact label="线上报名" value={registrationIsEffective ? '开放' : '关闭'} note={registrationClosedReason ?? undefined} /><Fact label="公开页面开关" value="尚无后端字段" note="Public 页面由稳定 URL 提供，不伪造 public_enabled。" /></div></section>}
+
+      {activeTab === '高级操作' && <div className="settings-two-column"><section className="settings-section"><header><span>EXPORT</span><h2>导出赛事数据</h2></header><p>下载服务端生成的结构化 JSON，包含落库数据和可推导结果。</p><button className="btn primary" disabled={busy || !tournament} onClick={exportData}>导出 JSON</button></section><section className="settings-section danger-zone"><header><span>DANGER ZONE</span><h2>删除赛事</h2></header><p>删除不可恢复。正式赛事必须输入完整赛事名称；建议先导出。</p><button className="btn danger" disabled={busy || !tournament} onClick={() => setConfirmDelete(true)}>删除赛事</button></section></div>}
     </div>
 
-    <div id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${tabs.indexOf(activeTab)}`}>
-      {activeTab === '赛制与规则' ? <>
-        <div className="settings-notice">当前只读 · 等待规则更新接口。所有规则以服务端保存的数据为准。</div>
-        <div className="settings-rule-grid">
-          <section className="settings-section">
-            <header><span>01 / STRUCTURE</span><h2>赛事结构</h2></header>
-            <div className="settings-facts">
-              <Fact label="赛事类型" value={tournament ? eventNames[tournament.event_type] : '等待赛事数据'} />
-              <Fact label="小组数量" value={tournament ? `${tournament.group_count} 组` : '等待赛事数据'} />
-              <Fact label="当前赛制" value="等待赛制接口" note="当前版本由系统规则决定；不从赛事阶段推测赛制。" />
-            </div>
-          </section>
-          <section className="settings-section">
-            <header><span>02 / SCORE</span><h2>比分规则</h2></header>
-            <div className="settings-facts">
-              <Fact label="比赛局制" value={tournament ? `先胜 ${tournament.games_to_win} 局` : '等待赛事数据'} />
-              <Fact label="每局目标分" value={tournament ? `${tournament.points_to_win} 分` : '等待赛事数据'} />
-            </div>
-          </section>
-          <section className="settings-section">
-            <header><span>03 / ADVANCEMENT</span><h2>晋级与名次</h2></header>
-            <div className="settings-facts">
-              <Fact label="每组晋级" value={tournament ? `前 ${tournament.qualify_per_group} 名` : '等待赛事数据'} />
-              <Fact label="季军规则" value={tournament ? bronzeNames[tournament.bronze_mode] : '等待赛事数据'} />
-              <Fact label="名次赛" value={tournament ? placementNames[tournament.placement_mode] : '等待赛事数据'} />
-            </div>
-          </section>
-          <section className="settings-section settings-section--draw">
-            <header><span>04 / DRAW</span><h2>抽签规则</h2></header>
-            <p>种子保护、同单位规避：等待规则接口。正式抽签由后端权威执行。</p>
-            <div className="settings-priority">赛制合法性 <b>›</b> 种子保护 <b>›</b> 同单位／同队伍规避 <b>›</b> 均衡 <b>›</b> 随机性</div>
-          </section>
-        </div>
-        <footer className="settings-actions"><span>等待规则更新接口</span><button disabled type="button">取消修改</button><button className="primary" disabled type="button">保存设置</button></footer>
-      </> : activeTab === '报名设置' ? <RegistrationSettings tournament={tournament} />
-        : <section className="settings-pending"><h2>{activeTab}</h2><p>此分类已预留页面位置；等待对应的后端数据与权限契约后接入，不显示模拟设置。</p></section>}
-    </div>
+    {confirmFormat && tournament && formatDraft && <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="确认切换赛制"><div className="modal"><span className="eyebrow">FORMAT CHANGE</span><h3>确认切换赛事赛制</h3><p>将从<strong>{formats.find((item) => item.code === tournament.format_code)?.name ?? '未设置'}</strong>切换为<strong>{formats.find((item) => item.code === formatDraft)?.name}</strong>。</p><p className="status-warn">赛制变化会影响后续抽签、编排、排名与公开展示。若赛事已有比赛，后端可能以 409/422 拒绝；页面会原样显示服务端原因。</p><div className="modal-actions"><button className="btn" onClick={() => setConfirmFormat(false)}>返回检查</button><button className="btn primary" disabled={busy} onClick={confirmFormatChange}>确认并保存</button></div></div></div>}
+    {confirmDelete && tournament && <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="确认删除赛事"><div className="modal"><span className="eyebrow">IRREVERSIBLE</span><h3>删除 {tournament.name}</h3><p className="status-warn">此操作不可恢复。请先导出赛事数据。</p>{tournament.operation_mode === 'LIVE' && <label>输入完整赛事名称<input value={deleteName} onChange={(event) => setDeleteName(event.target.value)} placeholder={tournament.name} /></label>}<div className="modal-actions"><button className="btn" onClick={() => setConfirmDelete(false)}>取消</button><button className="btn" onClick={exportData}>先导出</button><button className="btn danger" disabled={busy || (tournament.operation_mode === 'LIVE' && deleteName !== tournament.name)} onClick={deleteTournament}>永久删除</button></div></div></div>}
   </div>
 }
+
+function Fact({ label, value, note }: { label: string; value: string; note?: string }) { return <div className="settings-fact"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div> }
+function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label>{label}<input value={value} onChange={(event) => onChange(event.target.value)} /></label> }
+function Editor({ title, kicker, children, onSave, disabled }: { title: string; kicker: string; children: React.ReactNode; onSave: () => void; disabled: boolean }) { return <section className="settings-section settings-editor"><header><span>{kicker}</span><h2>{title}</h2></header><div className="settings-form">{children}</div><button className="btn primary" disabled={disabled} onClick={onSave}>保存{title}</button></section> }

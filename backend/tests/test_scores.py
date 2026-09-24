@@ -464,6 +464,7 @@ def test_knockout_record_with_complete_games_persists(conn):
 def test_record_score_rejects_games_inconsistent_with_aggregate_before_write(conn):
     tid = _rules_tournament(conn)
     m = _only_match(conn, tid)
+    request_id = "d7b-invalid-normal-games"
 
     with pytest.raises(scores_service.ScoreError, match="逐局小比分与大比分不一致") as exc_info:
         scores_service.record_score(
@@ -472,12 +473,15 @@ def test_record_score_rejects_games_inconsistent_with_aggregate_before_write(con
             2,
             0,
             games=[(11, 8), (9, 11), (11, 7)],
+            request_id=request_id,
         )
 
     assert exc_info.value.code == 422
     unchanged = repo.get_match(conn, m["id"])
     assert unchanged["status"] == MatchStatus.WAITING.value
     assert repo.list_match_games(conn, m["id"]) == []
+    assert repo.list_score_audits(conn, m["id"]) == []
+    assert repo.list_tournament_score_requests(conn, tid) == []
 
 
 @pytest.mark.parametrize(

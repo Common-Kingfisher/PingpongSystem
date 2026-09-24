@@ -33,18 +33,11 @@ def update_registration_setting(
     _access=Depends(require_tournament_write),
 ):
     try:
-        with write_transaction(conn, busy_message="报名设置繁忙，请稍后重试"):
-            tournament = repo.set_tournament_registration_enabled(
-                conn, tournament_id, payload.enabled
-            )
-    except TransactionBusyError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "TRANSACTION_BUSY", "message": str(exc)},
-        ) from None
-    if tournament is None:
-        raise _missing("RESOURCE_NOT_FOUND", "资源不存在")
-    return tournament
+        return registrations_service.update_registration_setting(
+            conn, tournament_id, enabled=payload.enabled
+        )
+    except registrations_service.RegistrationError as exc:
+        raise _registration_http(exc) from None
 
 
 @router.post(
