@@ -226,6 +226,28 @@ def test_confirm_respects_locked_team_roster(client, conn):
     assert repo.list_players(conn, tournament["id"]) == []
 
 
+def test_confirm_respects_locked_singles_roster(client, conn):
+    tournament = _create_tournament(client, "单打名单确认后拒绝待审报名")
+    submitted = _submit_registration(client, tournament["id"])
+    conn.execute(
+        "UPDATE tournaments SET roster_confirmed = 1, "
+        "confirmed_at = datetime('now') WHERE id = ?",
+        (tournament["id"],),
+    )
+    conn.commit()
+
+    response = client.post(
+        f"/api/tournaments/{tournament['id']}/registrations/"
+        f"{submitted['registration_id']}/confirm"
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == {
+        "code": "ROSTER_LOCKED",
+        "message": "参赛名单已确认，不能再修改运动员",
+    }
+    assert repo.list_players(conn, tournament["id"]) == []
+
+
 def test_confirm_missing_tournament_and_registration_return_404(client):
     tournament = _create_tournament(client, "确认缺失资源")
     missing_tournament = client.post(

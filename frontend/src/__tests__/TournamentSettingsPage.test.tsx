@@ -53,6 +53,31 @@ describe('赛事设置真实契约', () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(12, true))
   })
 
+  it('名单确认后显示实际关闭状态，且不允许重新开启报名', async () => {
+    const update = vi.spyOn(api, 'updateTournamentRegistration').mockResolvedValue({
+      ...tournament, roster_confirmed: true, registration_enabled: false,
+    })
+    render(<TournamentSettingsPage tournament={{ ...tournament, roster_confirmed: true, registration_enabled: true }} />)
+    fireEvent.click(screen.getByRole('tab', { name: '报名设置' }))
+    const toggle = screen.getByRole('checkbox') as HTMLInputElement
+    expect(toggle.checked).toBe(false)
+    expect(toggle.disabled).toBe(true)
+    expect(screen.getByText('报名已关闭')).toBeTruthy()
+    expect(screen.getByText('参赛名单已确认，报名已关闭。')).toBeTruthy()
+    expect(screen.getByText(/历史开启标记/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '保存报名设置' }))
+    await waitFor(() => expect(update).toHaveBeenCalledWith(12, false))
+  })
+
+  it('公开与展示页使用报名有效状态，而不是历史原始开关', () => {
+    render(<TournamentSettingsPage tournament={{ ...tournament, stage: 'GROUP_STAGE', registration_enabled: true }} />)
+    fireEvent.click(screen.getByRole('tab', { name: '公开与展示' }))
+    const fact = screen.getByText('线上报名').closest('.settings-fact') as HTMLElement
+    expect(within(fact).getByText('关闭')).toBeTruthy()
+    expect(within(fact).getByText('赛事已开始，报名已关闭。')).toBeTruthy()
+  })
+
   it('TEAM 赛事不展示后端必然拒绝的个人赛 format 控件', () => {
     render(<TournamentSettingsPage tournament={{ ...tournament, event_type: 'TEAM', format_code: null }} />)
     expect(screen.getByRole('heading', { name: '团体赛使用独立赛制流程' })).toBeTruthy()

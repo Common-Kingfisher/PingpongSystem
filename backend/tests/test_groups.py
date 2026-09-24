@@ -107,16 +107,19 @@ def test_delete_grouped_player_rejected(client):
     pid = client.get(f"/api/tournaments/{tid}/players").json()[0]["id"]
     resp = client.delete(f"/api/tournaments/{tid}/players/{pid}")
     assert resp.status_code == 409
-    assert "已分组" in resp.json()["detail"]
+    # 旧 API 允许未点击“确认名单”就直接抽签，此路径会先隐式确认名单。
+    # 因此服务端的第一道写边界应是 roster_confirmed，不允许再删选手。
+    assert resp.json()["detail"] == "参赛名单已确认，不能再修改运动员"
 
 
-def test_delete_player_after_ungroup_ok(client):
+def test_delete_player_after_ungroup_still_rejected_when_roster_confirmed(client):
     tid = _create_tournament(client, n_players=5)
     client.post(f"/api/tournaments/{tid}/auto-group")
     client.post(f"/api/tournaments/{tid}/ungroup")
     pid = client.get(f"/api/tournaments/{tid}/players").json()[0]["id"]
     resp = client.delete(f"/api/tournaments/{tid}/players/{pid}")
-    assert resp.status_code == 204
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "参赛名单已确认，不能再修改运动员"
 
 
 def test_auto_group_missing_tournament(client):

@@ -27,6 +27,8 @@ def _tournament(conn: sqlite3.Connection, tournament_id: int) -> dict:
         raise EntryError("赛事不存在", 404)
     if tournament["stage"] != TournamentStage.REGISTRATION.value:
         raise EntryError("赛事已开始，参赛名单已锁定")
+    if tournament["roster_confirmed"]:
+        raise EntryError("参赛名单已确认，不能重复确认或重新配对", 409)
     return tournament
 
 

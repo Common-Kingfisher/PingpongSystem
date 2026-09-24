@@ -56,6 +56,11 @@ def test_doubles_pairing_is_reproducible_and_complete(client):
     confirmed = client.post(f"/api/tournaments/{tid}/confirm-roster")
     assert confirmed.status_code == 200
     assert confirmed.json()["tournament"]["roster_confirmed"] is True
+    repaired = client.post(
+        f"/api/tournaments/{tid}/pair-doubles", json={"pairing_seed": 99}
+    )
+    assert repaired.status_code == 409, repaired.text
+    assert repaired.json()["detail"] == "参赛名单已确认，不能重复确认或重新配对"
 
 
 def test_import_preview_does_not_write_before_confirmation(client):
