@@ -53,10 +53,9 @@ export default function DrawPage() {
     if (target < 0 || target >= seeds.length) return
     const ids = seeds.map((seed) => seed.id); [ids[index], ids[target]] = [ids[target], ids[index]]; void persistSeeds(ids)
   }
-  const autoGroup = () => void run(async () => { setGroups(await api.autoGroup(tid)); setNotice('分组抽签已由后端完成。') }, '抽签分组失败')
+  const autoGroup = () => void run(async () => { setGroups(await api.autoGroup(tid)); setNotice('分组已由后端生成并保存。') }, '生成分组失败')
   const clearGroups = () => void run(async () => { await api.ungroup(tid); setNotice('现有分组已清空。') }, '清空分组失败')
   const generateGroupMatches = () => void run(async () => { const result = await api.generateGroupMatches(tid); setNotice(`已生成 ${result.matches_generated} 场小组比赛。`) }, '生成小组比赛失败')
-  const updateQualification = (groupId: number, count: number) => void run(async () => { await api.setGroupQualification(tid, groupId, count); setNotice('该组出线人数已保存。') }, '修改出线人数失败')
   const confirmWithdrawal = () => {
     if (!withdrawTarget) return
     void run(async () => {
@@ -71,7 +70,7 @@ export default function DrawPage() {
   const renderUnsupportedSeeds = () => <section className="card contract-waiting"><span className="eyebrow">SEED CONTRACT</span><h3>当前项目暂不提供种子编辑</h3><p>双打编排使用组合 Entry 的种子，而现有接口只编辑 Player 种子且仅同步单打 Entry。等待组合级种子契约后再开放，避免出现“保存成功但抽签不生效”。</p></section>
   const renderSeedPanel = () => <section className="card draw-section">
     <div className="section-heading"><div><span className="eyebrow">SEED ORDER</span><h3>种子设置</h3></div><span>{seeds.length} 名</span></div>
-    <p className="muted">只提供人工顺序编辑。运动员积分仅作参考；合法数量与保存规则以服务端返回为准。</p>
+    <p className="muted">只提供主裁判人工顺序编辑。运动员积分仅作参考；合法数量与保存规则以服务端返回为准。{format === 'SINGLE_ELIMINATION' && ' 当前种子名单可设置；正式单淘汰种子落位规则等待后端契约。'}</p>
     <div className="seed-workbench">
       <div><h4>当前种子顺序</h4>{seeds.length === 0 ? <p className="empty-invite">尚未设置种子。</p> : <ol className="seed-order">{seeds.map((player, index) => <li key={player.id}><span className="seed-index">{index + 1}</span><strong>{player.name}</strong><small>{player.college || '单位未填写'} · 积分 {player.rating_points}</small><div><button className="btn small" disabled={busy || locked || index === 0} onClick={() => moveSeed(index, -1)}>↑</button><button className="btn small" disabled={busy || locked || index === seeds.length - 1} onClick={() => moveSeed(index, 1)}>↓</button><button className="btn small danger" disabled={busy || locked} onClick={() => removeSeed(player)}>移除</button></div></li>)}</ol>}</div>
       <div><h4>候选运动员</h4><div className="seed-candidates">{candidates.map((player) => <button type="button" key={player.id} disabled={busy || locked} onClick={() => addSeed(player)}><strong>{player.name}</strong><span>{player.college || '单位未填写'} · {player.rating_points}</span><b>＋</b></button>)}</div></div>
@@ -101,10 +100,10 @@ export default function DrawPage() {
       {seedEditorSupported ? renderSeedPanel() : renderUnsupportedSeeds()}
       <section className="card draw-section">
         <div className="section-heading"><div><span className="eyebrow">GROUP DRAW</span><h3>小组抽签结果</h3></div><span>{groups.groups.length} 组</span></div>
-        <p className="muted">当前正式能力会把已确认参赛位抽入 {tournament?.group_count ?? '—'} 个小组，并由后端执行种子分散规则。</p>
-        <div className="button-row"><button className="btn primary" disabled={busy || locked || !tournament?.roster_confirmed} onClick={autoGroup}>{groups.groups.length ? '重新抽签' : '开始小组抽签'}</button>{groups.groups.length > 0 && <button className="btn" disabled={busy || locked} onClick={clearGroups}>清空分组</button>}</div>
+        <p className="muted">当前能力会把已确认参赛位分入 {tournament?.group_count ?? '—'} 个小组，并由后端执行种子分散规则。当前版本直接生成并保存分组；正式抽签审计与重抽记录等待后端 Draw Revision 契约。</p>
+        <div className="button-row"><button className="btn primary" disabled={busy || locked || !tournament?.roster_confirmed} onClick={autoGroup}>{groups.groups.length ? '重新生成分组' : '生成分组'}</button>{groups.groups.length > 0 && <button className="btn" disabled={busy || locked} onClick={clearGroups}>清空分组</button>}</div>
         {!tournament?.roster_confirmed && <p className="status-warn">请先在“参赛名单”确认正式名单。</p>}
-        <div className="group-grid">{groups.groups.map((group) => <article className="group-card" key={group.id}><div className="group-card-head"><h4>{group.name}</h4><label>出线 <select value={group.qualify_count ?? tournament?.qualify_per_group ?? 1} disabled={busy || locked} onChange={(event) => updateQualification(group.id, Number(event.target.value))}>{Array.from({ length: Math.max(1, (group.entries.length || group.players.length) - 1) }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count} 名</option>)}</select></label></div><ol>{(group.entries.length ? group.entries : group.players).map((participant) => {
+        <div className="group-grid">{groups.groups.map((group) => <article className="group-card" key={group.id}><div className="group-card-head"><h4>{group.name}</h4><span>晋级：前 {group.qualify_count ?? tournament?.qualify_per_group ?? 1} 名</span></div><ol>{(group.entries.length ? group.entries : group.players).map((participant) => {
           const isEntry = 'display_name' in participant; const withdrawn = isEntry && participant.status === 'WITHDRAWN'
           return <li key={participant.id} className={withdrawn ? 'entry-withdrawn' : ''}><span>{'seed_no' in participant && participant.seed_no ? <b className="seed-badge">#{participant.seed_no}</b> : null}{isEntry ? participant.display_name : participant.name}{withdrawn && <i className="withdrawn-badge">已退赛</i>}</span>{locked && isEntry && !withdrawn && tournament?.stage !== 'FINISHED' && <button className="btn small danger" onClick={() => setWithdrawTarget(participant)}>退赛</button>}</li>
         })}</ol></article>)}</div>

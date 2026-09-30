@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
-import HomePage from './pages/HomePage'
+import AdminRootPage from './pages/AdminRootPage'
 import PlayersPage from './pages/PlayersPage'
 import DrawPage from './pages/DrawPage'
 import ConsolePage from './pages/ConsolePage'
@@ -70,7 +70,7 @@ export default function App() {
   return (
     <AdminShell>
         <Routes>
-          <Route path="/" element={<HomePage />} />
+          <Route path="/" element={<AdminRootPage />} />
           <Route path="/players" element={<PlayersPage />} />
           <Route path="/draw" element={<DrawPage />} />
           <Route path="/settings" element={<TournamentSettingsPage />} />

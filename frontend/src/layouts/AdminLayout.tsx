@@ -48,7 +48,7 @@ interface AdminNavItem {
 }
 
 const primaryItems: AdminNavItem[] = [
-  { key: 'overview', label: '赛事总览', to: '/', note: '进度与下一步' },
+  { key: 'overview', label: '赛事总览', to: '/', note: '进度与现场状态' },
   { key: 'participants', label: '参赛名单', to: '/players', note: '确认谁参赛' },
   { key: 'draw', label: '抽签与编排', to: '/draw', note: '建立比赛结构' },
   { key: 'orderbook', label: '秩序册', to: '/orderbook', note: '赛前与赛中输出' },
@@ -58,7 +58,7 @@ const primaryItems: AdminNavItem[] = [
 ]
 
 const teamItems: AdminNavItem[] = [
-  { key: 'overview', label: '赛事总览', to: '/', note: '进度与下一步' },
+  { key: 'overview', label: '赛事总览', to: '/', note: '团体赛事入口' },
   { key: 'teamRoster', label: '队伍与名单', to: '/team-roster', note: '确认参赛队伍' },
   { key: 'teamTies', label: '团体对抗', to: '/team-ties', note: '排阵与单盘' },
   { key: 'teamRankings', label: '团体排名', to: '/team-rankings', note: '小组名次' },

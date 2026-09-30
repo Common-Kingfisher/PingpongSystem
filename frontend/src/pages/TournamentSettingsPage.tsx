@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ApiError, api, OrganizationUpsert, Tournament, TournamentFormat, VenueUpsert } from '../api'
+import { ApiError, api, GroupInfo, OrganizationUpsert, Tournament, TournamentFormat, VenueUpsert } from '../api'
 import { getActiveTournamentId, setActiveTournamentId } from '../activeTournament'
 import './TournamentSettingsPage.css'
 
@@ -30,6 +30,8 @@ export default function TournamentSettingsPage({ tournament: suppliedTournament 
   const [registrationDraft, setRegistrationDraft] = useState(suppliedTournament ? effectiveRegistrationEnabled(suppliedTournament) : false)
   const [organization, setOrganization] = useState<OrganizationUpsert>({ name: '', contact_name: null, contact: null, note: null })
   const [venue, setVenue] = useState<VenueUpsert>({ name: '', address: null, contact_name: null, contact: null, note: null })
+  const [groups, setGroups] = useState<GroupInfo[]>([])
+  const [qualificationDrafts, setQualificationDrafts] = useState<Record<number, number>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -57,6 +59,16 @@ export default function TournamentSettingsPage({ tournament: suppliedTournament 
   }, [tid, suppliedTournament])
 
   useEffect(() => { load().catch((err: unknown) => setError(err instanceof ApiError ? err.message : '赛事设置加载失败')) }, [load])
+
+  useEffect(() => {
+    if (tid === null || tournament?.format_code !== 'GROUP_KNOCKOUT') {
+      setGroups([]); setQualificationDrafts({}); return
+    }
+    api.getGroups(tid).then((result) => {
+      setGroups(result.groups)
+      setQualificationDrafts(Object.fromEntries(result.groups.map((group) => [group.id, group.qualify_count ?? tournament.qualify_per_group])))
+    }).catch((err: unknown) => setError(err instanceof ApiError ? err.message : '小组晋级设置加载失败'))
+  }, [tid, tournament?.format_code, tournament?.qualify_per_group])
 
   const run = async (work: () => Promise<void>, fallback: string) => {
     setBusy(true); setError(null); setNotice(null)
@@ -88,6 +100,14 @@ export default function TournamentSettingsPage({ tournament: suppliedTournament 
     await api.upsertVenue(tournament.id, { ...venue, name: venue.name.trim(), address: textOrNull(venue.address ?? ''), contact_name: textOrNull(venue.contact_name ?? ''), contact: textOrNull(venue.contact ?? ''), note: textOrNull(venue.note ?? '') })
     setNotice('场馆信息已保存。')
   }, '保存场馆失败')
+  const saveGroupQualification = (group: GroupInfo) => void run(async () => {
+    if (!tournament) return
+    const qualifyCount = qualificationDrafts[group.id]
+    const updated = await api.setGroupQualification(tournament.id, group.id, qualifyCount)
+    setGroups((current) => current.map((item) => item.id === updated.id ? updated : item))
+    setQualificationDrafts((current) => ({ ...current, [updated.id]: updated.qualify_count ?? qualifyCount }))
+    setNotice(`${updated.name}晋级人数已保存。`)
+  }, '保存小组晋级人数失败')
   const exportData = () => void run(async () => {
     if (!tournament) return
     const data = await api.exportTournament(tournament.id)
@@ -126,7 +146,8 @@ export default function TournamentSettingsPage({ tournament: suppliedTournament 
       {activeTab === '赛制与规则' && <>
         {tournament?.event_type === 'TEAM' ? <section className="settings-section contract-waiting"><header><span>TEAM FORMAT</span><h2>团体赛使用独立赛制流程</h2></header><p>当前三个 format 均为个人赛处理器，后端会明确拒绝团体赛事保存。请在“队伍与名单 / 团体对抗 / 团体淘汰签”中管理团体流程。</p></section> : <>
           <section className="settings-section"><header><span>01 / FORMAT</span><h2>选择赛事赛制</h2></header><div className="format-card-grid">{formats.map((format) => <button key={format.code} type="button" className={`format-card${formatDraft === format.code ? ' is-selected' : ''}`} onClick={() => setFormatDraft(format.code)}><span>{format.code}</span><strong>{format.name}</strong><p>{format.caption}</p><small>{format.flow}</small></button>)}</div></section>
-          <section className="settings-section"><header><span>02 / APPLICABLE RULES</span><h2>当前适用规则</h2></header>{formatDraft === 'GROUP_KNOCKOUT' ? <div className="settings-fact-grid"><Fact label="小组数量" value={`${tournament?.group_count ?? '—'} 组`} /><Fact label="每组晋级" value={`前 ${tournament?.qualify_per_group ?? '—'} 名`} /><Fact label="比赛局制" value={tournament ? `${tournament.games_to_win * 2 - 1} 局 ${tournament.games_to_win} 胜` : '—'} /><Fact label="每局目标分" value={`${tournament?.points_to_win ?? '—'} 分`} /></div> : formatDraft === 'ROUND_ROBIN' ? <div className="settings-fact-grid"><Fact label="排名范围" value="全部参赛位" /><Fact label="比赛局制" value={tournament ? `${tournament.games_to_win * 2 - 1} 局 ${tournament.games_to_win} 胜` : '—'} /></div> : formatDraft === 'SINGLE_ELIMINATION' ? <div className="settings-fact-grid"><Fact label="淘汰方式" value="单败淘汰" /><Fact label="比赛局制" value={tournament ? `${tournament.games_to_win * 2 - 1} 局 ${tournament.games_to_win} 胜` : '—'} /></div> : <p className="muted">尚未选择赛制。</p>}<p className="muted">不适用于当前赛制的规则不会显示。小组数、晋级数、局制和名次规则等待统一规则更新接口；不提供原始 rule_config 编辑器。</p></section>
+          <section className="settings-section"><header><span>02 / APPLICABLE RULES</span><h2>当前适用规则</h2></header>{formatDraft === 'GROUP_KNOCKOUT' ? <div className="settings-fact-grid"><Fact label="小组数量" value={`${tournament?.group_count ?? '—'} 组`} /><Fact label="默认每组晋级" value={`前 ${tournament?.qualify_per_group ?? '—'} 名`} /><Fact label="比赛局制" value={tournament ? `${tournament.games_to_win * 2 - 1} 局 ${tournament.games_to_win} 胜` : '—'} /><Fact label="每局目标分" value={`${tournament?.points_to_win ?? '—'} 分`} /></div> : formatDraft === 'ROUND_ROBIN' ? <div className="settings-fact-grid"><Fact label="排名范围" value="全部参赛位" /><Fact label="比赛局制" value={tournament ? `${tournament.games_to_win * 2 - 1} 局 ${tournament.games_to_win} 胜` : '—'} /></div> : formatDraft === 'SINGLE_ELIMINATION' ? <div className="settings-fact-grid"><Fact label="淘汰方式" value="单败淘汰" /><Fact label="比赛局制" value={tournament ? `${tournament.games_to_win * 2 - 1} 局 ${tournament.games_to_win} 胜` : '—'} /></div> : <p className="muted">尚未选择赛制。</p>}<p className="muted">不适用于当前赛制的规则不会显示。小组数、默认晋级数、局制和名次规则等待统一规则更新接口；已生成小组的逐组晋级人数使用现有真实接口保存。不提供原始 rule_config 编辑器。</p></section>
+          {formatDraft === 'GROUP_KNOCKOUT' && tournament?.format_code === 'GROUP_KNOCKOUT' && <section className="settings-section group-qualification-settings"><header><span>03 / GROUP QUALIFICATION</span><h2>逐组晋级人数</h2></header><p className="muted">这里编辑已生成小组的实际晋级人数。保存后由后端持久化，并使该组已有人工晋级裁定失效。</p>{groups.length === 0 ? <p className="empty-invite">尚未生成分组。请先前往“抽签与编排”生成分组。</p> : <div className="group-qualification-grid">{groups.map((group) => { const current = group.qualify_count ?? tournament.qualify_per_group; const draft = qualificationDrafts[group.id] ?? current; return <div className="group-qualification-row" key={group.id}><div><strong>{group.name}</strong><small>{group.entries.length || group.players.length} 个参赛位 · 当前前 {current} 名晋级</small></div><label>晋级人数<input aria-label={`${group.name}晋级人数`} type="number" min={1} max={20} value={draft} disabled={busy || !['REGISTRATION', 'GROUP_STAGE'].includes(tournament.stage)} onChange={(event) => setQualificationDrafts((values) => ({ ...values, [group.id]: Number(event.target.value) }))} /></label><button className="btn primary" type="button" disabled={busy || draft === current || draft < 1 || draft > 20 || !['REGISTRATION', 'GROUP_STAGE'].includes(tournament.stage)} onClick={() => saveGroupQualification(group)}>保存{group.name}</button></div> })}</div>} {!['REGISTRATION', 'GROUP_STAGE'].includes(tournament.stage) && <p className="status-warn">淘汰赛开始后不能修改出线人数。</p>}</section>}
           <footer className="settings-actions"><span>{changedFormat ? '存在未保存的赛制变更' : '当前配置已保存'}</span><button type="button" disabled={!changedFormat || busy} onClick={() => setFormatDraft(tournament?.format_code ?? null)}>取消修改</button><button className="primary" disabled={!changedFormat || busy} type="button" onClick={saveFormat}>保存设置</button></footer>
         </>}
       </>}
