@@ -3068,3 +3068,115 @@ PR #58 只声明 D 轨 scope：Public Registration 正式 PENDING 链路、只�
 
 E5 全链独立 E2E（`Public submit → PENDING → 管理端 confirm → Player → Entry → Match → 比赛`）
 仍未执行。
+
+---
+
+# D 轨 Day5D · Public 有效报名状态收口（PR #58 第三轮返工）
+
+## 84. 触发条件与基线
+
+```text
+old head      2da9cc41fd4afcde5fef1042c757f34cc7f77738（ahead 11 / behind 2）
+origin/master 440622ea4ea72d6b41bbf4055e7f44864fc1da73（PR #62 C-D4 收口 + PR #64 C-D5 现场运营）
+merge 方式    git merge origin/master（**不 rebase、不 force push、不 reset --hard**）
+merge commit  a3e72bcd0f846bf5c65b245e0bfd6c0c4f348219（0 冲突）
+merge 后      behind 0
+```
+
+本轮 reviewer blocker（`pullrequestreview-5302783545`，针对 head `2da9cc4`）原文要点：
+
+> Public 页使用原始 `registration_enabled`，已与最新 master 的“有效报名状态”语义漂移。
+
+## 85. Public 有效报名状态（本轮唯一事实源）
+
+```text
+Public 开放 ⇔
+  registration_enabled === true
+  && stage === 'REGISTRATION'
+  && roster_confirmed === false
+  && event_type !== 'TEAM'
+```
+
+**raw `registration_enabled` 不是单独的 Public 开放事实源。**
+`repo.confirm_tournament_roster()` 只写 `roster_confirmed` + `confirmed_at`，**不会**把 raw 开关清零，
+因此 raw=true 之后赛事仍然可能已经不可报名。后端 `create_pending_registration()` 会依次拒绝：
+
+```text
+event_type === TEAM        → 409 UNSUPPORTED_REGISTRATION_EVENT_TYPE
+stage !== REGISTRATION     → 409 REGISTRATION_CLOSED
+roster_confirmed === true  → 409 REGISTRATION_CLOSED
+registration_enabled=false → 409 REGISTRATION_CLOSED
+```
+
+修复前的真实错误链：
+
+```text
+管理员开启报名 → registration_enabled = true
+→ 管理员确认名单 → roster_confirmed = true（raw 仍为 true）
+→ 管理端显示“报名已关闭”，Public 仍显示表单 + 二维码
+→ 用户提交 → 后端必然 409 REGISTRATION_CLOSED
+```
+
+## 86. 本轮改动（仅 D 轨 Public）
+
+| 文件 | 改动 |
+| --- | --- |
+| `frontend/src/registrationPolicy.ts`（新增） | 纯函数 `isPublicRegistrationOpen(tournament)`：无副作用、不发请求、不读 localStorage / URL、不手写 DTO，只消费 generated contract 派生的 `Tournament` |
+| `frontend/src/pages/RegisterPage.tsx` | 删除 `const registrationEnabled = tournament.registration_enabled`，全部开闭分支改认 `registrationOpen = isPublicRegistrationOpen(tournament)`；关闭态覆盖 raw=false / 名单已确认 / 非 REGISTRATION / TEAM 四种情况（无表单、无二维码、无提交动作） |
+| `frontend/src/__tests__/PublicRegistrationFlow.test.tsx` | 新增场景 9：Test A（raw=true + roster_confirmed=true）、Test B（raw=true + stage=GROUP_STAGE）、Test C（TEAM + 历史 raw=true）、D（raw=false）、E/F（SINGLES / DOUBLES 正向，含 QR 与正式提交） |
+| `frontend/src/__tests__/PublicRegistrationPolicy.test.ts` | 新增「有效报名状态矩阵」6 行 + raw-only 反例；并把静态守卫升级为「RegisterPage 必须走 `isPublicRegistrationOpen`，且代码中不得再出现 `registration_enabled`」 |
+
+未改：backend registration 规则 / schema / OpenAPI DTO / migration / roster freeze / seed /
+TEAM registration contract / App 路由 / AdminLayout / 管理端报名设置 / Player / Entry / 赛制 / Auth。
+未恢复 `api.setRegistrationEnabled()`、未恢复 D 轨第二套 `TournamentSettingsPage`。
+
+## 87. 负向校准（两项，均已恢复）
+
+| 注入的回归 | 结果 |
+| --- | --- |
+| Calibration A：`isPublicRegistrationOpen` 退化为 `return tournament.registration_enabled` | Public Flow + Policy **7 例 FAIL**（Test A/B/C + 矩阵 3 行 + raw-only 反例），其中 Test A 正是 reviewer 指出的「确认名单后 raw 仍为 true」路径 |
+| Calibration B：移除 `event_type !== 'TEAM'` 守卫 | Public Flow + Policy **2 例 FAIL**（Test C + TEAM 矩阵行） |
+
+恢复正确实现后 37 例全 PASS，最终代码无 calibration 残留。
+
+## 88. 状态矩阵（Public 视角）
+
+| raw flag | stage | roster_confirmed | event_type | Public |
+| --- | --- | --- | --- | --- |
+| true | REGISTRATION | false | SINGLES | **OPEN** |
+| true | REGISTRATION | false | DOUBLES | **OPEN** |
+| false | REGISTRATION | false | SINGLES | CLOSED |
+| true | REGISTRATION | true | SINGLES | CLOSED |
+| true | GROUP_STAGE | false | SINGLES | CLOSED |
+| true | REGISTRATION | false | TEAM | CLOSED |
+
+矩阵逐行由纯函数测试覆盖；其中「raw=true + roster_confirmed=true」「raw=true + stage!=REGISTRATION」
+「TEAM + raw=true」三行另有 UI 级回归（含“无二维码、0 次 POST”断言）。
+
+## 89. Ownership（本轮再次确认）
+
+```text
+C / master : 管理员报名设置（/settings → 报名设置 → 保存 → PUT /api/tournaments/{tid}/registration）
+D          : Public 有效报名状态（registrationPolicy）
+             Public PENDING 提交（POST /registrations）
+             报名二维码 + 同源 URL
+             联系方式隐私边界
+             mobile / Public UX
+```
+
+D **不**拥有管理端报名设置；本轮未碰 C 轨任何文件（`TournamentSettingsPage.*` 与
+`App.tsx` / `AdminLayout.tsx` 相对 master 零差异）。管理端 `TournamentSettingsPage` 里
+`canOpenRegistration` / `effectiveRegistrationEnabled` 两个模块内 helper 与本轮 Public policy
+语义一致；本轮按“不重构 C 轨”的约束保持不动，统一封装留作后续可选项。
+
+## 90. Smoke 覆盖说明（§18 决策）
+
+`backend/day5d_registration_smoke.py` 与 `backend/day5d_registration_ui_check.mjs` 仍然只覆盖
+raw flag 的开 / 关二分（以及关闭后 Public 只读、无二维码入口）。本轮**未**扩 smoke：
+
+- 三种新状态的 UI 行为已由 Public tests 完整覆盖（6 行矩阵 + Test A/B/C + E/F 正向）；
+- 在 HTTP smoke 里构造 `roster_confirmed=true` / `stage!=REGISTRATION` 需要额外的
+  建选手 → 确认名单 / 推进赛程步骤，会把 smoke 扩成第二条链，超出本轮 blocker 范围；
+- TEAM + raw=true 在正常 API 下已无法构造（PR #63 已在创建入口 409），smoke 里只能靠 SQL 注入。
+
+因此本轮以自动化测试作为这三种状态的证据，smoke 维持原有 16/16 与 56/56 作为**未退化**证据。
