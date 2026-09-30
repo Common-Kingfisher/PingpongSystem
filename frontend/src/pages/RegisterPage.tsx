@@ -26,7 +26,19 @@
  *
  * 请求体 / 回执 / 状态枚举全部从 `frontend/src/generated/openapi.d.ts` 派生
  * （见 `api.ts` 的 `RegistrationSubmitRequest` / `RegistrationPublicResult`），
- * 页面不手写第二套 Registration DTO，也不发明 `registration_enabled` 之外的开闭规则。
+ * 页面不手写第二套 Registration DTO。
+ *
+ * ## 开闭判定
+ *
+ * 本页**不直接读** `tournament.registration_enabled`。raw 开关只是「管理员保存过开启」，
+ * 名单确认 / 进入比赛阶段 / TEAM 赛事都不会把它清零，因此 raw=true 仍可能已经不可报名。
+ * 开闭一律经由 `registrationPolicy.ts` 的 `isPublicRegistrationOpen()`：
+ *
+ * ```text
+ * registration_enabled && stage === 'REGISTRATION' && !roster_confirmed && event_type !== 'TEAM'
+ * ```
+ *
+ * 该有效状态与后端 `create_pending_registration()` 的拒绝条件、以及管理端的有效报名状态一致。
  *
  * ## 隐私边界
  *
@@ -48,6 +60,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, RegistrationPublicResult, Tournament } from '../api'
 import { getActiveTournamentId } from '../activeTournament'
 import RegistrationQr from '../components/RegistrationQr'
+import { isPublicRegistrationOpen } from '../registrationPolicy'
 import './RegisterPage.css'
 
 /** 积分默认值与后端 `RegistrationCreate.rating_points` 默认值一致（1000），不做任何换算。 */
@@ -184,7 +197,8 @@ export default function RegisterPage({ tid: tidProp }: { tid?: number } = {}) {
   }
 
   const { tournament } = load
-  const registrationEnabled = tournament.registration_enabled
+  // 有效报名状态（raw 开关 + stage + roster_confirmed + event_type），不是 raw flag。
+  const registrationOpen = isPublicRegistrationOpen(tournament)
 
   // ------------------------------------------------------------ 提交成功回执
 
@@ -233,7 +247,9 @@ export default function RegisterPage({ tid: tidProp }: { tid?: number } = {}) {
 
   // ------------------------------------------------------------ 报名关闭态
 
-  if (!registrationEnabled) {
+  // 关闭态覆盖四种情况：raw=false / 名单已确认 / 已进入比赛阶段 / TEAM（不支持公开个人报名）。
+  // 关闭态下不渲染任何表单与二维码，因此也不可能有提交动作。
+  if (!registrationOpen) {
     return (
       <div className="page reg-page">
         <div className="card reg-card">
