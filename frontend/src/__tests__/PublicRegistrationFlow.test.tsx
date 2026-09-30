@@ -74,6 +74,14 @@ let calls: RecordedCall[] = []
 let registrationEnabled = true
 /** 赛事是否存在（404 场景） */
 let tournamentMissing = false
+/**
+ * 用例可覆盖的赛事字段。
+ *
+ * raw `registration_enabled` **不是** Public 开放的单独事实源：还需要
+ * `stage` / `roster_confirmed` / `event_type` 一起成立（见 `registrationPolicy.ts`）。
+ * 这里让用例分别构造这四种维度的组合。
+ */
+let tournamentOverrides: Record<string, unknown> = {}
 /** 报名提交的响应 */
 let submitStatus = 201
 let submitBody: unknown = {
@@ -120,7 +128,7 @@ function installFetchRecorder() {
       if (tournamentMissing) {
         return jsonResponse({ detail: { code: 'RESOURCE_NOT_FOUND', message: '资源不存在' } }, 404)
       }
-      return jsonResponse(tournament({ registration_enabled: registrationEnabled }))
+      return jsonResponse(tournament({ registration_enabled: registrationEnabled, ...tournamentOverrides }))
     }
     if (/\/dashboard$/.test(path)) return jsonResponse(DASHBOARD)
     return jsonResponse([])
@@ -165,6 +173,7 @@ beforeEach(() => {
   localStorage.clear()
   registrationEnabled = true
   tournamentMissing = false
+  tournamentOverrides = {}
   submitStatus = 201
   submitBody = { registration_id: 501, status: 'PENDING', name: '张三', created_at: '2026-09-23 10:00:00' }
   submitGate = null
@@ -400,6 +409,96 @@ describe('场景 7：二维码', () => {
 
     await screen.findByText('当前赛事暂未开放报名')
     expect(document.querySelector('.reg-qr')).toBeNull()
+  })
+})
+
+describe('场景 9：有效报名状态（raw registration_enabled 不是单独事实源）', () => {
+  const CLOSED_TEXT = '当前赛事暂未开放报名'
+
+  /**
+   * 关闭态统一断言。
+   *
+   * 关闭态必须同时满足：无个人报名表单、无报名二维码入口、0 次报名 POST、0 次 addPlayer。
+   * 这些组合正是“raw=true 但实际不可报名”时最容易漏掉的回归点。
+   */
+  async function expectPublicClosed() {
+    await screen.findByText(CLOSED_TEXT)
+    expect(screen.queryByLabelText('姓名（必填）')).toBeNull()
+    expect(screen.queryByRole('button', { name: '提交报名' })).toBeNull()
+    expect(screen.queryByLabelText('报名二维码')).toBeNull()
+    expect(document.querySelector('.reg-qr')).toBeNull()
+    expect(registrationPosts()).toHaveLength(0)
+    expect(playerPosts()).toHaveLength(0)
+  }
+
+  // Test A：名单已确认（raw 开关不会被“确认名单”自动清零，因此这是正常产品路径）
+  it('A：raw=true + roster_confirmed=true → 只读关闭，0 次 POST', async () => {
+    registrationEnabled = true
+    tournamentOverrides = { roster_confirmed: true }
+
+    renderAt(REGISTER_PATH)
+    await expectPublicClosed()
+  })
+
+  // Test B：已进入比赛阶段
+  it('B：raw=true + stage=GROUP_STAGE → 只读关闭，0 次 POST', async () => {
+    registrationEnabled = true
+    tournamentOverrides = { stage: 'GROUP_STAGE' }
+
+    renderAt(REGISTER_PATH)
+    await expectPublicClosed()
+  })
+
+  // Test C：TEAM 历史脏 flag（TEAM 不支持公开个人报名）
+  it('C：TEAM + 历史 raw=true → 不提供公开个人报名入口，0 次 POST', async () => {
+    registrationEnabled = true
+    tournamentOverrides = { event_type: 'TEAM' }
+
+    renderAt(REGISTER_PATH)
+    await expectPublicClosed()
+  })
+
+  // raw 维度本身仍然生效（矩阵第 3 行）
+  it('D：raw=false → 只读关闭，0 次 POST', async () => {
+    registrationEnabled = false
+
+    renderAt(REGISTER_PATH)
+    await expectPublicClosed()
+  })
+
+  // 正向：合法 SINGLES 必须仍然可用，且提交走正式接口
+  it('E：SINGLES + REGISTRATION + 名单未确认 → 开放，提交走正式接口且回执 PENDING', async () => {
+    registrationEnabled = true
+
+    renderAt(REGISTER_PATH)
+    await waitForForm()
+    expect(screen.getByLabelText('报名二维码')).toBeTruthy()
+
+    fillForm({ name: '张三' })
+    submitForm()
+
+    await waitFor(() => expect(registrationPosts()).toHaveLength(1))
+    expect(registrationPosts()[0].path).toBe(`/api/tournaments/${TID}/registrations`)
+    expect(playerPosts()).toHaveLength(0)
+    await screen.findByText('报名已提交')
+    expect(screen.getByText('等待赛事组织者确认')).toBeTruthy()
+    expect(screen.getByText('#501')).toBeTruthy()
+  })
+
+  // 正向：DOUBLES 同样是可公开报名赛制
+  it('F：DOUBLES + REGISTRATION + 名单未确认 → 同样开放', async () => {
+    registrationEnabled = true
+    tournamentOverrides = { event_type: 'DOUBLES' }
+
+    renderAt(REGISTER_PATH)
+    await waitForForm()
+    expect(screen.getByLabelText('报名二维码')).toBeTruthy()
+
+    fillForm({ name: '王五' })
+    submitForm()
+
+    await waitFor(() => expect(registrationPosts()).toHaveLength(1))
+    expect(playerPosts()).toHaveLength(0)
   })
 })
 

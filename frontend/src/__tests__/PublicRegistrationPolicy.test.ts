@@ -1,13 +1,15 @@
 /**
  * Public 报名的静态契约回归（D 轨 Day5D）。
  *
- * 这里测的不是“页面长什么样”，而是两条**以后很容易被改回去**的硬约束：
+ * 这里测的不是“页面长什么样”，而是三条**以后很容易被改回去**的硬约束：
  *
  * 1. **legacy 报名路径不得复活**：`RegisterPage` / `PublicRoutes` 不得再调用
  *    `api.addPlayer()`（V0.2 语义：公开报名直接创建正式 Player）；
  * 2. **报名地址不得硬编码**：二维码与文本地址只能由 `window.location.origin` 派生，
  *    不允许出现 `localhost` / `127.0.0.1` / 固定局域网 IP / 固定端口 / 固定公网域名，
- *    否则换部署环境（局域网 → 公网域名）就必须改业务代码。
+ *    否则换部署环境（局域网 → 公网域名）就必须改业务代码；
+ * 3. **Public 开闭只能用“有效报名状态”**：raw `registration_enabled` 不是单独事实源，
+ *    必须走 `registrationPolicy.isPublicRegistrationOpen()`（raw + stage + roster + event_type）。
  *
  * 源码通过 Vite 的 `?raw` / `import.meta.glob` 读取（不引入 `node:fs`，
  * 因此不需要 `@types/node`，也不会影响 `tsc` 与 `vite build`）。
@@ -15,6 +17,8 @@
 
 /// <reference types="vitest/globals" />
 import { describe, expect, it } from 'vitest'
+import type { Tournament } from '../api'
+import { isPublicRegistrationOpen } from '../registrationPolicy'
 import { buildPublicRegistrationUrl, publicRegistrationPath } from '../publicUrls'
 import registerPageSource from '../pages/RegisterPage.tsx?raw'
 import publicRoutesSource from '../PublicRoutes.tsx?raw'
@@ -47,11 +51,13 @@ describe('legacy 报名路径不得复活（场景 8）', () => {
     expect(stripComments(publicRoutesSource)).not.toMatch(/addPlayer/)
   })
 
-  it('RegisterPage 改为消费正式 Registration 契约', () => {
+  it('RegisterPage 改为消费正式 Registration 契约与有效报名状态', () => {
     const code = stripComments(registerPageSource)
     expect(code).toMatch(/api\.submitRegistration/)
-    // 报名开闭只读后端 registration_enabled，不自己发明第二套判断
-    expect(code).toMatch(/registration_enabled/)
+    // 开闭判定必须走 registrationPolicy 的有效状态，
+    // 不得再直接读 raw registration_enabled（那是本轮修复的 P1 根因）
+    expect(code).toMatch(/isPublicRegistrationOpen/)
+    expect(code).not.toMatch(/registration_enabled/)
   })
 
   it('全仓（除 api.ts 定义与管理端手工添加选手外）不得使用 addPlayer', () => {
@@ -110,5 +116,64 @@ describe('报名地址只能由当前访问 origin 派生（场景 7）', () => 
 
   it('地址由 window.location.origin 派生，而不是任何常量', () => {
     expect(stripComments(publicUrlsSource)).toMatch(/window\.location/)
+  })
+})
+
+describe('Public 有效报名状态矩阵（场景 9）', () => {
+  /**
+   * `isPublicRegistrationOpen` 是 Public 页面**唯一**的开闭判定点。
+   *
+   * 这张矩阵与后端 `create_pending_registration()` 的拒绝条件、以及管理端
+   * `TournamentSettingsPage` 的有效报名状态逐行对齐：
+   *
+   * ```text
+   * registration_enabled && stage === 'REGISTRATION' && !roster_confirmed && event_type !== 'TEAM'
+   * ```
+   */
+  function makeTournament(overrides: Partial<Tournament>): Tournament {
+    return {
+      id: 12, name: '有效报名状态矩阵', date: '2026-09-22', table_count: 4, group_count: 2,
+      qualify_per_group: 2, stage: 'REGISTRATION', created_at: '2026-09-22T09:00:00Z',
+      event_type: 'SINGLES', bronze_mode: 'BRONZE_MATCH', placement_mode: 'TIERED',
+      games_to_win: 3, points_to_win: 11, roster_confirmed: false, operation_mode: 'LIVE',
+      registration_enabled: true, format_code: 'GROUP_KNOCKOUT', rule_config: {}, rule_version: 1,
+      ...overrides,
+    }
+  }
+
+  const cases: Array<{
+    raw: boolean
+    stage: string
+    roster: boolean
+    event: string
+    open: boolean
+  }> = [
+    { raw: true, stage: 'REGISTRATION', roster: false, event: 'SINGLES', open: true },
+    { raw: true, stage: 'REGISTRATION', roster: false, event: 'DOUBLES', open: true },
+    { raw: false, stage: 'REGISTRATION', roster: false, event: 'SINGLES', open: false },
+    { raw: true, stage: 'REGISTRATION', roster: true, event: 'SINGLES', open: false },
+    { raw: true, stage: 'GROUP_STAGE', roster: false, event: 'SINGLES', open: false },
+    { raw: true, stage: 'REGISTRATION', roster: false, event: 'TEAM', open: false },
+  ]
+
+  it.each(cases)(
+    'raw=$raw stage=$stage roster=$roster event=$event → $open',
+    ({ raw, stage, roster, event, open }) => {
+      const tournament = makeTournament({
+        registration_enabled: raw,
+        stage: stage as Tournament['stage'],
+        roster_confirmed: roster,
+        event_type: event as Tournament['event_type'],
+      })
+      expect(isPublicRegistrationOpen(tournament)).toBe(open)
+    },
+  )
+
+  it('raw 开关单独成立不算开放：确认名单后 raw 仍为 true 也不是开放态', () => {
+    // 这一行是 reviewer 指出的真实错误链：
+    // 开启报名 → 确认名单（raw 不会被自动清零）→ Public 不得再显示表单
+    const confirmed = makeTournament({ registration_enabled: true, roster_confirmed: true })
+    expect(confirmed.registration_enabled).toBe(true)
+    expect(isPublicRegistrationOpen(confirmed)).toBe(false)
   })
 })
