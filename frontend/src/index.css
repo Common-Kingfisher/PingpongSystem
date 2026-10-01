@@ -1573,8 +1573,14 @@ body {
 }
 
 @media (max-width: 720px) {
+  /* ⚠️ 必须是 minmax(0, 1fr)，不能是 1fr。
+     `1fr` 等于 `minmax(auto, 1fr)`，而 `auto` 的下限是 min-content：
+     一个**没有断点的超长名字/单位**（例如 26 个字符的 ASCII 姓名）会把整列撑到
+     800px 以上，卡片随后被 `.pub-shell { overflow-x: hidden }` 静默裁掉 ——
+     手机上看不全对阵，又不能横向滚动过去。Day6D 现场小屏 gate 复现。
+     桌面规则（>720px）本来就用 minmax(0, 1fr)，这里补齐同样的下限。 */
   .bigscreen-tables {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1596,9 +1602,22 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   font-size: 30px;
   font-weight: 700;
   padding: 18px 0;
+}
+
+/* 两侧名字必须能收缩 + 超长无断点串要能断行。
+   flex 子项默认 `min-width: auto`（= min-content），一个 26 字符的英文姓名
+   在 30px 字号下 min-content ≈ 740px，会把这一行连同卡片一起顶出手机屏幕
+   （Day6D 现场小屏 gate 复现：卡片 right=847.5px / 视口 360px）。
+   `overflow-wrap: anywhere` 同时参与 min-content 计算，因此两处都要有；
+   中间的 VS 保持自身宽度，不参与平分。 */
+.bigscreen-pair > div:not(.bigscreen-vs) {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .bigscreen-vs {
