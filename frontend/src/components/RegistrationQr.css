@@ -1,0 +1,110 @@
+/* ---------------------------------------------------------------------------
+ * Public 报名二维码样式（D 轨 Day5D）
+ *
+ * 与 PublicLayout 风格统一（同色系、同圆角、同触摸目标下限），手机优先：
+ * 360 / 375 / 390 / 430px 不允许出现横向溢出。
+ * --------------------------------------------------------------------------- */
+
+.reg-qr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 16px 0 0;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #dbe3ec;
+  border-radius: 10px;
+}
+
+.reg-qr-frame {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  /* SVG 二维码按容器宽度自适应，窄屏也不会撑破卡片 */
+  max-width: 100%;
+}
+
+.reg-qr-frame svg {
+  display: block;
+  width: 148px;
+  height: 148px;
+  max-width: 100%;
+}
+
+.reg-qr-meta {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reg-qr-label {
+  margin: 0;
+  color: #475467;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reg-qr-url {
+  display: block;
+  /* 长 URL 必须能换行，否则会把卡片撑出横向滚动 */
+  word-break: break-all;
+  padding: 7px 9px;
+  color: #1f2933;
+  background: #fff;
+  border: 1px solid #dbe3ec;
+  border-radius: 6px;
+  font: 600 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+}
+
+.reg-qr-copy {
+  align-self: flex-start;
+  /* ≥44px 触摸目标 */
+  min-height: 44px;
+  padding: 0 18px;
+  color: #344054;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reg-qr-copy:hover {
+  color: #1769e0;
+  border-color: #1769e0;
+}
+
+.reg-qr-hint {
+  margin: 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 430px) {
+  .reg-qr {
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .reg-qr-frame {
+    /* 窄屏二维码居中独占一行，避免文本被挤成窄列 */
+    flex: 1 1 100%;
+  }
+
+  .reg-qr-meta {
+    flex: 1 1 100%;
+  }
+
+  .reg-qr-copy {
+    align-self: stretch;
+  }
+}
