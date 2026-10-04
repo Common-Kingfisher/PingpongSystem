@@ -615,18 +615,81 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }
 
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
 @media print {
-  .app-header, .order-toolbar, .print-toolbar { display: none !important; }
-  .app-main { padding: 0; max-width: none; }
-  .order-book { max-width: none; padding: 15mm; box-shadow: none; }
-  .order-book table thead, .match-print-sheet table thead { display: table-header-group; }
-  .order-book tr, .match-print-sheet tr { break-inside: avoid; }
-  .match-print-sheet { max-width: none; padding: 15mm; box-shadow: none; }
+  /*
+    C-D5 Phase 3：A4 打印收口。
+    1) 隐藏导航与交互控件；2) 黑白清晰；3) 表格不横向溢出；
+    4) 不把一场比赛拆到两页。
+  */
+  .app-header,
+  .admin-sidebar,
+  .admin-topbar,
+  .order-toolbar,
+  .print-toolbar,
+  .no-print,
+  .schedule-tools,
+  .console-actions,
+  .console-more,
+  .row-more,
+  .admin-access-message,
+  .modal-backdrop,
+  .btn { display: none !important; }
+
+  .app-main,
+  .admin-content { padding: 0; max-width: none; }
+  .admin-shell { display: block; min-height: 0; }
+  .admin-workspace { min-width: 0; }
+
+  /* 黑白打印：去掉深色底、阴影与渐变，统一黑字白底。 */
+  .order-book,
+  .match-print-sheet { max-width: none; padding: 0; box-shadow: none; background: #fff; color: #000; }
+  .card,
+  .admin-overview-card,
+  .console-notice {
+    box-shadow: none !important;
+    background: #fff !important;
+    border-color: #000 !important;
+    color: #000 !important;
+  }
+  .order-book table thead,
+  .match-print-sheet table thead,
+  .schedule-table thead { display: table-header-group; }
+
+  /* 避免一场比赛被拆到两页。 */
+  tr,
+  .order-book tr,
+  .match-print-sheet tr,
+  .schedule-table tr { break-inside: avoid; page-break-inside: avoid; }
   .order-book section { break-inside: auto; }
-  .order-book table thead { display: table-header-group; }
   .order-cover { break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-  .order-status, .order-bracket > div { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .order-status,
+  .order-bracket > div,
+  .schedule-status { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .journey-page { margin: 0; min-height: 100vh; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+
+  /* A4 横向不溢出：取消屏幕上的最小宽度，按固定列宽重排。 */
+  table,
+  .data-table { width: 100%; min-width: 0 !important; }
+  .data-table th,
+  .data-table td { padding: 4px 6px; font-size: 10px; overflow-wrap: anywhere; }
+  .schedule-table { table-layout: fixed; }
+  .schedule-table th:nth-child(1), .schedule-table td:nth-child(1) { width: 7%; }
+  .schedule-table th:nth-child(2), .schedule-table td:nth-child(2) { width: 17%; }
+  .schedule-table th:nth-child(3), .schedule-table td:nth-child(3) { width: 33%; }
+  .schedule-table th:nth-child(4), .schedule-table td:nth-child(4) { width: 10%; }
+  .schedule-table th:nth-child(5), .schedule-table td:nth-child(5) { width: 9%; }
+  .schedule-table th:nth-child(6), .schedule-table td:nth-child(6) { width: 9%; }
+  .schedule-table th:nth-child(7), .schedule-table td:nth-child(7) { width: 15%; }
+
+  /* 长赛事名 / 长选手名不得横向撑破纸张。 */
+  h1, h2, h3,
+  .console-title-text,
+  .schedule-pair { overflow-wrap: anywhere; }
 }
 
 body {
@@ -1443,6 +1506,197 @@ body {
 
 .mode-badge.live { background: #eaf7ef; color: #067647; border-color: #a6e0bc; }
 .mode-badge.demo { background: #fff4e5; color: #9a4d00; border-color: #f3c887; }
+
+/* ---------------- C-D5 Phase 2：Console 现场操作收口 ---------------- */
+
+/* 超长赛事名不得撑坏 Console 主布局（Day5 第 23 节）。 */
+.console-title { display: flex; align-items: flex-start; gap: 12px; }
+.console-title-text { min-width: 0; overflow-wrap: anywhere; }
+
+.console-sync {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 6px;
+  padding: 7px 11px;
+  background: #f1f6fb;
+  border-left: 3px solid var(--blue);
+  border-radius: 5px;
+}
+.console-sync span { color: #3d5a75; font-size: 12px; }
+.console-sync small { flex: 0 0 auto; color: #6b7f93; font: 700 11px Bahnschrift, sans-serif; }
+.console-sync.is-stale { background: #fff8ec; border-left-color: #c87912; }
+.console-sync.is-stale span { color: #8a5300; font-weight: 650; }
+
+/* 操作层级：高频动作直出，低频动作进"更多"（Day5 第 8 节）。 */
+.console-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.console-more { position: relative; }
+.console-more > summary { list-style: none; cursor: pointer; }
+.console-more > summary::-webkit-details-marker { display: none; }
+.console-more-menu {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 190px;
+  display: grid;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #d5dce5;
+  border-radius: 8px;
+  box-shadow: 0 14px 30px rgba(16, 42, 67, .16);
+}
+.console-more-menu a,
+.console-more-menu button {
+  padding: 8px 10px;
+  color: #102a43;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.console-more-menu a:hover,
+.console-more-menu button:hover { background: #f1f6fb; }
+.console-more-menu button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 阶段完成提示：文案与可见性全部由后端 completion 决定，前端不做完成判定。 */
+.console-notice { border-left: 4px solid var(--blue); }
+.console-notice > strong { display: block; color: #102a43; font-size: 15px; }
+.console-notice > p { margin: 5px 0 0; }
+.console-notice.is-ok { border-left-color: #168451; background: #f2fbf6; }
+.console-notice.is-warn { border-left-color: #c87912; background: #fffaf1; }
+
+/* 已结束比赛：低频操作收进"更多"，不再横向平铺同权按钮。 */
+.row-actions { white-space: nowrap; }
+.row-more { position: relative; display: inline-block; margin-left: 7px; }
+.row-more > summary { list-style: none; cursor: pointer; }
+.row-more > summary::-webkit-details-marker { display: none; }
+.row-more-menu {
+  position: absolute;
+  z-index: 60;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 160px;
+  display: grid;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #d5dce5;
+  border-radius: 8px;
+  box-shadow: 0 14px 30px rgba(16, 42, 67, .16);
+}
+.row-more-menu button,
+.row-more-menu a {
+  padding: 8px 10px;
+  color: #102a43;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.row-more-menu button:hover,
+.row-more-menu a:hover { background: #f1f6fb; }
+
+/* 安排比赛：只列出后端合法 next_playable；推荐项由后端 recommended_match_id 标记。 */
+.console-assign-panel {
+  position: relative;
+  width: min(680px, 100%);
+  max-height: 82vh;
+  overflow: auto;
+  padding: 22px 24px;
+  background: #fff;
+  border-radius: 12px;
+}
+.console-assign-list { display: grid; gap: 7px; margin-top: 12px; }
+.console-assign-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f7f9fc;
+  border: 1px solid #dde3eb;
+  border-radius: 7px;
+  text-align: left;
+  cursor: pointer;
+}
+.console-assign-item:hover { background: #eef4fb; border-color: var(--blue); }
+.console-assign-item > span { color: #98a2b3; font: 700 10px Bahnschrift, sans-serif; }
+.console-assign-item > strong { min-width: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.console-assign-item > i { color: var(--magenta); font-size: 9px; font-style: normal; font-weight: 800; }
+.console-assign-item > small { color: #6b7f93; font-size: 11px; }
+.console-assign-item > em {
+  padding: 2px 7px;
+  color: #067647;
+  background: #eaf7ef;
+  border: 1px solid #a6e0bc;
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+.console-assign-item.is-recommended { background: #f2fbf6; border-color: #a6e0bc; }
+
+/* ---------------- C-D5 Phase 3：实时赛程 / 秩序册语义 / A4 打印 ---------------- */
+
+.schedule-live-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.schedule-live-head h3 { margin: 2px 0 0; }
+.schedule-tools { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+
+/* 打印快照语义：屏幕与纸张上都必须能看清"这是实时快照，不是官方秩序册"。 */
+.print-snapshot-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 2px 18px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  background: #f7f9fc;
+  border: 1px solid #dde3eb;
+  border-left: 3px solid var(--blue);
+  border-radius: 6px;
+}
+.print-snapshot-meta p { margin: 2px 0; color: #3d5a75; font-size: 12px; }
+.print-snapshot-meta b { color: #102a43; }
+
+.schedule-table { margin-top: 4px; }
+.schedule-pair { overflow-wrap: anywhere; }
+.schedule-status {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid #d0d5dd;
+  background: #f2f4f7;
+  color: #475467;
+  font-size: 11px;
+  font-weight: 650;
+}
+.schedule-status.is-playing { background: #eaf7ef; border-color: #a6e0bc; color: #067647; }
+.schedule-status.is-finished { background: #eef2f6; border-color: #cfd8e3; color: #475467; }
+
+/* 官方秩序册状态：本页是实时快照，必须明确与之区分。 */
+.order-official-notice {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  background: #fffaf1;
+  border: 1px solid #f3c887;
+  border-left: 4px solid #c87912;
+  border-radius: 6px;
+}
+.order-official-notice strong { display: block; color: #8a5300; font-size: 14px; }
+.order-official-notice p { margin: 5px 0 0; color: #6b5426; font-size: 12px; line-height: 1.6; }
+.order-cover-stage { margin: 4px 0 0; font-size: 13px; }
 
 .status-warn {
   color: #b26a00;

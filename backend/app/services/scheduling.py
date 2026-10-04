@@ -16,7 +16,8 @@ import sqlite3
 
 from .. import repository as repo
 from ..domain import scheduler
-from ..models import MatchStatus, TableStatus
+from ..models import EventType, MatchStatus, TableStatus, TournamentFormat
+from . import formats as formats_service
 from .transaction import TransactionBusyError, write_transaction
 
 
@@ -386,6 +387,73 @@ def _release_match_locked(conn: sqlite3.Connection, match_id: int) -> dict:
     return repo.get_match(conn, match_id)
 
 
+def known_format_code(value: object) -> str | None:
+    """把持久化的 `format_code` 收敛到 `TournamentFormat` 的合法值；非法/缺失返回 None。
+
+    刻意**不手写第二套赛制列表**：直接复用 A 轨的 `models.TournamentFormat`，
+    与赛事创建/校验是同一来源。
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return TournamentFormat(value).value
+    except ValueError:
+        return None
+
+
+def resolve_completion_state(conn: sqlite3.Connection, tournament: dict) -> dict:
+    """阶段完成状态：完全委托赛制 Handler，本函数不复制任何完成判定。
+
+    C-D5 收口要求 Console 不再"统计比赛条数自己判断小组赛是否结束"。
+    这里把既有的唯一权威（`services/formats.py` 的 `get_completion_state`）
+    只读透传给 Dashboard，前端不需要也不允许再写第二套判断。
+
+    ## 三种"不进入 Handler"的情形必须区分（PR #66 review）
+
+    - 团体赛 / 未设置赛制 → `NOT_APPLICABLE`（个人赛赛制不适用）；
+    - `format_code` 是枚举外的非法值（仅手工篡改 / 迁移失败可达）→ `UNAVAILABLE`
+      且 **`format_code` 回落为 null**：非法值不能回填给 `DashboardCompletion`
+      （其 `format_code` 是 `TournamentFormat | None`），否则 Pydantic 二次校验失败
+      会让整个 Dashboard 变成 500；
+    - 合法 `format_code` 但 Handler 拒绝当前配置 → 保留合法赛制信息 + `UNAVAILABLE`。
+
+    三种情形都绝不猜成"可以推进"。
+    """
+    persisted = tournament.get("format_code")
+    legal_format = known_format_code(persisted)
+    if not persisted or tournament.get("event_type") == EventType.TEAM.value:
+        return {
+            "format_code": legal_format,
+            "state": "NOT_APPLICABLE",
+            "can_advance": False,
+            "completed": False,
+        }
+    if legal_format is None:
+        # 非法 format_code：既不进 Handler，也不把非法值回填给响应模型。
+        return {
+            "format_code": None,
+            "state": "UNAVAILABLE",
+            "can_advance": False,
+            "completed": False,
+        }
+    try:
+        handler = formats_service.resolve_format_handler(legal_format)
+        state = handler.get_completion_state(conn, tournament["id"])
+    except formats_service.FormatHandlerError:
+        return {
+            "format_code": legal_format,
+            "state": "UNAVAILABLE",
+            "can_advance": False,
+            "completed": False,
+        }
+    return {
+        "format_code": legal_format,
+        "state": state["state"],
+        "can_advance": bool(state["can_advance"]),
+        "completed": bool(state["completed"]),
+    }
+
+
 def get_dashboard(conn: sqlite3.Connection, tournament_id: int) -> dict:
     """控制台聚合数据：进度统计 + 每台当前比赛 + 建议安排 + 下一批可执行比赛。
 
@@ -393,6 +461,7 @@ def get_dashboard(conn: sqlite3.Connection, tournament_id: int) -> dict:
     前端只展示建议、不自行重算优先级。
     """
     _ensure_tournament(conn, tournament_id)
+    tournament = repo.get_tournament(conn, tournament_id)
     matches = repo.list_matches(conn, tournament_id)
     stats = {
         "total": len(matches),
@@ -430,10 +499,11 @@ def get_dashboard(conn: sqlite3.Connection, tournament_id: int) -> dict:
     ]
 
     return {
-        "tournament": repo.get_tournament(conn, tournament_id),
+        "tournament": tournament,
         "stats": stats,
         "tables": tables,
         "next_playable": [repo.decorate_match(conn, m) for m in next_playable],
+        "completion": resolve_completion_state(conn, tournament),
     }
 
 def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict:

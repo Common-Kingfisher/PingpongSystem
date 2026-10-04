@@ -1,11 +1,21 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, ApiError, Dashboard, Match, Player, ScheduleEstimateMatch, ScoreAudit, TableWithMatch, Tournament } from '../api'
-import { getActiveTournamentId } from '../activeTournament'
+import { getActiveTournamentId, parseTournamentId } from '../activeTournament'
 import ScoreSheet from '../components/ScoreSheet'
 import LiveTableCard from '../components/LiveTableCard'
 import QueueEstimate from '../components/field/QueueEstimate'
-import { matchSidesReady } from '../mobileScore'
+import { matchSidesReady, matchStageLabel } from '../mobileScore'
+import { tournamentStageLabel } from '../format'
+import {
+  CONSOLE_POLL_INTERVAL_MS,
+  assignDisabledReason,
+  canAssignMatches,
+  canScheduleBatch,
+  completionNotice,
+  recommendedMatchForTable,
+  sortTablesByNumber,
+} from '../fieldOps'
 
 export interface ConsoleFeedback {
   tone: 'success' | 'warning' | 'danger'
@@ -33,20 +43,58 @@ export function consoleErrorFeedback(error: unknown, fallback = '操作失败'):
   return { tone: 'danger', title: '操作未完成', message: error.message }
 }
 
+/**
+ * 现场状态快照。
+ *
+ * 团体赛（TEAM）不进入普通 Match Console：此时只保留 `tournament`，
+ * 其余字段为空且不会发起 Dashboard 请求（见第 11 节 TEAM 硬边界）。
+ */
+interface ConsoleSnapshot {
+  tournament: Tournament
+  dashboard: Dashboard | null
+  players: Player[]
+  finished: Match[]
+  waiting: Match[]
+  groupNames: Record<number, string>
+  estimates: Map<number, ScheduleEstimateMatch>
+}
+
 export default function ConsolePage() {
   const [params] = useSearchParams()
-  const tidParam = params.get('tid')
-  const tid = tidParam ? Number(tidParam) : getActiveTournamentId()
+  const tid = parseTournamentId(params.get('tid')) ?? getActiveTournamentId()
 
-  const [tournament, setTournament] = useState<Tournament | null>(null)
-  const [dash, setDash] = useState<Dashboard | null>(null)
-  const [players, setPlayers] = useState<Player[]>([])
-  const [finished, setFinished] = useState<Match[]>([])
-  const [waiting, setWaiting] = useState<Match[]>([])
-  const [groupNames, setGroupNames] = useState<Record<number, string>>({})
-  const [groupOrder, setGroupOrder] = useState<number[]>([])
-  const [loaded, setLoaded] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [snapshot, setSnapshot] = useState<ConsoleSnapshot | null>(null)
+  const [initialError, setInitialError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [stale, setStale] = useState(false)
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
+  const snapshotRef = useRef<ConsoleSnapshot | null>(null)
+
+  /**
+   * C-D5 review rework（PR #66 Warning 1）：每一次 refresh 必须绑定到"发起它的那一次 tid"。
+   *
+   * `refresh` 是 `useCallback([tid])`，tid 变化时会生成新闭包，但**旧闭包发起的在途请求
+   * 不受影响**：它解析后仍会无条件 `setSnapshot` / `setLastSyncedAt`。于是
+   * `/console?tid=1` → 切到 `?tid=2` → 旧响应回来时，新赛事的 URL 下会短暂显示旧赛事的
+   * 比赛进度、球台与比分 —— 现场页面显示错误数据会直接诱发误操作，且 5 秒轮询让
+   * "任意时刻都有在途请求"成为常态，暴露面远大于旧版（旧版没有轮询）。
+   *
+   * 守卫由两个 ref 组成：
+   * - `activeTidRef`：当前真正生效的赛事 id（tid 变化时更新）；
+   * - `requestGenerationRef`：请求代次，tid 每变化一次自增，用于识别"同一 tid 的上一代请求"。
+   *
+   * 任何异步返回在提交状态前都要重新确认自己仍属于当前 tid 与当前代次，否则整段丢弃 ——
+   * 包括 `catch` 与 `finally`，它们同样不得改动新赛事的状态。
+   */
+  const activeTidRef = useRef<number | null>(tid)
+  const requestGenerationRef = useRef(0)
+
+  /**
+   * 在途请求去重必须按 `(tid, generation)` 记账，不能用全局 boolean：
+   * 旧赛事的请求还在途时，新赛事的第一次 refresh 不能被它挡掉（否则新赛事会空转一轮）。
+   */
+  const requestInFlightRef = useRef<{ tid: number; generation: number } | null>(null)
+
   const [feedback, setFeedback] = useState<ConsoleFeedback | null>(null)
   const [busy, setBusy] = useState(false)
   const [scoringMatch, setScoringMatch] = useState<Match | null>(null)
@@ -55,72 +103,120 @@ export default function ConsolePage() {
   const [scoreSubmitError, setScoreSubmitError] = useState<ConsoleFeedback | null>(null)
   const [auditMatch, setAuditMatch] = useState<Match | null>(null)
   const [audits, setAudits] = useState<ScoreAudit[]>([])
-  const [estimateByMatchId, setEstimateByMatchId] = useState<Map<number, ScheduleEstimateMatch>>(new Map())
+  const [assignTarget, setAssignTarget] = useState<TableWithMatch | null>(null)
 
-  const nameOf = useCallback(
-    (id: number | null) => {
-      if (id === null) return '待定'
-      return players.find((p) => p.id === id)?.name ?? `#${id}`
-    },
-    [players],
-  )
-
-  const sideName = (match: Match, side: 'a' | 'b') =>
-    (side === 'a' ? match.entry_a_name : match.entry_b_name)
-    ?? nameOf(side === 'a' ? match.player_a_id : match.player_b_id)
-
-  const load = useCallback(async () => {
+  const refresh = useCallback(async () => {
     if (tid === null) return
-    const [t, d, ps, fs, ws, gs, estimates] = await Promise.all([
-      api.getTournament(tid),
-      api.getDashboard(tid),
-      api.listPlayers(tid),
-      api.listMatches(tid, { status: 'FINISHED' }),
-      api.listMatches(tid, { status: 'WAITING' }),
-      api.getGroups(tid),
-      api.getScheduleEstimates(tid).catch(() => null),
-    ])
-    setTournament(t)
-    setDash(d)
-    setPlayers(ps)
-    setFinished(fs)
-    setWaiting(ws)
-    const names: Record<number, string> = {}
-    for (const g of gs.groups) names[g.id] = g.name
-    setGroupNames(names)
-    setGroupOrder(gs.groups.map((g) => g.id))
-    setEstimateByMatchId(new Map((estimates?.matches ?? []).map((item) => [item.match_id, item])))
-    setLoaded(true)
+    const requestTid = tid
+    const generation = requestGenerationRef.current
+    /** 本次请求是否仍代表"当前生效的赛事与代次"。 */
+    const isCurrent = () =>
+      activeTidRef.current === requestTid && requestGenerationRef.current === generation
+
+    // 只有完全相同的 (tid, generation) 才去重；旧赛事的在途请求不阻塞新赛事的首次刷新。
+    const inFlight = requestInFlightRef.current
+    if (inFlight !== null && inFlight.tid === requestTid && inFlight.generation === generation) return
+    requestInFlightRef.current = { tid: requestTid, generation }
+
+    try {
+      // 先取赛事本身：团体赛有独立链路，不能走个人赛 Match Console（第 11 节硬边界）。
+      const tournament = await api.getTournament(requestTid)
+      if (!isCurrent()) return
+      if (tournament.event_type === 'TEAM') {
+        const next: ConsoleSnapshot = {
+          tournament,
+          dashboard: null,
+          players: [],
+          finished: [],
+          waiting: [],
+          groupNames: {},
+          estimates: new Map(),
+        }
+        snapshotRef.current = next
+        setSnapshot(next)
+      } else {
+        const [dashboard, players, finished, waiting, groups, estimates] = await Promise.all([
+          api.getDashboard(requestTid),
+          api.listPlayers(requestTid),
+          api.listMatches(requestTid, { status: 'FINISHED' }),
+          api.listMatches(requestTid, { status: 'WAITING' }),
+          api.getGroups(requestTid),
+          api.getScheduleEstimates(requestTid).catch(() => null),
+        ])
+        if (!isCurrent()) return
+        const groupNames: Record<number, string> = {}
+        for (const group of groups.groups) groupNames[group.id] = group.name
+        const next: ConsoleSnapshot = {
+          tournament,
+          dashboard,
+          players,
+          finished,
+          waiting,
+          groupNames,
+          estimates: new Map((estimates?.matches ?? []).map((item) => [item.match_id, item])),
+        }
+        snapshotRef.current = next
+        setSnapshot(next)
+      }
+      setInitialError(null)
+      setStale(false)
+      setLastSyncedAt(new Date())
+    } catch (reason) {
+      // 旧 tid / 旧代次的失败不得污染新赛事：既不能把新赛事标成 stale，也不能写它的错误文案。
+      if (!isCurrent()) return
+      // 已有成功快照时保留它，只标记 stale；不得把比赛列表清空、球台变空、比分变 0。
+      if (snapshotRef.current) setStale(true)
+      else setInitialError(reason instanceof ApiError ? reason.message : '加载控制台失败')
+    } finally {
+      // 只清除"本次请求自己"的记账：不能覆盖新赛事已经建立的在途状态。
+      const current = requestInFlightRef.current
+      if (current !== null && current.tid === requestTid && current.generation === generation) {
+        requestInFlightRef.current = null
+      }
+      if (isCurrent()) setLoading(false)
+    }
   }, [tid])
 
   useEffect(() => {
-    if (tid !== null) {
-      load().catch((e: unknown) =>
-        setError(e instanceof ApiError ? e.message : '加载控制台失败'),
-      )
-    }
-  }, [tid, load])
+    // tid 变化的边界：先让旧代次的在途请求失效，再重置快照并启动本代次的请求。
+    // 顺序很重要 —— 代次必须在本代次 refresh 之前自增，否则新请求会拿到旧代次号。
+    activeTidRef.current = tid
+    requestGenerationRef.current += 1
+    requestInFlightRef.current = null
 
-  if (tid === null) {
-    return (
-      <div className="card">
-        <h2>比赛控制台</h2>
-        <p className="muted">
-          请先在<Link to="/">赛事首页</Link>创建并选择一场赛事。
-        </p>
-      </div>
-    )
-  }
+    snapshotRef.current = null
+    setSnapshot(null)
+    setInitialError(null)
+    setStale(false)
+    setLastSyncedAt(null)
+    setLoading(true)
 
-  const refresh = async () => {
-    setError(null)
-    setFeedback(null)
-    try {
-      await load()
-    } catch (e) {
-      setFeedback(consoleErrorFeedback(e, '刷新失败'))
+    let timer: ReturnType<typeof setInterval> | null = null
+    const stopPolling = () => {
+      if (timer !== null) clearInterval(timer)
+      timer = null
     }
-  }
+    const startPolling = () => {
+      stopPolling()
+      if (!document.hidden) timer = setInterval(() => { void refresh() }, CONSOLE_POLL_INTERVAL_MS)
+    }
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling()
+        return
+      }
+      void refresh()
+      startPolling()
+    }
+
+    void refresh()
+    startPolling()
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      stopPolling()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [refresh])
 
   const fail = (e: unknown) => setFeedback(consoleErrorFeedback(e))
 
@@ -147,15 +243,7 @@ export default function ConsolePage() {
         title: wasDetailRevision ? '逐局小分已更新' : wasRevision ? '比赛结果已修改' : '比赛结果已记录',
         message: wasRevision ? '修改已写入操作记录，比赛列表正在刷新。' : '比分已保存，比赛列表正在刷新。',
       })
-      try {
-        await load()
-      } catch (refreshError) {
-        setFeedback({
-          tone: 'warning',
-          title: '比分已保存，但列表刷新失败',
-          message: refreshError instanceof ApiError ? refreshError.message : '请点击“刷新”查看最新比赛状态。',
-        })
-      }
+      await refresh()
     } catch (e) {
       setScoreSubmitError(consoleErrorFeedback(e, wasRevision ? '修改比分失败' : '录入比分失败'))
     } finally {
@@ -164,7 +252,6 @@ export default function ConsolePage() {
   }
 
   const showAudits = async (match: Match) => {
-    setError(null)
     setFeedback(null)
     try {
       setAudits(await api.listScoreAudits(match.id))
@@ -174,20 +261,7 @@ export default function ConsolePage() {
     }
   }
 
-  const formatTime = (value: string | null | undefined) => value
-    ? new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN', { hour12: false })
-    : '—'
-
-  const auditScore = (snapshot: Record<string, unknown>) => {
-    const type = snapshot.result_type
-    if (type && type !== 'NORMAL') return '弃权判负'
-    const a = snapshot.player_a_score
-    const b = snapshot.player_b_score
-    return a === null || b === null ? '未录入' : `${a} : ${b}`
-  }
-
   const release = async (m: Match) => {
-    setError(null)
     setFeedback(null)
     setBusy(true)
     try {
@@ -200,60 +274,15 @@ export default function ConsolePage() {
     }
   }
 
-  // 与后端 group_table_affinity 一致（软约束）：第 i 个小组优先使用第 i 张球台，
-  // 小组多于球台时按球台数取模；没有对应小组的球台不做偏好。
-  const preferredGroupForTable = (tableId: number): number | undefined => {
-    const tables = dash?.tables ?? []
-    if (tables.length === 0) return undefined
-    return groupOrder.find((_, i) => tables[i % tables.length].id === tableId)
-  }
-
-  const preferredLabelForTable = (tableId: number): string | undefined => {
-    const gid = preferredGroupForTable(tableId)
-    if (gid === undefined) return undefined
-    return groupNames[gid] ?? `组${gid}`
-  }
-
-  /** 服务端调度建议（亲和 + 组间公平 + 连续上场惩罚由后端统一计算）。 */
-  const recommendedMatchForTable = (table: TableWithMatch): Match | undefined => {
-    const matchId = table.recommended_match_id
-    if (matchId === null || matchId === undefined) return undefined
-    return dash?.next_playable.find((m) => m.id === matchId)
-  }
-
-  /** 球台提示：优先显示服务端建议的对阵，其次显示该台的固定小组。 */
-  const tableHint = (table: TableWithMatch): string | undefined => {
-    const recommended = recommendedMatchForTable(table)
-    if (recommended) {
-      return `建议安排：${sideName(recommended, 'a')} vs ${sideName(recommended, 'b')}`
-    }
-    const label = preferredLabelForTable(table.id)
-    return label ? `本台优先：${label}` : undefined
-  }
-
-  /** 该球台要安排的比赛：服务端建议优先，其次本台对应小组，最后任意一场。 */
-  const nextMatchForTable = (table: TableWithMatch): Match | undefined => {
-    const playable = dash?.next_playable ?? []
-    if (playable.length === 0) return undefined
-    const recommended = recommendedMatchForTable(table)
-    if (recommended) return recommended
-    const gid = preferredGroupForTable(table.id)
-    if (gid === undefined) return playable[0]
-    return playable.find((m) => m.group_id === gid) ?? playable[0]
-  }
-
-  const assignFreeTable = async (tableId: number) => {
-    const table = dash?.tables.find((t) => t.id === tableId)
-    const next = table ? nextMatchForTable(table) : undefined
-    if (!next) {
-      setError('当前没有可安排的比赛')
-      return
-    }
-    setError(null)
+  /** 主裁从后端合法 `next_playable` 中选定一场，再安排到球台。前端不挑比赛。 */
+  const assignMatchToTable = async (matchId: number) => {
+    if (!assignTarget) return
+    const tableId = assignTarget.id
+    setAssignTarget(null)
     setFeedback(null)
     setBusy(true)
     try {
-      await api.assignTable(next.id, tableId)
+      await api.assignTable(matchId, tableId)
       await refresh()
     } catch (e) {
       fail(e)
@@ -263,12 +292,13 @@ export default function ConsolePage() {
   }
 
   const scheduleBatch = async () => {
-    setError(null)
     setFeedback(null)
     setBusy(true)
     try {
-      const r = await api.scheduleNext(tid as number)
-      if (r.assigned === 0) setError('没有可安排的比赛（或选手均在比赛）')
+      const result = await api.scheduleNext(tid as number)
+      if (result.assigned === 0) {
+        setFeedback({ tone: 'warning', title: '没有可安排的比赛', message: '当前没有满足条件的比赛（可能双方未就绪，或选手正在其他场次）。' })
+      }
       await refresh()
     } catch (e) {
       fail(e)
@@ -277,31 +307,6 @@ export default function ConsolePage() {
     }
   }
 
-  const stats = dash?.stats
-
-  // 小组赛完成判定：按真实 GROUP Match 状态统计，不依赖 total 为 0 的边界
-  const waitingGroupMatches = waiting.filter((m) => m.stage === 'GROUP')
-  const playingGroupMatches =
-    dash?.tables.filter((t) => t.match !== null && t.match.stage === 'GROUP').map((t) => t.match as Match) ?? []
-  const finishedGroupMatches = finished.filter((m) => m.stage === 'GROUP')
-  const groupTotal =
-    waitingGroupMatches.length + playingGroupMatches.length + finishedGroupMatches.length
-  const groupStageCompleted =
-    groupTotal > 0 &&
-    finishedGroupMatches.length === groupTotal &&
-    waitingGroupMatches.length === 0 &&
-    playingGroupMatches.length === 0
-  // 小组赛阶段已经全部结束、但还没生成淘汰赛签表的过渡窗口。
-  // 注意：不能沿用 showGroupCompleted —— 淘汰赛生成后 stage 会变成 KNOCKOUT，
-  // 它随即翻回 false，会让"自动安排下一批比赛"和球台上的"安排比赛"重新出现（原缺陷）。
-  // 这个窗口里既没有可安排的小组赛、也还没有淘汰赛，所以此时隐藏所有排台入口才是正确的。
-  const inGroupStage = tournament?.stage === 'GROUP_STAGE'
-  const groupStageClosedWithoutKnockout = inGroupStage && groupStageCompleted
-  // 横幅只在赛事仍处于小组赛阶段时显示；进入淘汰赛后由淘汰赛页面负责后续引导。
-  const showGroupCompleted = groupStageClosedWithoutKnockout
-
-  const hasUnfinishedGroup = stats !== undefined && (stats.waiting > 0 || stats.playing > 0)
-
   const confirmDemoFinish = async () => {
     if (
       !window.confirm(
@@ -309,7 +314,6 @@ export default function ConsolePage() {
       )
     )
       return
-    setError(null)
     setFeedback(null)
     setBusy(true)
     try {
@@ -322,26 +326,103 @@ export default function ConsolePage() {
     }
   }
 
-  // 待进行比赛按小组分组
-  const groupWaiting = waiting.filter((m) => m.stage === 'GROUP' && m.group_id !== null)
-  const knockoutWaiting = waiting.filter((m) => m.stage === 'KNOCKOUT')
-  const waitingByGroup: Record<number, Match[]> = {}
-  for (const m of groupWaiting) {
-    ;(waitingByGroup[m.group_id as number] ??= []).push(m)
+  if (tid === null) {
+    return (
+      <div className="card">
+        <h2>比赛控制台</h2>
+        <p className="muted">
+          请先在<Link to="/">赛事首页</Link>创建并选择一场赛事。
+        </p>
+      </div>
+    )
   }
-  const groupIds = Object.keys(waitingByGroup)
+
+  // 首次加载：正常 loading；核心数据失败时给出明确错误 + 重试，不白屏、不无限 loading。
+  if (loading && !snapshot) {
+    return <div className="card"><h2>比赛控制台</h2><p className="muted">正在加载赛事数据…</p></div>
+  }
+
+  if (!snapshot) {
+    return (
+      <div className="card" role="alert">
+        <h2>比赛控制台</h2>
+        <p className="status-error">现场数据加载失败：{initialError || '暂时无法读取现场状态。'}</p>
+        <div className="button-row">
+          <button className="btn primary" onClick={() => { setLoading(true); void refresh() }} type="button">重试</button>
+          <Link className="btn" to="/">返回赛事首页</Link>
+        </div>
+      </div>
+    )
+  }
+
+  const { tournament, dashboard, players, finished, waiting, groupNames, estimates } = snapshot
+
+  // 团体赛：保持独立链路，不用个人赛 Console 管理团体赛（第 11 节硬边界）。
+  if (tournament.event_type === 'TEAM') {
+    return (
+      <div className="page">
+        <div className="card">
+          <h2>{tournament.name} · 比赛控制台</h2>
+          <p className="muted">
+            团体赛使用独立的队伍、对抗与单盘链路，不使用个人赛 Match 比赛控制台。
+          </p>
+          <div className="admin-action-links">
+            <Link to={`/team-ties?tid=${tid}`}>进入团体对抗</Link>
+            <Link to={`/team-rankings?tid=${tid}`}>查看团体排名</Link>
+            <Link to={`/team-qualification?tid=${tid}`}>晋级确认</Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const nameOf = (id: number | null) => {
+    if (id === null) return '待定'
+    return players.find((p) => p.id === id)?.name ?? `#${id}`
+  }
+  const sideName = (match: Match, side: 'a' | 'b') =>
+    (side === 'a' ? match.entry_a_name : match.entry_b_name)
+    ?? nameOf(side === 'a' ? match.player_a_id : match.player_b_id)
+
+  const stageLabel = (match: Match) =>
+    matchStageLabel(match, match.group_id === null ? null : groupNames[match.group_id])
+
+  const formatTime = (value: string | null | undefined) => value
+    ? new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN', { hour12: false })
+    : '—'
+
+  const auditScore = (snapshotRecord: Record<string, unknown>) => {
+    const type = snapshotRecord.result_type
+    if (type && type !== 'NORMAL') return '弃权判负'
+    const a = snapshotRecord.player_a_score
+    const b = snapshotRecord.player_b_score
+    return a === null || b === null ? '未录入' : `${a} : ${b}`
+  }
+
+  const tables = sortTablesByNumber(dashboard?.tables ?? [])
+  const notice = completionNotice(dashboard, tid)
+  const assignable = canAssignMatches(dashboard)
+  const disabledReason = assignable ? undefined : assignDisabledReason(dashboard)
+  const showBatch = canScheduleBatch(dashboard)
+  const stats = dashboard?.stats
+  const demoAvailable =
+    tournament.operation_mode === 'DEMO'
+    && tournament.stage === 'GROUP_STAGE'
+    && stats !== undefined
+    && (stats.waiting > 0 || stats.playing > 0)
+
+  // 待进行比赛按后端返回的组顺序分组展示（不重排优先级）。
+  const waitingByGroup: Record<number, Match[]> = {}
+  const knockoutWaiting: Match[] = []
+  for (const match of waiting) {
+    if (match.stage === 'GROUP' && match.group_id !== null) (waitingByGroup[match.group_id] ??= []).push(match)
+    else if (match.stage === 'KNOCKOUT') knockoutWaiting.push(match)
+  }
+  const displayWaiting: { label: string; matches: Match[] }[] = Object.keys(waitingByGroup)
     .map(Number)
     .sort((a, b) => a - b)
-
-  // 待进行比赛分组展示：全量横向换行，不再截断为前 20 场。
-  const displayWaiting: { label: string; matches: Match[] }[] = []
-  for (const gid of groupIds) {
-    displayWaiting.push({ label: groupNames[gid] ?? `组${gid}`, matches: waitingByGroup[gid] })
-  }
+    .map((gid) => ({ label: groupNames[gid] ?? `组${gid}`, matches: waitingByGroup[gid] }))
   if (knockoutWaiting.length > 0) displayWaiting.push({ label: '淘汰赛', matches: knockoutWaiting })
-  const stageLabel = (match: Match) => match.stage === 'GROUP'
-    ? (match.group_id === null ? '小组赛' : `${groupNames[match.group_id] ?? '小组赛'} · 小组赛`)
-    : '淘汰赛'
 
   return (
     <div className="page">
@@ -351,91 +432,70 @@ export default function ConsolePage() {
           <button type="button" onClick={() => setFeedback(null)} aria-label="关闭操作提示">×</button>
         </div>
       )}
+
       <div className="card">
-        <h2>
-          {tournament ? tournament.name : '赛事'} · 比赛控制台
-          <Link className="btn small float-right" to="/">
-            ← 返回首页
-          </Link>
+        <h2 className="console-title">
+          <span className="console-title-text">{tournament.name} · 比赛控制台</span>
+          <Link className="btn small float-right" to="/">← 返回首页</Link>
         </h2>
-        {tournament && (
+        <p className="muted">
+          阶段 <span className="badge">{tournamentStageLabel(tournament.stage, tournament.format_code)}</span>{' '}
+          <span className={`badge mode-badge ${tournament.operation_mode === 'LIVE' ? 'live' : 'demo'}`}>
+            {tournament.operation_mode === 'LIVE' ? '正式赛事' : '演示赛事'}
+          </span>{' '}
+          <span className="badge">{tournament.table_count} 张球台</span>
+        </p>
+
+        <div className={`console-sync${stale ? ' is-stale' : ''}`} role={stale ? 'alert' : 'status'}>
+          <span>{stale ? '实时数据暂时无法更新，当前显示可能不是最新状态。' : '现场状态每 5 秒自动同步。'}</span>
+          <small>最近同步：{lastSyncedAt ? lastSyncedAt.toLocaleTimeString('zh-CN', { hour12: false }) : '尚未同步'}</small>
+        </div>
+
+        {stats && (
           <p className="muted">
-            阶段 <span className="badge">{tournament.stage}</span>{' '}·{' '}
-            <span className={`badge mode-badge ${tournament.operation_mode === 'LIVE' ? 'live' : 'demo'}`}>
-              {tournament.operation_mode === 'LIVE' ? '正式赛事' : '演示赛事'}
-            </span>
+            比赛进度 {stats.finished} / {stats.total} · 正在进行 {stats.playing} · 等待 {stats.waiting} · 球台 {tables.length}
           </p>
         )}
-        {dash && (
-          <>
-            <p className="muted">
-              比赛进度 {dash.stats.finished} / {dash.stats.total} · 正在进行 {dash.stats.playing} ·
-              等待 {dash.stats.waiting} · 球台 {dash.tables.length}
-              {groupStageClosedWithoutKnockout && (
-                <>
-                  {' '}·{' '}
-                  <span className="status-ok">
-                    小组赛 {finishedGroupMatches.length} / {groupTotal} 已完成
-                  </span>
-                </>
-              )}
-            </p>
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                style={{
-                  width: `${dash.stats.total > 0 ? Math.round((dash.stats.finished / dash.stats.total) * 100) : 0}%`,
-                }}
-              />
-            </div>
-          </>
+        {stats && (
+          <div className="progress-bar">
+            <div
+              className="progress-fill"
+              style={{ width: `${stats.total > 0 ? Math.round((stats.finished / stats.total) * 100) : 0}%` }}
+            />
+          </div>
         )}
-        {error && <p className="status-error">{error}</p>}
-        <div className="button-row">
-          {tournament?.stage !== 'FINISHED' && !groupStageClosedWithoutKnockout && (
-            <button className="btn primary" onClick={scheduleBatch} disabled={busy}>
-              自动安排下一批比赛
-            </button>
+
+        <div className="console-actions">
+          {showBatch && (
+            <button className="btn primary" onClick={scheduleBatch} disabled={busy}>自动安排下一批比赛</button>
           )}
-          {tournament?.operation_mode === 'DEMO' && tournament.stage === 'GROUP_STAGE' && hasUnfinishedGroup && (
-            <button className="btn" onClick={confirmDemoFinish} disabled={busy}>
-              <span className="demo-tag">Demo</span> 模拟完成剩余小组赛
-            </button>
-          )}
-          <button className="btn" onClick={refresh} disabled={busy}>
-            刷新
-          </button>
+          <button className="btn" onClick={() => void refresh()} disabled={busy}>刷新</button>
+          <details className="console-more">
+            <summary className="btn">更多</summary>
+            <div className="console-more-menu">
+              <Link to={`/schedule?tid=${tid}`}>实时赛程</Link>
+              <Link to={`/orderbook?tid=${tid}`}>打印快照</Link>
+              <Link to={`/rankings?tid=${tid}`}>排名</Link>
+              <Link to={`/knockout?tid=${tid}`}>淘汰赛</Link>
+              {tournament.operation_mode === 'DEMO' && tournament.stage === 'GROUP_STAGE' && demoAvailable && (
+                <button onClick={confirmDemoFinish} disabled={busy} type="button">
+                  <span className="demo-tag">Demo</span> 模拟完成剩余小组赛
+                </button>
+              )}
+            </div>
+          </details>
         </div>
       </div>
 
-      {!loaded && !error && (
-        <div className="card">
-          <p className="muted">正在加载赛事数据…</p>
-        </div>
-      )}
-
-      {showGroupCompleted && (
-        <div className="card">
-          <p className="status-ok">✅ 小组赛已全部完成，晋级名单已经确定，可以进入淘汰赛。</p>
-          <p className="muted">
-            小组赛 {finishedGroupMatches.length} / {groupTotal} 场已全部录分结束，本阶段不再有可安排的比赛。
-          </p>
-          <div className="button-row">
-            <Link className="btn" to={`/rankings?tid=${tid}`}>
-              查看排名
-            </Link>
-            <Link className="btn primary" to={`/knockout?tid=${tid}`}>
-              进入淘汰赛
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {tournament?.stage === 'REGISTRATION' && (
-        <div className="card">
-          <p className="muted">
-            当前赛事尚未生成比赛。请先在「选手与分组」页：1. 添加选手；2. 自动分组；3. 生成小组循环赛。
-          </p>
+      {notice && (
+        <div className={`card console-notice is-${notice.tone}`} role="status">
+          <strong>{notice.title}</strong>
+          <p className="muted">{notice.detail}</p>
+          {notice.action && (
+            <div className="button-row">
+              <Link className="btn primary" to={notice.action.to}>{notice.action.label}</Link>
+            </div>
+          )}
         </div>
       )}
 
@@ -447,7 +507,7 @@ export default function ConsolePage() {
           </div>
           <div className="stat-card">
             <div className="stat-num">{stats.finished}</div>
-            <div className="stat-label">{groupStageClosedWithoutKnockout ? '已完成（小组赛已结束）' : '已完成'}</div>
+            <div className="stat-label">已完成</div>
           </div>
           <div className="stat-card playing">
             <div className="stat-num">{stats.playing}</div>
@@ -464,53 +524,57 @@ export default function ConsolePage() {
         <div className="live-floor-heading">
           <div><span className="eyebrow">LIVE FLOOR</span><h3>比赛现场</h3></div>
           <span className="live-floor-hint">
-            {groupStageClosedWithoutKnockout
-              ? '小组赛已结束：本阶段没有可安排的比赛，请先进入淘汰赛生成签表'
-              : '点击球台录入本场大比分'}
+            {assignable ? '按台号固定排列；点击球台录入本场大比分' : (disabledReason ?? '按台号固定排列')}
           </span>
         </div>
-        <div className="live-table-stack">
-          {dash?.tables.map((table) => <LiveTableCard
-            key={table.id}
-            table={table}
-            sideName={sideName}
-            stageLabel={stageLabel}
-            busy={busy}
-            groupFinished={groupStageClosedWithoutKnockout}
-            stageClosed={groupStageClosedWithoutKnockout}
-            hintLabel={tableHint(table)}
-            onAssign={assignFreeTable}
-            onScore={(match) => openScoreSheet(match, 'record')}
-            onRelease={release}
-          />)}
-        </div>
+        {tables.length === 0 ? (
+          <p className="muted">当前赛事还没有可用球台。</p>
+        ) : (
+          <div className="live-table-stack">
+            {tables.map((table) => (
+              <LiveTableCard
+                key={table.id}
+                table={table}
+                sideName={sideName}
+                stageLabel={stageLabel}
+                busy={busy}
+                assignDisabledReason={disabledReason}
+                recommendedMatch={recommendedMatchForTable(dashboard, table)}
+                onAssign={setAssignTarget}
+                onScore={(match) => openScoreSheet(match, 'record')}
+                onRelease={release}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card">
         <h3>待进行比赛（{waiting.length}）</h3>
         {waiting.length === 0 && <p className="muted">暂无待进行的比赛。</p>}
-        {displayWaiting.map((sec) => (
-          <div key={sec.label} className="waiting-group">
-            <h4>
-              {sec.label}（{sec.matches.length} 场）
-            </h4>
+        {displayWaiting.map((section) => (
+          <div key={section.label} className="waiting-group">
+            <h4>{section.label}（{section.matches.length} 场）</h4>
             <div className="waiting-match-grid">
-              {sec.matches.map((m) => (
-                <article key={m.id} className="waiting-match-card">
-                  <span>#{m.id}</span><strong>{sideName(m, 'a')}</strong><i>VS</i><strong>{sideName(m, 'b')}</strong>
+              {section.matches.map((match) => (
+                <article key={match.id} className="waiting-match-card">
+                  <span>#{match.id}</span>
+                  <strong title={sideName(match, 'a')}>{sideName(match, 'a')}</strong>
+                  <i>VS</i>
+                  <strong title={sideName(match, 'b')}>{sideName(match, 'b')}</strong>
                   <QueueEstimate
-                    ahead={estimateByMatchId.get(m.id)?.queue_ahead}
-                    estimatedStartAt={estimateByMatchId.get(m.id)?.estimated_start_at}
-                    unavailableReason={estimateByMatchId.get(m.id)?.unavailable_reason}
+                    ahead={estimates.get(match.id)?.queue_ahead}
+                    estimatedStartAt={estimates.get(match.id)?.estimated_start_at}
+                    unavailableReason={estimates.get(match.id)?.unavailable_reason}
                   />
                   {/*
                     手机录分入口（D 轨 Day 3）：跳转到
                     /admin/t/:tid/matches/:matchId/score —— D 轨拥有的唯一精确 route。
-                    这里只在双方已就绪时给出入口 —— 对阵未定的比赛在手机上也无法录分，
+                    只在双方已就绪时给出入口 —— 对阵未定的比赛在手机上也无法录分，
                     而“谁已就绪”直接来自 Match 契约字段，不是前端另行推导的规则。
                   */}
-                  {matchSidesReady(m) && (
-                    <Link className="btn small waiting-match-mobile" to={`/admin/t/${tid}/matches/${m.id}/score`}>
+                  {matchSidesReady(match) && (
+                    <Link className="btn small waiting-match-mobile" to={`/admin/t/${tid}/matches/${match.id}/score`}>
                       手机录分
                     </Link>
                   )}
@@ -524,46 +588,89 @@ export default function ConsolePage() {
       <div className="card">
         <h3>已结束比赛（可修改比分）</h3>
         {finished.length === 0 && <p className="muted">暂无已结束的比赛。</p>}
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>赛段</th>
-              <th>对阵</th>
-              <th>比分</th>
-              <th>开赛 / 结束</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {finished.map((m) => {
-              return (
-                <tr key={m.id}>
-                  <td>{m.stage === 'GROUP' ? '小组赛' : '淘汰赛'}</td>
+        {finished.length > 0 && (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>赛段</th>
+                <th>对阵</th>
+                <th>比分</th>
+                <th>开赛 / 结束</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {finished.map((match) => (
+                <tr key={match.id}>
+                  <td>{match.stage === 'GROUP' ? '小组赛' : '淘汰赛'}</td>
+                  <td>{sideName(match, 'a')} VS {sideName(match, 'b')}</td>
                   <td>
-                    {sideName(m, 'a')} VS {sideName(m, 'b')}
+                    {match.result_type && match.result_type !== 'NORMAL' ? 'W/O' : `${match.player_a_score} : ${match.player_b_score}`}{' '}
+                    {match.games.length > 0 && (
+                      <span className="muted">{match.games.map((g) => `${g.side_a_score}-${g.side_b_score}`).join(' / ')}</span>
+                    )}
                   </td>
-                  <td>
-                    {m.result_type && m.result_type !== 'NORMAL' ? 'W/O' : `${m.player_a_score} : ${m.player_b_score}`}{' '}
-                    {m.games.length > 0 && <span className="muted">{m.games.map((g) => `${g.side_a_score}-${g.side_b_score}`).join(' / ')}</span>}
-                  </td>
-                  <td className="match-time-cell"><span>{formatTime(m.started_at)}</span><span>{formatTime(m.finished_at)}</span></td>
-                  <td>
-                    <button className="btn small" onClick={() => openScoreSheet(m, 'revise')}>
-                      修改大比分
-                    </button>
-                    {m.stage === 'GROUP' && m.result_type === 'NORMAL' && <button className="btn small" onClick={() => openScoreSheet(m, 'revise', true)}>
-                      {m.games.length ? '修改小比分' : '补录小比分'}
-                    </button>}
-                    <button className="btn small" onClick={() => showAudits(m)}>操作记录</button>
-                    <Link className="btn small" to={`/match-print?tid=${tid}&mid=${m.id}`}>打印成绩单</Link>
+                  <td className="match-time-cell"><span>{formatTime(match.started_at)}</span><span>{formatTime(match.finished_at)}</span></td>
+                  <td className="row-actions">
+                    <button className="btn small" onClick={() => openScoreSheet(match, 'revise')}>修改大比分</button>
+                    <details className="row-more">
+                      <summary className="btn small">更多</summary>
+                      <div className="row-more-menu">
+                        {match.stage === 'GROUP' && match.result_type === 'NORMAL' && (
+                          <button onClick={() => openScoreSheet(match, 'revise', true)} type="button">
+                            {match.games.length ? '修改小比分' : '补录小比分'}
+                          </button>
+                        )}
+                        <button onClick={() => void showAudits(match)} type="button">操作记录</button>
+                        <Link to={`/match-print?tid=${tid}&mid=${match.id}`}>打印成绩单</Link>
+                      </div>
+                    </details>
                   </td>
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
-      {scoringMatch && tournament && (
+
+      {assignTarget && dashboard && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`为 ${assignTarget.name} 安排比赛`}>
+          <div className="console-assign-panel">
+            <button className="modal-close" onClick={() => setAssignTarget(null)} aria-label="关闭">×</button>
+            <span className="eyebrow">TABLE {String(assignTarget.id).padStart(2, '0')}</span>
+            <h2>为 {assignTarget.name} 安排比赛</h2>
+            <p className="muted">
+              下列比赛全部来自后端当前合法的可安排集合（`next_playable`）。
+              比赛优先级由后端调度器决定，本页不重新排序。
+            </p>
+            {dashboard.next_playable.length === 0 && (
+              <p className="muted">当前没有可安排的比赛。</p>
+            )}
+            <div className="console-assign-list">
+              {dashboard.next_playable.map((match) => {
+                const recommended = assignTarget.recommended_match_id === match.id
+                return (
+                  <button
+                    key={match.id}
+                    className={`console-assign-item${recommended ? ' is-recommended' : ''}`}
+                    onClick={() => void assignMatchToTable(match.id)}
+                    type="button"
+                  >
+                    <span>#{match.id}</span>
+                    <strong>{sideName(match, 'a')}</strong>
+                    <i>VS</i>
+                    <strong>{sideName(match, 'b')}</strong>
+                    <small>{stageLabel(match)}</small>
+                    {recommended && <em>后端推荐</em>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {scoringMatch && (
         <ScoreSheet
           match={scoringMatch}
           sideA={sideName(scoringMatch, 'a')}
@@ -578,6 +685,7 @@ export default function ConsolePage() {
           onSave={saveScoreSheet}
         />
       )}
+
       {auditMatch && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="比分操作记录">
           <div className="score-audit-panel">

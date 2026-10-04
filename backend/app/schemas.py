@@ -862,11 +862,58 @@ class TableWithMatch(BaseModel):
     recommended_match_id: int | None = None
 
 
+# 阶段完成状态的封闭全集。唯一来源是 `services/formats.py` 三个 Handler 的
+# `get_completion_state`，外加 `services/scheduling.py::resolve_completion_state`
+# 追加的两个观测值。任何新增/改名都必须同步这里、OpenAPI 快照与前端 `fieldOps.ts`。
+DashboardCompletionState = Literal[
+    # 没有可判定的个人赛赛制
+    "NOT_APPLICABLE",
+    "UNAVAILABLE",
+    # GroupKnockoutHandler
+    "GROUP_MATCHES_NOT_GENERATED",
+    "GROUP_STAGE_IN_PROGRESS",
+    "QUALIFICATION_UNRESOLVED",
+    "KNOCKOUT_NOT_READY",
+    "KNOCKOUT_READY",
+    "KNOCKOUT_IN_PROGRESS",
+    # RoundRobinHandler / SingleEliminationHandler
+    "MATCHES_NOT_GENERATED",
+    "ROUND_ROBIN_IN_PROGRESS",
+    "RANKING_DATA_INSUFFICIENT",
+    "RANKING_UNRESOLVED",
+    # 共用
+    "COMPLETED",
+]
+
+
+class DashboardCompletion(BaseModel):
+    """赛制 Handler 的阶段完成状态（Dashboard 只读透传，前端不得自行推断）。
+
+    `state` 取值来自 `services/formats.py` 各 Handler 的 `get_completion_state`，
+    额外补充两个"没有可判定赛制"的观测值：
+
+    - `NOT_APPLICABLE`：团体赛或未设置 `format_code`，个人赛赛制不适用；
+    - `UNAVAILABLE`：赛制处理器拒绝当前配置（或持久化了枚举外的 `format_code`），
+      无法给出权威状态。
+
+    ⚠️ `state` 是**封闭契约**（见 `DashboardCompletionState`），不是裸 string：
+    这样 OpenAPI 会生成 enum、前端生成联合类型，后端新增状态而前端忘记处理时
+    会在 TypeScript 编译期失败，而不是静默走进 default 分支。
+    """
+
+    format_code: TournamentFormat | None = None
+    state: DashboardCompletionState
+    can_advance: bool = False
+    completed: bool = False
+
+
 class Dashboard(BaseModel):
     tournament: TournamentOut
     stats: DashboardStats
     tables: list[TableWithMatch]
     next_playable: list[MatchOut]
+    # 阶段推进权威：直接来自赛制 Handler，避免前端统计比赛数再自行判断"小组赛是否结束"。
+    completion: DashboardCompletion
 
 
 class MatchGameInput(BaseModel):

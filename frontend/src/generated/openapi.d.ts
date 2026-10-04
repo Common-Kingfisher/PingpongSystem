@@ -1408,6 +1408,40 @@ export interface components {
             tables: components["schemas"]["TableWithMatch"][];
             /** Next Playable */
             next_playable: components["schemas"]["MatchOut"][];
+            completion: components["schemas"]["DashboardCompletion"];
+        };
+        /**
+         * DashboardCompletion
+         * @description 赛制 Handler 的阶段完成状态（Dashboard 只读透传，前端不得自行推断）。
+         *
+         *     `state` 取值来自 `services/formats.py` 各 Handler 的 `get_completion_state`，
+         *     额外补充两个"没有可判定赛制"的观测值：
+         *
+         *     - `NOT_APPLICABLE`：团体赛或未设置 `format_code`，个人赛赛制不适用；
+         *     - `UNAVAILABLE`：赛制处理器拒绝当前配置（或持久化了枚举外的 `format_code`），
+         *       无法给出权威状态。
+         *
+         *     ⚠️ `state` 是**封闭契约**（见 `DashboardCompletionState`），不是裸 string：
+         *     这样 OpenAPI 会生成 enum、前端生成联合类型，后端新增状态而前端忘记处理时
+         *     会在 TypeScript 编译期失败，而不是静默走进 default 分支。
+         */
+        DashboardCompletion: {
+            format_code?: components["schemas"]["TournamentFormat"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "NOT_APPLICABLE" | "UNAVAILABLE" | "GROUP_MATCHES_NOT_GENERATED" | "GROUP_STAGE_IN_PROGRESS" | "QUALIFICATION_UNRESOLVED" | "KNOCKOUT_NOT_READY" | "KNOCKOUT_READY" | "KNOCKOUT_IN_PROGRESS" | "MATCHES_NOT_GENERATED" | "ROUND_ROBIN_IN_PROGRESS" | "RANKING_DATA_INSUFFICIENT" | "RANKING_UNRESOLVED" | "COMPLETED";
+            /**
+             * Can Advance
+             * @default false
+             */
+            can_advance: boolean;
+            /**
+             * Completed
+             * @default false
+             */
+            completed: boolean;
         };
         /** DashboardStats */
         DashboardStats: {
