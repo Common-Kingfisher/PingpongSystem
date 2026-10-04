@@ -23,9 +23,13 @@ C-D5 收口把唯一权威固定为 `services/formats.py` 各 Handler 的 `get_c
 6. 该字段是只读的：重复读取不改变任何比赛/球台/阶段事实。
 """
 
+import sqlite3
+
 import pytest
 
+from app import repository as repo
 from app.services import formats as formats_service
+from app.services import scheduling as scheduling_service
 
 GROUP_COUNT = 4
 QUALIFY = 2
@@ -327,6 +331,122 @@ def test_missing_format_code_is_not_defaulted_to_group_knockout(client):
 def test_nonexistent_tournament_dashboard_is_404(client):
     """失效 tid 必须明确 404，不能无限 loading。"""
     assert client.get("/api/tournaments/999999/dashboard").status_code == 404
+
+
+# ----------------------------------------------------------------- 非法 / 不可解析配置（PR #66 review）
+
+def test_database_rejects_invalid_format_code_at_sql_level(client, conn):
+    """先记录事实：正常写入路径**无法**产生非法 `format_code`（表级 CHECK 约束）。
+
+    `app/db.py` 建表与 `app/migrations.py` 迁移路径都带：
+
+    ```sql
+    CHECK (format_code IS NULL OR format_code IN ('ROUND_ROBIN','SINGLE_ELIMINATION','GROUP_KNOCKOUT'))
+    ```
+
+    所以下面针对"枚举外 format_code"的防御分支只能在单元层构造。它防的是
+    约束被后续迁移放宽、外部 DB 文件被替换、`PRAGMA ignore_check_constraints`
+    等非正常路径 —— 属于 defense-in-depth，而不是当前可达路径。
+    """
+    tid = _create_tournament(client, "约束-非法赛制", format_code=None, players=2, groups=1)
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("UPDATE tournaments SET format_code = ? WHERE id = ?", ("UNKNOWN_FORMAT", tid))
+    conn.rollback()
+    # 回滚后赛事仍可用
+    assert client.get(f"/api/tournaments/{tid}/dashboard").status_code == 200
+
+
+@pytest.mark.parametrize("bad_format", ["UNKNOWN_FORMAT", "unknown", "RoundRobin", "GROUP-KNOCKOUT", ""])
+def test_unresolvable_format_code_degrades_without_500(conn, bad_format):
+    """枚举外 / 近似 / 空的 format_code 一律不得让 Dashboard 变成 500。
+
+    此前实现会把非法值回填给 `DashboardCompletion.format_code`
+    （声明为 `TournamentFormat | None`），触发 Pydantic 二次校验失败。
+    一个字段的历史脏数据不该让主裁判看不到现场。
+    """
+    row_id = repo.create_tournament(conn, "防御分支", "2026-10-01", 2, 1, 1)["id"]
+    conn.commit()
+
+    completion = scheduling_service.resolve_completion_state(
+        conn, {"id": row_id, "event_type": "SINGLES", "format_code": bad_format}
+    )
+    # 空串在业务上等同于"未设置赛制"
+    assert completion["state"] == ("NOT_APPLICABLE" if bad_format == "" else "UNAVAILABLE")
+    # 关键：非法值不得回填
+    assert completion["format_code"] is None
+    assert completion["can_advance"] is False
+    assert completion["completed"] is False
+
+
+def test_legal_format_code_with_invalid_config_keeps_format_and_reports_unavailable(client, conn):
+    """合法 format_code + Handler 拒绝配置：保留合法赛制信息，只把状态降为 UNAVAILABLE。
+
+    这是"修过头"的反向保护：不能因为要处理非法 format_code，就把合法赛制也抹成 null。
+    """
+    tid = _create_tournament(client, "合法赛制-非法配置")
+    # GROUP_KNOCKOUT 只允许空 rule_config；写入未知键会让 validate_rule_config 抛
+    # FormatHandlerError，从而走 UNAVAILABLE 分支。
+    conn.execute("UPDATE tournaments SET rule_config = ? WHERE id = ?", ('{"unknown_key": 1}', tid))
+    conn.commit()
+
+    response = client.get(f"/api/tournaments/{tid}/dashboard")
+    assert response.status_code == 200, response.text
+    completion = response.json()["completion"]
+    assert completion["state"] == "UNAVAILABLE"
+    # 关键：合法赛制信息必须保留
+    assert completion["format_code"] == "GROUP_KNOCKOUT"
+    assert completion["can_advance"] is False
+    assert completion["completed"] is False
+
+
+@pytest.mark.parametrize("bad_format", ["", "unknown", "RoundRobin", "GROUP-KNOCKOUT"])
+def test_format_code_matching_is_exact(client, conn, bad_format):
+    """赛制匹配必须精确：大小写、连字符、空串等近似值都不得被当成合法赛制。"""
+    tid = _create_tournament(client, f"近似赛制-{bad_format or 'empty'}")
+    # 先证明这些近似值确实写不进库（表级 CHECK 约束）
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("UPDATE tournaments SET format_code = ? WHERE id = ?", (bad_format, tid))
+    conn.rollback()
+
+    # 再在单元层确认：即便绕过约束送进来，也必须收敛成 null + 明确状态
+    row_id = repo.create_tournament(conn, f"近似-单元-{bad_format or 'empty'}", "2026-10-01", 2, 1, 1)["id"]
+    conn.commit()
+    completion = scheduling_service.resolve_completion_state(
+        conn, {"id": row_id, "event_type": "SINGLES", "format_code": bad_format}
+    )
+    assert completion["format_code"] is None
+    assert completion["state"] == ("NOT_APPLICABLE" if bad_format == "" else "UNAVAILABLE")
+    assert completion["can_advance"] is False
+
+
+def test_dashboard_completion_state_is_within_declared_contract(client, conn):
+    """completion.state 必须始终落在声明的封闭取值集合内（含防御分支）。
+
+    该集合与 `schemas.DashboardCompletionState` 一一对应；前端 `completionNotice`
+    现在对未知状态走"无法识别赛事状态"兜底，所以后端**不得**悄无声息地跑出契约。
+    """
+    from typing import get_args
+
+    from app import schemas
+
+    declared = set(get_args(schemas.DashboardCompletionState))
+    assert len(declared) == 13
+
+    # 1) 通过真实接口可达的状态
+    without_format = _create_tournament(client, "契约-未设置", format_code=None, players=2, groups=1)
+    legal = _create_tournament(client, "契约-合法")
+    for tid in (without_format, legal):
+        state = client.get(f"/api/tournaments/{tid}/dashboard").json()["completion"]["state"]
+        assert state in declared, f"tid={tid} 返回了契约外的 state: {state}"
+
+    # 2) 防御分支产生的状态同样必须在契约内
+    row_id = repo.create_tournament(conn, "契约-单元", "2026-10-01", 2, 1, 1)["id"]
+    conn.commit()
+    for synthetic in ("UNKNOWN_FORMAT", ""):
+        state = scheduling_service.resolve_completion_state(
+            conn, {"id": row_id, "event_type": "SINGLES", "format_code": synthetic}
+        )["state"]
+        assert state in declared, f"防御分支返回了契约外的 state: {state}"
 
 
 def test_completion_reads_do_not_mutate_state(client):

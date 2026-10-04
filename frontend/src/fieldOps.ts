@@ -198,8 +198,24 @@ export function completionNotice(
         action: { label: '查看排名', to: `/rankings${query}` },
       }
 
-    default:
-      return null
+    default: {
+      /*
+       * 编译期穷尽检查（PR #66 Warning 2）。
+       *
+       * `DashboardCompletion.state` 现在是 OpenAPI 生成的**封闭联合**，不是裸 string。
+       * 这里把 default 分支的收窄结果赋给 `never`：后端一旦新增 / 改名 state 而这里没有
+       * 对应 case，`pnpm exec tsc --noEmit` 会直接失败，而不是静默返回 null
+       * （静默返回 null = 横幅消失，正好落入"静默错误 UI"）。
+       *
+       * 运行期同时兜底：服务端违反契约返回了未知值时，明确告知而不是白屏或静默。
+       */
+      const unexpectedState: never = completion.state
+      return {
+        tone: 'warn',
+        title: '无法识别赛事状态',
+        detail: `后端返回了当前前端无法识别的阶段状态：${String(unexpectedState)}。请刷新页面；若仍出现请联系系统管理员。`,
+      }
+    }
   }
 }
 

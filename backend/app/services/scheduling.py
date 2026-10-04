@@ -16,7 +16,7 @@ import sqlite3
 
 from .. import repository as repo
 from ..domain import scheduler
-from ..models import EventType, MatchStatus, TableStatus
+from ..models import EventType, MatchStatus, TableStatus, TournamentFormat
 from . import formats as formats_service
 from .transaction import TransactionBusyError, write_transaction
 
@@ -387,6 +387,20 @@ def _release_match_locked(conn: sqlite3.Connection, match_id: int) -> dict:
     return repo.get_match(conn, match_id)
 
 
+def known_format_code(value: object) -> str | None:
+    """把持久化的 `format_code` 收敛到 `TournamentFormat` 的合法值；非法/缺失返回 None。
+
+    刻意**不手写第二套赛制列表**：直接复用 A 轨的 `models.TournamentFormat`，
+    与赛事创建/校验是同一来源。
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return TournamentFormat(value).value
+    except ValueError:
+        return None
+
+
 def resolve_completion_state(conn: sqlite3.Connection, tournament: dict) -> dict:
     """阶段完成状态：完全委托赛制 Handler，本函数不复制任何完成判定。
 
@@ -394,29 +408,46 @@ def resolve_completion_state(conn: sqlite3.Connection, tournament: dict) -> dict
     这里把既有的唯一权威（`services/formats.py` 的 `get_completion_state`）
     只读透传给 Dashboard，前端不需要也不允许再写第二套判断。
 
-    非个人赛赛制（团体赛）与未设置赛制的历史赛事不适用，返回 `NOT_APPLICABLE`；
-    处理器拒绝当前配置时返回 `UNAVAILABLE`，绝不猜成"可以推进"。
+    ## 三种"不进入 Handler"的情形必须区分（PR #66 review）
+
+    - 团体赛 / 未设置赛制 → `NOT_APPLICABLE`（个人赛赛制不适用）；
+    - `format_code` 是枚举外的非法值（仅手工篡改 / 迁移失败可达）→ `UNAVAILABLE`
+      且 **`format_code` 回落为 null**：非法值不能回填给 `DashboardCompletion`
+      （其 `format_code` 是 `TournamentFormat | None`），否则 Pydantic 二次校验失败
+      会让整个 Dashboard 变成 500；
+    - 合法 `format_code` 但 Handler 拒绝当前配置 → 保留合法赛制信息 + `UNAVAILABLE`。
+
+    三种情形都绝不猜成"可以推进"。
     """
-    format_code = tournament.get("format_code")
-    if not format_code or tournament.get("event_type") == EventType.TEAM.value:
+    persisted = tournament.get("format_code")
+    legal_format = known_format_code(persisted)
+    if not persisted or tournament.get("event_type") == EventType.TEAM.value:
         return {
-            "format_code": format_code,
+            "format_code": legal_format,
             "state": "NOT_APPLICABLE",
             "can_advance": False,
             "completed": False,
         }
+    if legal_format is None:
+        # 非法 format_code：既不进 Handler，也不把非法值回填给响应模型。
+        return {
+            "format_code": None,
+            "state": "UNAVAILABLE",
+            "can_advance": False,
+            "completed": False,
+        }
     try:
-        handler = formats_service.resolve_format_handler(format_code)
+        handler = formats_service.resolve_format_handler(legal_format)
         state = handler.get_completion_state(conn, tournament["id"])
     except formats_service.FormatHandlerError:
         return {
-            "format_code": format_code,
+            "format_code": legal_format,
             "state": "UNAVAILABLE",
             "can_advance": False,
             "completed": False,
         }
     return {
-        "format_code": format_code,
+        "format_code": legal_format,
         "state": state["state"],
         "can_advance": bool(state["can_advance"]),
         "completed": bool(state["completed"]),
