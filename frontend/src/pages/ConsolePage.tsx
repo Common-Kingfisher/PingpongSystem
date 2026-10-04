@@ -69,7 +69,31 @@ export default function ConsolePage() {
   const [stale, setStale] = useState(false)
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
   const snapshotRef = useRef<ConsoleSnapshot | null>(null)
-  const requestInFlight = useRef(false)
+
+  /**
+   * C-D5 review rework（PR #66 Warning 1）：每一次 refresh 必须绑定到"发起它的那一次 tid"。
+   *
+   * `refresh` 是 `useCallback([tid])`，tid 变化时会生成新闭包，但**旧闭包发起的在途请求
+   * 不受影响**：它解析后仍会无条件 `setSnapshot` / `setLastSyncedAt`。于是
+   * `/console?tid=1` → 切到 `?tid=2` → 旧响应回来时，新赛事的 URL 下会短暂显示旧赛事的
+   * 比赛进度、球台与比分 —— 现场页面显示错误数据会直接诱发误操作，且 5 秒轮询让
+   * "任意时刻都有在途请求"成为常态，暴露面远大于旧版（旧版没有轮询）。
+   *
+   * 守卫由两个 ref 组成：
+   * - `activeTidRef`：当前真正生效的赛事 id（tid 变化时更新）；
+   * - `requestGenerationRef`：请求代次，tid 每变化一次自增，用于识别"同一 tid 的上一代请求"。
+   *
+   * 任何异步返回在提交状态前都要重新确认自己仍属于当前 tid 与当前代次，否则整段丢弃 ——
+   * 包括 `catch` 与 `finally`，它们同样不得改动新赛事的状态。
+   */
+  const activeTidRef = useRef<number | null>(tid)
+  const requestGenerationRef = useRef(0)
+
+  /**
+   * 在途请求去重必须按 `(tid, generation)` 记账，不能用全局 boolean：
+   * 旧赛事的请求还在途时，新赛事的第一次 refresh 不能被它挡掉（否则新赛事会空转一轮）。
+   */
+  const requestInFlightRef = useRef<{ tid: number; generation: number } | null>(null)
 
   const [feedback, setFeedback] = useState<ConsoleFeedback | null>(null)
   const [busy, setBusy] = useState(false)
@@ -82,11 +106,22 @@ export default function ConsolePage() {
   const [assignTarget, setAssignTarget] = useState<TableWithMatch | null>(null)
 
   const refresh = useCallback(async () => {
-    if (tid === null || requestInFlight.current) return
-    requestInFlight.current = true
+    if (tid === null) return
+    const requestTid = tid
+    const generation = requestGenerationRef.current
+    /** 本次请求是否仍代表"当前生效的赛事与代次"。 */
+    const isCurrent = () =>
+      activeTidRef.current === requestTid && requestGenerationRef.current === generation
+
+    // 只有完全相同的 (tid, generation) 才去重；旧赛事的在途请求不阻塞新赛事的首次刷新。
+    const inFlight = requestInFlightRef.current
+    if (inFlight !== null && inFlight.tid === requestTid && inFlight.generation === generation) return
+    requestInFlightRef.current = { tid: requestTid, generation }
+
     try {
       // 先取赛事本身：团体赛有独立链路，不能走个人赛 Match Console（第 11 节硬边界）。
-      const tournament = await api.getTournament(tid)
+      const tournament = await api.getTournament(requestTid)
+      if (!isCurrent()) return
       if (tournament.event_type === 'TEAM') {
         const next: ConsoleSnapshot = {
           tournament,
@@ -101,13 +136,14 @@ export default function ConsolePage() {
         setSnapshot(next)
       } else {
         const [dashboard, players, finished, waiting, groups, estimates] = await Promise.all([
-          api.getDashboard(tid),
-          api.listPlayers(tid),
-          api.listMatches(tid, { status: 'FINISHED' }),
-          api.listMatches(tid, { status: 'WAITING' }),
-          api.getGroups(tid),
-          api.getScheduleEstimates(tid).catch(() => null),
+          api.getDashboard(requestTid),
+          api.listPlayers(requestTid),
+          api.listMatches(requestTid, { status: 'FINISHED' }),
+          api.listMatches(requestTid, { status: 'WAITING' }),
+          api.getGroups(requestTid),
+          api.getScheduleEstimates(requestTid).catch(() => null),
         ])
+        if (!isCurrent()) return
         const groupNames: Record<number, string> = {}
         for (const group of groups.groups) groupNames[group.id] = group.name
         const next: ConsoleSnapshot = {
@@ -126,16 +162,28 @@ export default function ConsolePage() {
       setStale(false)
       setLastSyncedAt(new Date())
     } catch (reason) {
+      // 旧 tid / 旧代次的失败不得污染新赛事：既不能把新赛事标成 stale，也不能写它的错误文案。
+      if (!isCurrent()) return
       // 已有成功快照时保留它，只标记 stale；不得把比赛列表清空、球台变空、比分变 0。
       if (snapshotRef.current) setStale(true)
       else setInitialError(reason instanceof ApiError ? reason.message : '加载控制台失败')
     } finally {
-      requestInFlight.current = false
-      setLoading(false)
+      // 只清除"本次请求自己"的记账：不能覆盖新赛事已经建立的在途状态。
+      const current = requestInFlightRef.current
+      if (current !== null && current.tid === requestTid && current.generation === generation) {
+        requestInFlightRef.current = null
+      }
+      if (isCurrent()) setLoading(false)
     }
   }, [tid])
 
   useEffect(() => {
+    // tid 变化的边界：先让旧代次的在途请求失效，再重置快照并启动本代次的请求。
+    // 顺序很重要 —— 代次必须在本代次 refresh 之前自增，否则新请求会拿到旧代次号。
+    activeTidRef.current = tid
+    requestGenerationRef.current += 1
+    requestInFlightRef.current = null
+
     snapshotRef.current = null
     setSnapshot(null)
     setInitialError(null)

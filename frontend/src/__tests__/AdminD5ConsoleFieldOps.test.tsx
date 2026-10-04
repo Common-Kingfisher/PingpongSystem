@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   api,
@@ -125,6 +125,206 @@ function renderConsole() {
   return render(<MemoryRouter initialEntries={[`/console?tid=${TID}`]}><ConsolePage /></MemoryRouter>)
 }
 
+// ------------------------------------------------------------------ 赛事切换竞态（PR #66 Warning 1）
+
+/** 手动控制 resolve / reject 的 Promise。 */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
+/** 通过真实 router 导航切换 ?tid=，而不是重新 mount（重新 mount 掩盖不了竞态）。 */
+function ConsoleHarness({ to }: { to: string }) {
+  const navigate = useNavigate()
+  return (
+    <>
+      <button onClick={() => navigate(to)} type="button">切换到 {to}</button>
+      <ConsolePage />
+    </>
+  )
+}
+
+const OLD_TID = 1
+const NEW_TID = 2
+
+function raceTournament(id: number, name: string): Tournament {
+  return { ...tournament(), id, name }
+}
+
+function raceDashboard(id: number, name: string, finished: number, total: number, tableId: number, tableName: string): Dashboard {
+  return dashboard({
+    tournament: raceTournament(id, name),
+    stats: { total, finished, playing: 0, waiting: total - finished },
+    tables: [{
+      id: tableId,
+      name: tableName,
+      status: 'FREE',
+      match: null,
+      recommended_match_id: null,
+    }],
+    next_playable: [],
+  })
+}
+
+const syncText = () => (document.querySelector('.console-sync')?.textContent ?? '').replace(/\s+/g, ' ')
+// jsdom 没有实现 innerText，这里用 textContent（空白已归一化，足以做包含断言）。
+const bodyText = () => (document.body.textContent ?? '').replace(/\s+/g, ' ')
+
+describe('C-D5 Console：赛事切换竞态（PR #66 Warning 1）', () => {
+  it('切换 tid 后，旧赛事的在途响应不得覆盖新赛事快照 / stale / 最近同步时间', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-04T10:00:00'))
+
+    // 旧赛事：getTournament 悬停在途 —— 模拟"切走时请求还没回来"。
+    const oldTournament = deferred<Tournament>()
+    vi.spyOn(api, 'getTournament').mockImplementation(async (id: number) =>
+      id === OLD_TID ? oldTournament.promise : raceTournament(NEW_TID, '新赛事乙'))
+
+    const newDash = raceDashboard(NEW_TID, '新赛事乙', 1, 10, 9, '9号台')
+    const getDashboard = vi.spyOn(api, 'getDashboard').mockResolvedValue(newDash)
+    vi.spyOn(api, 'listPlayers').mockResolvedValue([])
+    vi.spyOn(api, 'listMatches').mockResolvedValue([])
+    vi.spyOn(api, 'getGroups').mockResolvedValue({ groups: [] } as GroupingResult)
+    vi.spyOn(api, 'getScheduleEstimates').mockResolvedValue({
+      tournament_id: NEW_TID, generated_at: '', estimated_match_duration_seconds: 600,
+      estimate_basis: 'TEST', sample_count: 0,
+      initial_playing_matches: 0, simulated_batches: 0, truncated: false,
+      matches: [],
+    })
+
+    render(
+      <MemoryRouter initialEntries={[`/console?tid=${OLD_TID}`]}>
+        <ConsoleHarness to={`/console?tid=${NEW_TID}`} />
+      </MemoryRouter>,
+    )
+    await act(async () => {})
+    // 旧赛事仍加载中
+    expect(bodyText()).toContain('正在加载赛事数据')
+
+    // 切到新赛事：它的请求必须立即发出（不能被旧赛事的在途请求挡掉）
+    fireEvent.click(screen.getByRole('button', { name: `切换到 /console?tid=${NEW_TID}` }))
+    await act(async () => {})
+    expect(api.getTournament).toHaveBeenCalledWith(NEW_TID)
+    expect(getDashboard).toHaveBeenCalledWith(NEW_TID)
+
+    expect(bodyText()).toContain('新赛事乙')
+    expect(bodyText()).toContain('比赛进度 1 / 10')
+    expect(bodyText()).toContain('9号台')
+    expect(syncText()).toContain('最近同步：10:00:00')
+    expect(syncText()).not.toContain('当前显示可能不是最新状态')
+
+    const syncedBefore = syncText()
+    // 时间前进 5 分钟：如果旧响应错误地刷新了最近同步时间，时间文本就会变。
+    vi.setSystemTime(new Date('2026-10-04T10:05:00'))
+
+    // 现在才让旧赛事的响应回来
+    await act(async () => { oldTournament.resolve(raceTournament(OLD_TID, '旧赛事甲')) })
+    await act(async () => {})
+
+    // 新赛事内容仍在，旧赛事没有重新出现，旧赛事的数据没有覆盖新赛事
+    expect(bodyText()).toContain('新赛事乙')
+    expect(bodyText()).toContain('比赛进度 1 / 10')
+    expect(bodyText()).toContain('9号台')
+    expect(bodyText()).not.toContain('旧赛事甲')
+    // 旧请求不得改动 stale 与最近同步时间
+    expect(syncText()).not.toContain('当前显示可能不是最新状态')
+    expect(syncText()).toBe(syncedBefore)
+    // 旧请求的 tid 不应触发任何后续请求
+    expect(getDashboard).not.toHaveBeenCalledWith(OLD_TID)
+  })
+
+  it('旧赛事请求已进入 Promise.all 后才切走时，其后续响应同样被丢弃', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-04T10:00:00'))
+
+    // 旧赛事：getTournament 立即返回，但 dashboard 悬停 —— 旧请求已经越过第一道守卫。
+    const oldDashboard = deferred<Dashboard>()
+    vi.spyOn(api, 'getTournament').mockImplementation(async (id: number) =>
+      id === OLD_TID ? raceTournament(OLD_TID, '旧赛事甲') : raceTournament(NEW_TID, '新赛事乙'))
+    const getDashboard = vi.spyOn(api, 'getDashboard').mockImplementation(async (id: number) =>
+      id === OLD_TID ? oldDashboard.promise : raceDashboard(NEW_TID, '新赛事乙', 3, 10, 9, '9号台'))
+    vi.spyOn(api, 'listPlayers').mockResolvedValue([])
+    vi.spyOn(api, 'listMatches').mockResolvedValue([])
+    vi.spyOn(api, 'getGroups').mockResolvedValue({ groups: [] } as GroupingResult)
+    vi.spyOn(api, 'getScheduleEstimates').mockResolvedValue({
+      tournament_id: NEW_TID, generated_at: '', estimated_match_duration_seconds: 600,
+      estimate_basis: 'TEST', sample_count: 0,
+      initial_playing_matches: 0, simulated_batches: 0, truncated: false,
+      matches: [],
+    })
+
+    render(
+      <MemoryRouter initialEntries={[`/console?tid=${OLD_TID}`]}>
+        <ConsoleHarness to={`/console?tid=${NEW_TID}`} />
+      </MemoryRouter>,
+    )
+    await act(async () => {})
+    expect(getDashboard).toHaveBeenCalledWith(OLD_TID)
+
+    fireEvent.click(screen.getByRole('button', { name: `切换到 /console?tid=${NEW_TID}` }))
+    await act(async () => {})
+    expect(bodyText()).toContain('新赛事乙')
+    expect(bodyText()).toContain('比赛进度 3 / 10')
+
+    const syncedBefore = syncText()
+    vi.setSystemTime(new Date('2026-10-04T10:09:00'))
+
+    await act(async () => {
+      oldDashboard.resolve(raceDashboard(OLD_TID, '旧赛事甲', 23, 24, 1, '1号台'))
+    })
+    await act(async () => {})
+
+    expect(bodyText()).toContain('新赛事乙')
+    expect(bodyText()).toContain('比赛进度 3 / 10')
+    expect(bodyText()).toContain('9号台')
+    expect(bodyText()).not.toContain('旧赛事甲')
+    expect(bodyText()).not.toContain('1号台')
+    expect(syncText()).not.toContain('当前显示可能不是最新状态')
+    expect(syncText()).toBe(syncedBefore)
+  })
+
+  it('旧赛事请求失败时不得把新赛事标记成 stale', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-04T10:00:00'))
+
+    const oldTournament = deferred<Tournament>()
+    vi.spyOn(api, 'getTournament').mockImplementation(async (id: number) =>
+      id === OLD_TID ? oldTournament.promise : raceTournament(NEW_TID, '新赛事乙'))
+    vi.spyOn(api, 'getDashboard').mockResolvedValue(raceDashboard(NEW_TID, '新赛事乙', 2, 10, 9, '9号台'))
+    vi.spyOn(api, 'listPlayers').mockResolvedValue([])
+    vi.spyOn(api, 'listMatches').mockResolvedValue([])
+    vi.spyOn(api, 'getGroups').mockResolvedValue({ groups: [] } as GroupingResult)
+    vi.spyOn(api, 'getScheduleEstimates').mockResolvedValue({
+      tournament_id: NEW_TID, generated_at: '', estimated_match_duration_seconds: 600,
+      estimate_basis: 'TEST', sample_count: 0,
+      initial_playing_matches: 0, simulated_batches: 0, truncated: false,
+      matches: [],
+    })
+
+    render(
+      <MemoryRouter initialEntries={[`/console?tid=${OLD_TID}`]}>
+        <ConsoleHarness to={`/console?tid=${NEW_TID}`} />
+      </MemoryRouter>,
+    )
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: `切换到 /console?tid=${NEW_TID}` }))
+    await act(async () => {})
+    expect(bodyText()).toContain('新赛事乙')
+    const syncedBefore = syncText()
+
+    vi.setSystemTime(new Date('2026-10-04T10:07:00'))
+    await act(async () => { oldTournament.reject(new ApiError(500, '旧赛事读取失败')) })
+    await act(async () => {})
+
+    expect(syncText()).not.toContain('当前显示可能不是最新状态')
+    expect(syncText()).toBe(syncedBefore)
+    expect(bodyText()).toContain('新赛事乙')
+    expect(bodyText()).not.toContain('旧赛事读取失败')
+  })
+})
+
 beforeEach(() => {
   localStorage.clear()
   vi.restoreAllMocks()
@@ -202,31 +402,63 @@ describe('C-D5 fieldOps：只消费后端事实', () => {
     expect(completionNotice(dash, TID)?.title).toBe('尚未设置赛制')
   })
 
-  it('后端全部 state 取值都有明确处理（不留静默分支）', () => {
-    const states = [
-      'NOT_APPLICABLE', 'UNAVAILABLE',
-      'GROUP_MATCHES_NOT_GENERATED', 'MATCHES_NOT_GENERATED',
-      'GROUP_STAGE_IN_PROGRESS', 'ROUND_ROBIN_IN_PROGRESS', 'KNOCKOUT_IN_PROGRESS',
-      'QUALIFICATION_UNRESOLVED', 'KNOCKOUT_NOT_READY', 'KNOCKOUT_READY',
-      'RANKING_DATA_INSUFFICIENT', 'RANKING_UNRESOLVED', 'COMPLETED',
-    ]
-    // 只有"正常进行中"允许没有横幅；其余每个 state 都必须有明确文案。
-    const inProgress = new Set([
-      'GROUP_STAGE_IN_PROGRESS', 'ROUND_ROBIN_IN_PROGRESS', 'KNOCKOUT_IN_PROGRESS',
-    ])
+  /**
+   * 后端 `completion.state` 的行为表。
+   *
+   * 类型是 `Record<DashboardCompletion['state'], ...>`，因此：
+   * - 后端新增 state 时这里**必须**补一行，否则 `tsc` 报缺 key；
+   * - 写了契约外的 state 也会被 `tsc` 拒绝。
+   * 这保证测试不会变成"与生产代码各自漂移的第二套列表"。
+   */
+  const STATE_COVERAGE: Record<DashboardCompletion['state'], {
+    format: DashboardCompletion['format_code']
+    /** null = 该状态属于"正常进行中"，不显示横幅。 */
+    expectedTitle: string | null
+  }> = {
+    NOT_APPLICABLE: { format: null, expectedTitle: '尚未设置赛制' },
+    UNAVAILABLE: { format: 'GROUP_KNOCKOUT', expectedTitle: '赛制配置无法解析' },
+    GROUP_MATCHES_NOT_GENERATED: { format: 'GROUP_KNOCKOUT', expectedTitle: '小组赛尚未生成' },
+    GROUP_STAGE_IN_PROGRESS: { format: 'GROUP_KNOCKOUT', expectedTitle: null },
+    QUALIFICATION_UNRESOLVED: { format: 'GROUP_KNOCKOUT', expectedTitle: '小组出线存在无法判定的并列' },
+    KNOCKOUT_NOT_READY: { format: 'GROUP_KNOCKOUT', expectedTitle: '小组赛已结束，淘汰签暂时无法生成' },
+    KNOCKOUT_READY: { format: 'GROUP_KNOCKOUT', expectedTitle: '小组赛已全部完成' },
+    KNOCKOUT_IN_PROGRESS: { format: 'GROUP_KNOCKOUT', expectedTitle: null },
+    MATCHES_NOT_GENERATED: { format: 'GROUP_KNOCKOUT', expectedTitle: '小组赛尚未生成' },
+    ROUND_ROBIN_IN_PROGRESS: { format: 'ROUND_ROBIN', expectedTitle: null },
+    RANKING_DATA_INSUFFICIENT: { format: 'ROUND_ROBIN', expectedTitle: '循环赛已结束，排名数据不足' },
+    RANKING_UNRESOLVED: { format: 'ROUND_ROBIN', expectedTitle: '循环赛已结束，但仍有无法判定的并列' },
+    COMPLETED: { format: 'GROUP_KNOCKOUT', expectedTitle: '赛事已全部完成' },
+  }
+
+  it('后端全部 state 取值都有明确处理（13 个，行为表由契约类型强制穷尽）', () => {
+    const states = Object.keys(STATE_COVERAGE) as DashboardCompletion['state'][]
+    // 与 generated OpenAPI 的 DashboardCompletion.state 联合成员数一致
+    expect(states).toHaveLength(13)
     for (const state of states) {
-      // NOT_APPLICABLE 只可能由"团体赛 / 未设置赛制"产生，因此 format_code 为 null。
-      const format = state === 'NOT_APPLICABLE' ? null : 'GROUP_KNOCKOUT'
-      const dash = dashboard({ completion: completion({ format_code: format, state }) })
+      const spec = STATE_COVERAGE[state]
+      const dash = dashboard({ completion: completion({ format_code: spec.format, state }) })
       const notice = completionNotice(dash, TID)
-      if (inProgress.has(state)) {
+      if (spec.expectedTitle === null) {
         expect(notice, state).toBeNull()
       } else {
         expect(notice, state).not.toBeNull()
-        expect(notice?.title, state).toBeTruthy()
+        expect(notice?.title, state).toBe(spec.expectedTitle)
         expect(notice?.detail, state).toBeTruthy()
       }
     }
+  })
+
+  it('服务端返回契约外状态时运行期兜底：不静默、不白屏', () => {
+    // 模拟"后端上了新状态但前端还没更新" —— 只能靠 cast 构造。
+    const bogus = {
+      ...completion(),
+      state: 'SOMETHING_NEW_FROM_BACKEND',
+    } as unknown as DashboardCompletion
+    const notice = completionNotice(dashboard({ completion: bogus }), TID)
+    expect(notice).not.toBeNull()
+    expect(notice?.title).toBe('无法识别赛事状态')
+    expect(notice?.detail).toContain('SOMETHING_NEW_FROM_BACKEND')
+    expect(notice?.tone).toBe('warn')
   })
 
   it('阶段收口时排台入口全部关闭并给出原因', () => {
