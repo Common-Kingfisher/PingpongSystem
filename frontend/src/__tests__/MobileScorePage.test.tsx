@@ -50,6 +50,13 @@ const TOURNAMENT = {
   stage: 'GROUP_STAGE',
 }
 
+const AUTH_USER = {
+  id: 7,
+  username: 'operator',
+  display_name: '王裁判',
+  system_role: 'EVENT_ADMIN',
+} as const
+
 const STORAGE_TOURNAMENT = { ...TOURNAMENT, id: STORAGE_TID, name: 'LOCALSTORAGE-TRAP-99' }
 
 const PLAYERS = [
@@ -141,6 +148,7 @@ interface ServerState {
    * 只返回响应而不更新列表，会让“服务端已结束、页面仍看到未结束”这种假象混进测试结论。
    */
   onScorePost?: (body: Record<string, unknown>) => Response | Promise<Response>
+  onMatchesGet?: () => Response | Promise<Response>
 }
 
 let requestedPaths: string[] = []
@@ -196,11 +204,24 @@ function installFetchStub() {
       return Promise.resolve(jsonResponse(server.matches[0]))
     }
 
+    if (path === '/api/v1/auth/me') {
+      return Promise.resolve(jsonResponse({
+        user: AUTH_USER,
+        tournament_access_count: 1,
+      }))
+    }
+    if (path === '/api/tournaments') {
+      return Promise.resolve(jsonResponse([{ id: URL_TID, name: TOURNAMENT.name }]))
+    }
+
     const tid = Number(/\/api\/tournaments\/(\d+)/.exec(path)?.[1] ?? 0)
     if (/\/api\/tournaments\/\d+(\?|$)/.test(path)) {
       return Promise.resolve(jsonResponse(tid === URL_TID ? TOURNAMENT : STORAGE_TOURNAMENT))
     }
-    if (/\/matches$/.test(path)) return Promise.resolve(jsonResponse(server.matches))
+    if (/\/matches$/.test(path)) {
+      if (server.onMatchesGet) return Promise.resolve(server.onMatchesGet())
+      return Promise.resolve(jsonResponse(server.matches))
+    }
     if (/\/players$/.test(path)) return Promise.resolve(jsonResponse(PLAYERS))
     if (/\/groups$/.test(path)) return Promise.resolve(jsonResponse(GROUPS))
     if (/\/dashboard$/.test(path)) return Promise.resolve(jsonResponse(DASHBOARD))
@@ -344,6 +365,23 @@ describe('正常比分：只录大比分', () => {
 
     await screen.findByText('请先填写双方大比分。')
     expect(scorePosts).toEqual([])
+  })
+
+  it('提交成功但状态刷新失败时，完成态只显示一条合并提示', async () => {
+    const saved = finishedMatch()
+    server.onScorePost = () => Promise.resolve(jsonResponse(saved))
+
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
+    await waitForReady()
+
+    server.onMatchesGet = () => Promise.reject(new TypeError('network reload failed'))
+
+    fillBigScore('2', '1')
+    await submitNormalScore()
+
+    await screen.findByText('最新状态刷新失败，请重新加载页面确认。')
+    expect(screen.getAllByText('比分已保存')).toHaveLength(1)
+    expect(screen.getByText('请重新加载页面，核对最新比赛状态；不要重复提交。')).toBeTruthy()
   })
 
   it('大比分平局时前端只做基础提示，不发请求（最终判定仍在服务端）', async () => {

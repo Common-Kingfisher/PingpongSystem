@@ -444,7 +444,7 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
       // 刷新失败**不等于**提交失败：比分已经保存，必须如实告诉裁判，并且不要引导他再点一次。
       // 同样只在仍是当前 generation 时提示 —— 旧比赛的刷新失败不得出现在新比赛页面上。
       if (!isStale()) {
-        setRefreshWarning('比分已保存，但最新状态刷新失败，请重新加载页面确认。')
+        setRefreshWarning('最新状态刷新失败，请重新加载页面确认。')
       }
     } finally {
       if (!isStale()) {
@@ -542,7 +542,6 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
       <div className="ms-shell">
         {restoredFromSaved && refreshWarning && (
           <p className="ms-refresh-warning" role="status">
-            <strong>比分已保存</strong>
             {refreshWarning}
             <span>请重新加载页面，核对最新比赛状态；不要重复提交。</span>
           </p>

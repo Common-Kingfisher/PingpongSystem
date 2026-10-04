@@ -47,6 +47,7 @@
 import { Route, Routes, matchPath, useParams } from 'react-router-dom'
 import MobileScorePage from './pages/MobileScorePage'
 import { parseRouteMatchId, parseRouteTournamentId } from './routeParams'
+import { RequireAuth, RequireTournamentAccess } from './auth/AuthGuards'
 
 /**
  * D 轨拥有的**唯一**路由 pattern。
@@ -132,7 +133,13 @@ function AdminScoreInvalidLink() {
  * 结构化 `{code,message}` 由共享 `api.ts` 统一解析，页面不自己解析 response。
  */
 function AdminScoreGuardBoundary({ tid, matchId }: { tid: number; matchId: number }) {
-  return <MobileScorePage matchId={matchId} tid={tid} />
+  return (
+    <RequireAuth>
+      <RequireTournamentAccess tid={tid}>
+        <MobileScorePage matchId={matchId} tid={tid} />
+      </RequireTournamentAccess>
+    </RequireAuth>
+  )
 }
 
 /**

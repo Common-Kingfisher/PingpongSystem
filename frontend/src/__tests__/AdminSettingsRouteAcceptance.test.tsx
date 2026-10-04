@@ -53,6 +53,8 @@ beforeEach(() => {
   // 读 window.location.search（jsdom 下由 MemoryRouter 改为读 localStorage 兜底）。
   // 两者指向同一个赛事，保证断言落在真实的 /settings 路由上。
   setActiveTournamentId(TID)
+  // TournamentSettingsPage 读取浏览器地址；MemoryRouter 不改变 jsdom 的 location。
+  window.history.replaceState({}, '', `/settings?tid=${TID}`)
 })
 
 afterEach(cleanup)
@@ -60,6 +62,14 @@ afterEach(cleanup)
 describe('管理端 /settings 路由的报名开关入口', () => {
   it('真实 App 经 /settings?tid=12 进入报名设置，保存时调用正式 updateTournamentRegistration', async () => {
     const getTournament = vi.spyOn(api, 'getTournament').mockResolvedValue(tournament)
+    vi.spyOn(api, 'me').mockResolvedValue({
+      user: {
+        id: 1, username: 'event-admin', display_name: '赛事管理员',
+        system_role: 'EVENT_ADMIN',
+      },
+      tournament_access_count: 1,
+    })
+    vi.spyOn(api, 'listTournaments').mockResolvedValue([tournament])
     vi.spyOn(api, 'getOrganization').mockResolvedValue({
       id: 1, tournament_id: TID, name: '组委会', contact_name: null, contact: null, note: null, created_at: '', updated_at: '',
     })
