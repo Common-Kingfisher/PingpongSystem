@@ -280,7 +280,36 @@ export default function ConsolePage() {
       })
       await refresh()
     } catch (e) {
-      setScoreSubmitError(consoleErrorFeedback(e, wasRevision ? '修改比分失败' : '录入比分失败'))
+      /*
+       * 首次录分被其他终端抢先（Issue E，6.2）。
+       *
+       * 409 表示服务端权威状态已经变了（本场已被别人录成 FINISHED）——被拒的这一次
+       * **没有**写入任何比分。此时把裁判留在旧表单上，他会以为"卡住了"并反复点击。
+       * 正确收口：关闭旧弹窗 → 立刻拉取权威现场状态 → 让 dashboard 展示服务端最新
+       * Match / 球台状态。
+       *
+       * ⚠️ 只对 record 收口。revise 的 409 还有别的业务含义（例如淘汰赛下游已开打），
+       * 一律假设成"别人已经录分"会覆盖服务端的真实语义，因此 revise 仍展示服务端原文案。
+       * ⚠️ 任何情况下都**不**自动重发一次比分写入：那正是"把 409 重试成第二次写入"。
+       */
+      if (!wasRevision && e instanceof ApiError && e.status === 409) {
+        setScoringMatch(null)
+        setScoreSubmitError(null)
+        const refreshed = await refresh({ force: true })
+        setFeedback(refreshed
+          ? {
+              tone: 'warning',
+              title: '比赛状态已由其他终端更新',
+              message: '该场比赛状态已由其他终端更新，已加载最新现场状态。本次提交的比分没有写入。',
+            }
+          : {
+              tone: 'danger',
+              title: '检测到状态冲突',
+              message: '检测到状态冲突，但刷新最新现场状态失败，请手动重试（点击「刷新」）。（本次提交的比分没有写入）',
+            })
+      } else {
+        setScoreSubmitError(consoleErrorFeedback(e, wasRevision ? '修改比分失败' : '录入比分失败'))
+      }
     } finally {
       setBusy(false)
     }

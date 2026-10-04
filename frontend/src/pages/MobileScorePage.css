@@ -596,6 +596,13 @@
   font-size: 12.5px;
 }
 
+/* Issue E：409 冲突后"重新加载"入口。必须是可点的大按钮，不是一行小字链接。 */
+.ms-reload {
+  justify-self: start;
+  margin-top: 6px;
+  min-height: 44px;
+}
+
 .ms-confirm {
   display: grid;
   gap: 10px;
