@@ -78,6 +78,8 @@ function dashboard(overrides: Partial<Dashboard> = {}): Dashboard {
     stats: { total: 24, finished: 6, playing: 2, waiting: 18 },
     tables: [table(1, 'OCCUPIED'), table(2, 'FREE')],
     next_playable: [],
+    // Phase 1 只读展示；Phase 2 起 Console 消费同一字段做阶段收口。
+    completion: { format_code: 'GROUP_KNOCKOUT', state: 'GROUP_STAGE_IN_PROGRESS', can_advance: false, completed: false },
     ...overrides,
   }
 }
