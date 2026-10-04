@@ -626,6 +626,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/generate-matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Matches
+         * @description 按赛事当前保存的 ``format_code`` 生成该赛制的首阶段比赛。
+         *
+         *     这是三赛制唯一的正式生成入口。未设置赛制的历史赛事被显式拒绝，不默认成
+         *     ``GROUP_KNOCKOUT``；TEAM 赛事由 Handler 拒绝，不产生普通 Match。
+         */
+        post: operations["generate_matches_api_tournaments__tournament_id__generate_matches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}/generate-group-matches": {
         parameters: {
             query?: never;
@@ -635,7 +658,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Generate Group Matches */
+        /**
+         * Generate Group Matches
+         * @description legacy 小组赛生成入口：保留给既有前端、测试与 D6D harness。
+         */
         post: operations["generate_group_matches_api_tournaments__tournament_id__generate_group_matches_post"];
         delete?: never;
         options?: never;
@@ -5114,6 +5140,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DemoFinishGroupStageResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_matches_api_tournaments__tournament_id__generate_matches_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerateMatchesResult"];
                 };
             };
             /** @description Validation Error */

@@ -2424,12 +2424,56 @@
         }
       }
     },
+    "/api/tournaments/{tournament_id}/generate-matches": {
+      "post": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "Generate Matches",
+        "description": "按赛事当前保存的 ``format_code`` 生成该赛制的首阶段比赛。\n\n这是三赛制唯一的正式生成入口。未设置赛制的历史赛事被显式拒绝，不默认成\n``GROUP_KNOCKOUT``；TEAM 赛事由 Handler 拒绝，不产生普通 Match。",
+        "operationId": "generate_matches_api_tournaments__tournament_id__generate_matches_post",
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateMatchesResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tournaments/{tournament_id}/generate-group-matches": {
       "post": {
         "tags": [
           "matches"
         ],
         "summary": "Generate Group Matches",
+        "description": "legacy 小组赛生成入口：保留给既有前端、测试与 D6D harness。",
         "operationId": "generate_group_matches_api_tournaments__tournament_id__generate_group_matches_post",
         "parameters": [
           {
