@@ -862,11 +862,29 @@ class TableWithMatch(BaseModel):
     recommended_match_id: int | None = None
 
 
+class DashboardCompletion(BaseModel):
+    """赛制 Handler 的阶段完成状态（Dashboard 只读透传，前端不得自行推断）。
+
+    `state` 取值来自 `services/formats.py` 各 Handler 的 `get_completion_state`，
+    额外补充两个"没有可判定赛制"的观测值：
+
+    - `NOT_APPLICABLE`：团体赛或未设置 `format_code`，个人赛赛制不适用；
+    - `UNAVAILABLE`：赛制处理器拒绝当前配置，无法给出权威状态。
+    """
+
+    format_code: TournamentFormat | None = None
+    state: str
+    can_advance: bool = False
+    completed: bool = False
+
+
 class Dashboard(BaseModel):
     tournament: TournamentOut
     stats: DashboardStats
     tables: list[TableWithMatch]
     next_playable: list[MatchOut]
+    # 阶段推进权威：直接来自赛制 Handler，避免前端统计比赛数再自行判断"小组赛是否结束"。
+    completion: DashboardCompletion
 
 
 class MatchGameInput(BaseModel):

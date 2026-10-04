@@ -1408,6 +1408,32 @@ export interface components {
             tables: components["schemas"]["TableWithMatch"][];
             /** Next Playable */
             next_playable: components["schemas"]["MatchOut"][];
+            completion: components["schemas"]["DashboardCompletion"];
+        };
+        /**
+         * DashboardCompletion
+         * @description 赛制 Handler 的阶段完成状态（Dashboard 只读透传，前端不得自行推断）。
+         *
+         *     `state` 取值来自 `services/formats.py` 各 Handler 的 `get_completion_state`，
+         *     额外补充两个"没有可判定赛制"的观测值：
+         *
+         *     - `NOT_APPLICABLE`：团体赛或未设置 `format_code`，个人赛赛制不适用；
+         *     - `UNAVAILABLE`：赛制处理器拒绝当前配置，无法给出权威状态。
+         */
+        DashboardCompletion: {
+            format_code?: components["schemas"]["TournamentFormat"] | null;
+            /** State */
+            state: string;
+            /**
+             * Can Advance
+             * @default false
+             */
+            can_advance: boolean;
+            /**
+             * Completed
+             * @default false
+             */
+            completed: boolean;
         };
         /** DashboardStats */
         DashboardStats: {

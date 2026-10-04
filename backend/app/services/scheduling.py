@@ -16,7 +16,8 @@ import sqlite3
 
 from .. import repository as repo
 from ..domain import scheduler
-from ..models import MatchStatus, TableStatus
+from ..models import EventType, MatchStatus, TableStatus
+from . import formats as formats_service
 from .transaction import TransactionBusyError, write_transaction
 
 
@@ -386,6 +387,42 @@ def _release_match_locked(conn: sqlite3.Connection, match_id: int) -> dict:
     return repo.get_match(conn, match_id)
 
 
+def resolve_completion_state(conn: sqlite3.Connection, tournament: dict) -> dict:
+    """阶段完成状态：完全委托赛制 Handler，本函数不复制任何完成判定。
+
+    C-D5 收口要求 Console 不再"统计比赛条数自己判断小组赛是否结束"。
+    这里把既有的唯一权威（`services/formats.py` 的 `get_completion_state`）
+    只读透传给 Dashboard，前端不需要也不允许再写第二套判断。
+
+    非个人赛赛制（团体赛）与未设置赛制的历史赛事不适用，返回 `NOT_APPLICABLE`；
+    处理器拒绝当前配置时返回 `UNAVAILABLE`，绝不猜成"可以推进"。
+    """
+    format_code = tournament.get("format_code")
+    if not format_code or tournament.get("event_type") == EventType.TEAM.value:
+        return {
+            "format_code": format_code,
+            "state": "NOT_APPLICABLE",
+            "can_advance": False,
+            "completed": False,
+        }
+    try:
+        handler = formats_service.resolve_format_handler(format_code)
+        state = handler.get_completion_state(conn, tournament["id"])
+    except formats_service.FormatHandlerError:
+        return {
+            "format_code": format_code,
+            "state": "UNAVAILABLE",
+            "can_advance": False,
+            "completed": False,
+        }
+    return {
+        "format_code": format_code,
+        "state": state["state"],
+        "can_advance": bool(state["can_advance"]),
+        "completed": bool(state["completed"]),
+    }
+
+
 def get_dashboard(conn: sqlite3.Connection, tournament_id: int) -> dict:
     """控制台聚合数据：进度统计 + 每台当前比赛 + 建议安排 + 下一批可执行比赛。
 
@@ -393,6 +430,7 @@ def get_dashboard(conn: sqlite3.Connection, tournament_id: int) -> dict:
     前端只展示建议、不自行重算优先级。
     """
     _ensure_tournament(conn, tournament_id)
+    tournament = repo.get_tournament(conn, tournament_id)
     matches = repo.list_matches(conn, tournament_id)
     stats = {
         "total": len(matches),
@@ -430,10 +468,11 @@ def get_dashboard(conn: sqlite3.Connection, tournament_id: int) -> dict:
     ]
 
     return {
-        "tournament": repo.get_tournament(conn, tournament_id),
+        "tournament": tournament,
         "stats": stats,
         "tables": tables,
         "next_playable": [repo.decorate_match(conn, m) for m in next_playable],
+        "completion": resolve_completion_state(conn, tournament),
     }
 
 def assign_table(conn: sqlite3.Connection, match_id: int, table_id: int) -> dict:

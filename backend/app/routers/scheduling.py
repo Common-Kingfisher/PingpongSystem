@@ -90,6 +90,7 @@ def dashboard(
             for t in data["tables"]
         ],
         next_playable=[schemas.MatchOut(**m) for m in data["next_playable"]],
+        completion=schemas.DashboardCompletion(**data["completion"]),
     )
 
 
