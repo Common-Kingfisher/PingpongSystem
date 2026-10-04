@@ -161,6 +161,14 @@ describe('认证路由与 Auth Shell', () => {
     expect(screen.queryByText('确认提交大比分')).toBeNull()
   })
 
+  it('未登录访问修改密码时进入登录页，不渲染改密表单', async () => {
+    renderAt('/change-password')
+
+    await screen.findByText('管理端登录')
+    expect(screen.queryByText('设置新密码')).toBeNull()
+    expect(screen.getByTestId('location').textContent).toBe('/login?next=%2Fchange-password')
+  })
+
   it('已登录但赛事不在可管理列表时显示赛事不可用', async () => {
     authMeAuthenticated = true
     accessibleTournamentId = 99

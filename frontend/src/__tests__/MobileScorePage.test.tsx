@@ -19,7 +19,7 @@
  */
 
 /// <reference types="vitest/globals" />
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
@@ -257,6 +257,14 @@ async function submitNormalScore() {
   fireEvent.click(screen.getByRole('button', { name: '确认提交大比分' }))
 }
 
+async function flushMicrotasks() {
+  await act(async () => {
+    for (let index = 0; index < 6; index += 1) {
+      await Promise.resolve()
+    }
+  })
+}
+
 beforeEach(() => {
   localStorage.clear()
   installFetchStub()
@@ -393,6 +401,69 @@ describe('正常比分：只录大比分', () => {
 
     await screen.findByText('大比分不能平局，请检查后重新填写。')
     expect(scorePosts).toEqual([])
+  })
+
+  it('score POST 悬挂超过 Auth 超时后仍不会被取消', async () => {
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
+    await waitForReady()
+
+    let releaseScore: ((response: Response) => void) | null = null
+    const gatedScore = new Promise<Response>((resolve) => {
+      releaseScore = resolve
+    })
+    server.onScorePost = () => gatedScore
+
+    fillBigScore('2', '1')
+    await submitNormalScore()
+    await flushMicrotasks()
+
+    expect(scorePosts).toHaveLength(1)
+    expect((screen.getByRole('button', { name: '提交中…' }) as HTMLButtonElement).disabled).toBe(true)
+
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        vi.advanceTimersByTime(8001)
+        await flushMicrotasks()
+      })
+
+      expect(document.body.textContent).not.toContain('请求超时')
+      expect((screen.getByRole('button', { name: '提交中…' }) as HTMLButtonElement).disabled).toBe(true)
+
+      server.matches = [finishedMatch()]
+      await act(async () => {
+        releaseScore?.(jsonResponse(finishedMatch()))
+        await flushMicrotasks()
+      })
+
+      expect(screen.getByText('比分已保存')).toBeTruthy()
+      expect(scorePosts).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('score POST 网络失败后自动用同一 request_id 重试', async () => {
+    let attempts = 0
+    server.onScorePost = () => {
+      attempts += 1
+      if (attempts === 1) return Promise.reject(new TypeError('Failed to fetch'))
+      server.matches = [finishedMatch()]
+      return Promise.resolve(jsonResponse(finishedMatch()))
+    }
+
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
+    await waitForReady()
+
+    fillBigScore('2', '1')
+    await submitNormalScore()
+
+    await screen.findByText('比分已保存')
+    expect(attempts).toBe(2)
+    expect(scorePosts).toHaveLength(2)
+    expect(scorePosts[0].request_id).toBeTruthy()
+    expect(scorePosts[0].request_id).toBe(scorePosts[1].request_id)
+    expect(screen.queryByRole('button', { name: '确认提交大比分' })).toBeNull()
   })
 
   it('胜方局数不符合本赛事局制时不在前端阻断，请求照样发给后端并展示服务端 detail', async () => {

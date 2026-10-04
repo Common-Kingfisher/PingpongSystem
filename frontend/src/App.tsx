@@ -146,7 +146,11 @@ function AuthenticatedAppRoutes() {
   }
 
   if (pathname === '/change-password') {
-    return <ChangePasswordPage />
+    return (
+      <RequireAuth>
+        <ChangePasswordPage />
+      </RequireAuth>
+    )
   }
 
   return (

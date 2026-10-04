@@ -172,11 +172,31 @@ function parseErrorBody(body: unknown): { message?: string; code?: string } {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // FormData 上传时由浏览器自动生成 multipart boundary，不能手动设 Content-Type
   const isForm = init?.body instanceof FormData
-  // 手机锁屏后 Wi-Fi 可能短暂断开，浏览器恢复页面时旧 fetch 会保持 pending。
-  // 必须释放这类悬挂请求，否则“检查登录状态”和“正在登录”都无法进入错误/重试路径。
+  const resp = await fetch(path, {
+    ...init,
+    headers: isForm ? undefined : { 'Content-Type': 'application/json' },
+  })
+  if (!resp.ok) {
+    let message = `请求失败 (${resp.status})`
+    let code: string | undefined
+    try {
+      const parsed = parseErrorBody(await resp.json())
+      if (parsed.message !== undefined) message = parsed.message
+      code = parsed.code
+    } catch {
+      // 非 JSON 错误体，保留默认信息
+    }
+    // 开发期诊断：把失败请求的 method/url/status/detail 打到浏览器 Console
+    console.error(`[api] ${init?.method ?? 'GET'} ${path} -> ${resp.status}`, message, code ?? '')
+    throw new ApiError(resp.status, message, code)
+  }
+  if (resp.status === 204) return undefined as T
+  return (await resp.json()) as T
+}
+
+async function requestWithTimeout<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController()
   let timeoutId = 0
-
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = window.setTimeout(() => {
       controller.abort()
@@ -186,29 +206,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   try {
     return await Promise.race([
-      (async () => {
-        const resp = await fetch(path, {
-          ...init,
-          headers: isForm ? undefined : { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-        })
-        if (!resp.ok) {
-          let message = `请求失败 (${resp.status})`
-          let code: string | undefined
-          try {
-            const parsed = parseErrorBody(await resp.json())
-            if (parsed.message !== undefined) message = parsed.message
-            code = parsed.code
-          } catch {
-            // 非 JSON 错误体，保留默认信息
-          }
-          // 开发期诊断：把失败请求的 method/url/status/detail 打到浏览器 Console
-          console.error(`[api] ${init?.method ?? 'GET'} ${path} -> ${resp.status}`, message, code ?? '')
-          throw new ApiError(resp.status, message, code)
-        }
-        if (resp.status === 204) return undefined as T
-        return (await resp.json()) as T
-      })(),
+      request<T>(path, { ...init, signal: controller.signal }),
       timeoutPromise,
     ])
   } finally {
@@ -269,14 +267,14 @@ export const api = {
   health: () => request<{ status: string }>('/api/health'),
 
   login: (body: Schemas['AuthLoginRequest']) =>
-    request<AuthLoginResponse>('/api/v1/auth/login', {
+    requestWithTimeout<AuthLoginResponse>('/api/v1/auth/login', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  logout: () => request<void>('/api/v1/auth/logout', { method: 'POST' }),
-  me: () => request<AuthMeResponse>('/api/v1/auth/me'),
+  logout: () => requestWithTimeout<void>('/api/v1/auth/logout', { method: 'POST' }),
+  me: () => requestWithTimeout<AuthMeResponse>('/api/v1/auth/me'),
   changePassword: (body: AuthChangePasswordRequest) =>
-    request<void>('/api/v1/auth/change-password', {
+    requestWithTimeout<void>('/api/v1/auth/change-password', {
       method: 'POST',
       body: JSON.stringify(body),
     }),

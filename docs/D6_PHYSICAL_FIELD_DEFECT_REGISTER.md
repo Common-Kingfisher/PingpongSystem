@@ -87,7 +87,7 @@ BLOCKED — DF-001 field revalidation pending
 - Mobile Score 已接入登录与赛事访问守卫；写权限仍由后端契约裁决。
 - Auth Context 已处理初始 `/me` 探测与登录成功之间的晚到 401 竞态。
 - 2026-10-04 真实手机首轮复验：专用 LAN 测试账号可登录；锁屏恢复后触发 DF-005，已按新缺陷登记并修复。
-- 代码级验证：Vitest 18 个文件 / 233 条用例通过，`tsc --noEmit` 通过，production build 通过。
+- 代码级验证：Vitest 18 个文件 / 236 条用例通过，`tsc --noEmit` 通过，production build 通过。
 - 真实手机 LAN 回验、截图/录屏与账号角色记录尚未完成，因此本条不能关闭为 Field PASS。
 
 ## DF-002
@@ -171,10 +171,11 @@ BLOCKED — DF-001 field revalidation pending
 
 ### 修复记录
 
-- `api.request()` 增加 8 秒超时：`AbortController` 取消底层请求，`Promise.race` 保证 UI Promise 必然结束。
+- Auth 请求改用 `api.requestWithTimeout()` 增加 8 秒超时：`AbortController` 取消底层请求，`Promise.race` 保证 UI Promise 必然结束。
+- 共享 `api.request()` 保持无超时；score、导入导出、赛制生成等既有请求语义不变。
 - 超时抛出 `ApiError(0, '请求超时，请检查服务器或本地网络', 'NETWORK_TIMEOUT')`，由登录页和守卫统一走网络错误/重试路径。
 - 新增 `AuthHungRequest.test.tsx`：先以永久 pending 的 `/me` 和 `/login` 请求复现两个卡死症状，修复后断言加载态释放、登录按钮可重试。
-- 代码级验证：Vitest 18 个文件 / 233 条用例通过，`tsc --noEmit` 通过，production build 通过；production 服务已返回新构建资源。
+- 代码级验证：Vitest 18 个文件 / 236 条用例通过，`tsc --noEmit` 通过，production build 通过。
 - 真实手机锁屏恢复后重复登录、进入受保护页和移动录分仍需回验，因此本条不能关闭为 Field PASS。
 
 ## 关闭规则
