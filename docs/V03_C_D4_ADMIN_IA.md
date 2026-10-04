@@ -36,8 +36,8 @@ C-D4 closeout 已完成。管理端参赛名单、抽签与编排、赛事设置
 | format_code | 当前页面能力 |
 |---|---|
 | `GROUP_KNOCKOUT` | 主裁判人工设置种子顺序、生成/清空分组、抽签页只读查看出线人数、设置页逐组保存实际晋级人数、生成小组比赛 |
-| `ROUND_ROBIN` | 只展示循环赛流程与准备状态；不显示种子和小组晋级，等待正式编排 API |
-| `SINGLE_ELIMINATION` | 可保存当前种子名单；正式单淘汰种子落位规则等待后端契约，不宣称已实现 ITTF 落位 |
+| `ROUND_ROBIN` | 只展示循环赛流程与准备状态；不显示种子和小组晋级，等待正式编排 API（**后续已落地**，见 [V03_FORMAT_GENERATION_INTEGRATION.md](V03_FORMAT_GENERATION_INTEGRATION.md)） |
+| `SINGLE_ELIMINATION` | 可保存当前种子名单；正式单淘汰种子落位规则等待后端契约，不宣称已实现 ITTF 落位（**后续已落地生成入口**，见 [V03_FORMAT_GENERATION_INTEGRATION.md](V03_FORMAT_GENERATION_INTEGRATION.md)） |
 | `null` | 要求先在设置页选择并保存赛制，不默认成小组淘汰 |
 
 ## 参赛名单与 CSV 语义
@@ -78,8 +78,8 @@ C-D4 closeout 已完成。管理端参赛名单、抽签与编排、赛事设置
 
 ### B 轨
 
-- 按当前 `format_code` 的统一生成入口。
-- `ROUND_ROBIN` 正式编排入口。
+- 按当前 `format_code` 的统一生成入口。（**已落地**：`POST /api/tournaments/{tid}/generate-matches`，见 [V03_FORMAT_GENERATION_INTEGRATION.md](V03_FORMAT_GENERATION_INTEGRATION.md)）
+- `ROUND_ROBIN` 正式编排入口。（**已落地**：同上）
 - `SINGLE_ELIMINATION` 正式种子校验与落位入口。
 - 服务端可审计的 draw seed、重抽签原因与 Draw Revision。
 
