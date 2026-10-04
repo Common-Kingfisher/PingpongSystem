@@ -78,7 +78,10 @@ export default function App() {
           <Route path="/console" element={<ConsolePage />} />
           <Route path="/rankings" element={<RankingsPage />} />
           <Route path="/knockout" element={<KnockoutPage />} />
-          <Route path="/schedule" element={<SchedulePage />} />
+          {/* C-D5 Phase 3：管理端赛程默认展示"实时赛程"。
+              Public 端（/public/t/:tid/schedule）由 PublicRoutes 复用同一组件且不传 variant，
+              因此继续拿到既有的 public"选手赛程"行为，D 轨不受影响。 */}
+          <Route path="/schedule" element={<SchedulePage variant="admin" />} />
           <Route path="/bigscreen" element={<BigScreenPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/journey" element={<ChampionJourneyPage />} />
