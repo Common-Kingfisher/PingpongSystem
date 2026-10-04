@@ -1766,6 +1766,7 @@ body {
   margin: 0 0 6px;
   color: #1e3a5f;
   font-size: 36px;
+  overflow-wrap: anywhere;
 }
 
 .bigscreen-stage {

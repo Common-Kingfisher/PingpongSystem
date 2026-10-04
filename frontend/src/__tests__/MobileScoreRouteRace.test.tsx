@@ -31,6 +31,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminScoreAdapter } from '../MobileScoreRoutes'
+import { AuthProvider } from '../auth/AuthContext'
 import type { Match } from '../api'
 
 /** A/X：先打开、请求被悬挂的旧比赛 */
@@ -108,6 +109,13 @@ function matchFor(tid: number, matchId: number, overrides: Partial<Match> = {}):
 const MATCH_X_RECORD = matchFor(TID_A, MATCH_X)
 const MATCH_Y_RECORD = matchFor(TID_B, MATCH_Y)
 
+const AUTH_USER = {
+  id: 1,
+  username: 'operator',
+  display_name: '竞态测试裁判',
+  system_role: 'EVENT_ADMIN',
+} as const
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -154,6 +162,16 @@ function installFetchStub() {
     const path = raw.replace(/^https?:\/\/[^/]+/, '')
     const method = init?.method ?? 'GET'
     requestedPaths.push(`${method} ${path}`)
+
+    if (path === '/api/v1/auth/me') {
+      return Promise.resolve(jsonResponse({ user: AUTH_USER, tournament_access_count: 2 }))
+    }
+    if (path === '/api/tournaments') {
+      return Promise.resolve(jsonResponse([
+        { id: TID_A, name: TOURNAMENT_A.name },
+        { id: TID_B, name: TOURNAMENT_B.name },
+      ]))
+    }
 
     const scorePost = /\/api\/matches\/(\d+)\/score$/.exec(path)
     if (method === 'POST' && scorePost) {
@@ -223,10 +241,12 @@ function RaceProbe({ to }: { to: string }) {
 function renderRace({ to }: { to: string }) {
   return render(
     <MemoryRouter initialEntries={[`/admin/t/${TID_A}/matches/${MATCH_X}/score`]}>
-      <RaceProbe to={to} />
-      <Routes>
-        <Route element={<AdminScoreAdapter />} path="/admin/t/:tid/matches/:matchId/score" />
-      </Routes>
+      <AuthProvider>
+        <RaceProbe to={to} />
+        <Routes>
+          <Route element={<AdminScoreAdapter />} path="/admin/t/:tid/matches/:matchId/score" />
+        </Routes>
+      </AuthProvider>
     </MemoryRouter>,
   )
 }

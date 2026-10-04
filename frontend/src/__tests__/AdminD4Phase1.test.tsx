@@ -101,6 +101,60 @@ describe('参赛名单与待确认报名', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledWith(7, 19))
   })
 
+  it('确认最后一条 PENDING 报名后自动切回正式名单', async () => {
+    const registration: Registration = {
+      id: 31, tournament_id: 7, name: '最后报名', affiliation: null, contact: null,
+      rating_points: 1000, status: 'PENDING', confirmed_player_id: null,
+      confirmed_by_user_id: null, confirmed_at: null,
+      created_at: '2026-09-23T08:00:00Z', updated_at: '2026-09-23T08:00:00Z',
+    }
+    const confirm = vi.spyOn(api, 'confirmRegistration').mockResolvedValue({
+      registration: { ...registration, status: 'CONFIRMED', confirmed_player_id: 2 },
+      player,
+    })
+    vi.spyOn(api, 'getTournament').mockResolvedValue({ ...baseTournament, roster_confirmed: false })
+    vi.spyOn(api, 'listPlayers').mockResolvedValue([player])
+    vi.spyOn(api, 'listRegistrations').mockResolvedValue([registration])
+    vi.spyOn(api, 'listEntries').mockResolvedValue([])
+
+    render(<MemoryRouter initialEntries={['/players?tid=7']}><PlayersPage /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('tab', { name: /待确认报名/ }))
+    fireEvent.click(screen.getAllByRole('button', { name: '确认并加入名单' })[0])
+
+    const officialTab = await screen.findByRole('tab', { name: /正式名单/ })
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(7, 31))
+    expect(officialTab.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('仍有待确认报名时保持当前 tab', async () => {
+    const first: Registration = {
+      id: 41, tournament_id: 7, name: '第一条报名', affiliation: null, contact: null,
+      rating_points: 1000, status: 'PENDING', confirmed_player_id: null,
+      confirmed_by_user_id: null, confirmed_at: null,
+      created_at: '2026-09-23T08:00:00Z', updated_at: '2026-09-23T08:00:00Z',
+    }
+    const second: Registration = {
+      ...first, id: 42, name: '第二条报名',
+    }
+    const confirm = vi.spyOn(api, 'confirmRegistration').mockResolvedValue({
+      registration: { ...first, status: 'CONFIRMED', confirmed_player_id: 2 },
+      player,
+    })
+    vi.spyOn(api, 'getTournament').mockResolvedValue({ ...baseTournament, roster_confirmed: false })
+    vi.spyOn(api, 'listPlayers').mockResolvedValue([player])
+    vi.spyOn(api, 'listRegistrations').mockResolvedValue([first, second])
+    vi.spyOn(api, 'listEntries').mockResolvedValue([])
+
+    render(<MemoryRouter initialEntries={['/players?tid=7']}><PlayersPage /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('tab', { name: /待确认报名/ }))
+    fireEvent.click(screen.getAllByRole('button', { name: '确认并加入名单' })[0])
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(7, 41))
+    await screen.findByText('已确认 第一条报名，并写入正式名单。')
+    const pendingTab = screen.getByRole('tab', { name: /待确认报名/ })
+    expect(pendingTab.getAttribute('aria-selected')).toBe('true')
+  })
+
   it('正式名单将缺失 college 标为未填写，且没有种子和分组列', async () => {
     vi.spyOn(api, 'getTournament').mockResolvedValue({ ...baseTournament, roster_confirmed: false })
     vi.spyOn(api, 'listPlayers').mockResolvedValue([player])

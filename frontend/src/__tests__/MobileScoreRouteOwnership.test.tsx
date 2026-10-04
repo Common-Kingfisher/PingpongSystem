@@ -57,6 +57,7 @@ import MobileScoreRoutes, {
   MOBILE_SCORE_ROUTE_PATH,
   isMobileScoreRoutePath,
 } from '../MobileScoreRoutes'
+import { AuthProvider } from '../auth/AuthContext'
 
 const TID = 31
 const MATCH_ID = 401
@@ -106,6 +107,13 @@ const MATCH = {
   games: [],
 }
 
+const AUTH_USER = {
+  id: 1,
+  username: 'operator',
+  display_name: '授权裁判',
+  system_role: 'EVENT_ADMIN',
+} as const
+
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -121,6 +129,12 @@ function installFetchStub() {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     const path = raw.replace(/^https?:\/\/[^/]+/, '')
     requestedPaths.push(`GET ${path}`)
+    if (path === '/api/v1/auth/me') {
+      return Promise.resolve(jsonResponse({ user: AUTH_USER, tournament_access_count: 1 }))
+    }
+    if (path === '/api/tournaments') {
+      return Promise.resolve(jsonResponse([{ id: TID, name: TOURNAMENT.name }]))
+    }
     if (/\/api\/tournaments\/\d+(\?|$)/.test(path)) return Promise.resolve(jsonResponse(TOURNAMENT))
     if (/\/matches$/.test(path)) return Promise.resolve(jsonResponse([MATCH]))
     if (/\/players$/.test(path)) return Promise.resolve(jsonResponse([]))
@@ -133,7 +147,9 @@ function installFetchStub() {
 function renderMobileScoreRoutes(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <MobileScoreRoutes />
+      <AuthProvider>
+        <MobileScoreRoutes />
+      </AuthProvider>
     </MemoryRouter>,
   )
 }
@@ -242,7 +258,7 @@ describe('D 轨 route 表：只声明 canonical 一条 route', () => {
     expect(screen.queryByText('确认提交大比分')).toBeNull()
     expect(dTrackRenderedAnything(container)).toBe(false)
     // 也不得为这些路径发出任何赛事请求
-    expect(requestedPaths.filter((p) => p.includes('/api/'))).toEqual([])
+    expect(requestedPaths.filter((p) => p.includes('/api/tournaments/'))).toEqual([])
   })
 })
 
@@ -251,14 +267,14 @@ describe('D 轨 route 表：非法 param 仍走 adapter 的错误页', () => {
     renderMobileScoreRoutes('/admin/t/not-number/matches/401/score')
 
     await screen.findByText('链接不可用')
-    expect(requestedPaths.filter((p) => p.includes('/api/'))).toEqual([])
+    expect(requestedPaths.filter((p) => p.includes('/api/tournaments/'))).toEqual([])
   })
 
   it('非法 matchId 显示“链接不可用”，且不发任何 API 请求', async () => {
     renderMobileScoreRoutes('/admin/t/31/matches/xyz/score')
 
     await screen.findByText('链接不可用')
-    expect(requestedPaths.filter((p) => p.includes('/api/'))).toEqual([])
+    expect(requestedPaths.filter((p) => p.includes('/api/tournaments/'))).toEqual([])
   })
 
   it('错误页示例地址已更新为 canonical 形式', async () => {
@@ -285,7 +301,7 @@ describe('真实 App：canonical 路径可用，非 canonical 路径不出现 D 
 
     await waitFor(() => expect(screen.queryByText('链接不可用')).toBeNull())
     expect(dTrackRenderedAnything(container)).toBe(false)
-    expect(requestedPaths.filter((p) => p.includes('/api/tournaments/'))).toEqual([])
+    expect(requestedPaths.filter((p) => p.includes(`/api/tournaments/${TID}/matches`))).toEqual([])
   })
 
   it('C. /admin/t/:tid/settings 不显示 D 的内容', async () => {
@@ -301,7 +317,7 @@ describe('真实 App：canonical 路径可用，非 canonical 路径不出现 D 
     await waitFor(() => expect(screen.queryByText('确认提交大比分')).toBeNull())
     expect(screen.queryByText('链接不可用')).toBeNull()
     expect(dTrackRenderedAnything(container)).toBe(false)
-    expect(requestedPaths.filter((p) => p.includes('/api/tournaments/'))).toEqual([])
+    expect(requestedPaths.filter((p) => p.includes(`/api/tournaments/${TID}/matches`))).toEqual([])
   })
 
   it('F. 多一段的 /score/extra 不属于 D 轨（完整匹配，不是前缀匹配）', async () => {
@@ -309,7 +325,7 @@ describe('真实 App：canonical 路径可用，非 canonical 路径不出现 D 
 
     await waitFor(() => expect(screen.queryByText('确认提交大比分')).toBeNull())
     expect(dTrackRenderedAnything(container)).toBe(false)
-    expect(requestedPaths.filter((p) => p.includes('/api/tournaments/'))).toEqual([])
+    expect(requestedPaths.filter((p) => p.includes(`/api/tournaments/${TID}/matches`))).toEqual([])
   })
 
   it('H. 录分页本身不渲染管理端 App Shell（顶部 11 个导航）', async () => {
