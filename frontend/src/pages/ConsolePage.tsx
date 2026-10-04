@@ -13,6 +13,8 @@ import {
   canAssignMatches,
   canScheduleBatch,
   completionNotice,
+  freeTables,
+  isPlayableMatch,
   recommendedMatchForTable,
   sortTablesByNumber,
 } from '../fieldOps'
@@ -92,8 +94,12 @@ export default function ConsolePage() {
   /**
    * 在途请求去重必须按 `(tid, generation)` 记账，不能用全局 boolean：
    * 旧赛事的请求还在途时，新赛事的第一次 refresh 不能被它挡掉（否则新赛事会空转一轮）。
+   *
+   * `token` 属于**单次请求**：`finally` 只允许清掉自己那一条记账。冲突收口会用
+   * `force` 跳过上面的去重并新起一次请求，若仍按 `(tid, generation)` 清理，
+   * 先返回的那次会把新请求的在途记账一起抹掉。
    */
-  const requestInFlightRef = useRef<{ tid: number; generation: number } | null>(null)
+  const requestInFlightRef = useRef<{ tid: number; generation: number; token: symbol } | null>(null)
 
   const [feedback, setFeedback] = useState<ConsoleFeedback | null>(null)
   const [busy, setBusy] = useState(false)
@@ -104,9 +110,30 @@ export default function ConsolePage() {
   const [auditMatch, setAuditMatch] = useState<Match | null>(null)
   const [audits, setAudits] = useState<ScoreAudit[]>([])
   const [assignTarget, setAssignTarget] = useState<TableWithMatch | null>(null)
+  /**
+   * 「待进行比赛 → 指定球台」的当前目标比赛（Issue A）。
+   *
+   * 这是与 `assignTarget`（球台 → 比赛）**并存**的第二个手动入口，方向相反：
+   * 现场先找到「张三 VS 李四」，再选球台。两者底层共用同一个
+   * `api.assignTable(matchId, tableId)`，不存在第二套排台逻辑。
+   */
+  const [tablePickerMatch, setTablePickerMatch] = useState<Match | null>(null)
 
-  const refresh = useCallback(async () => {
-    if (tid === null) return
+  /**
+   * 拉取一次现场状态快照。
+   *
+   * 返回值表达**这一次调用是否真的为当前 (tid, generation) 提交了一份新快照**，
+   * 供冲突收口等需要区分「已加载最新状态」与「没能加载」的路径使用：
+   *
+   * - `true`：已提交新快照；或同一 (tid, generation) 已有在途刷新（它正在拉同一份权威状态，
+   *   这种情况不能算失败，否则会把"刷新中"误报成"刷新失败"）；
+   * - `false`：没有提交（请求失败、或响应回来时已属于旧代次）。
+   *
+   * `force: true` 跳过在途去重：冲突收口必须拿到**此刻**的权威状态，不能被一个
+   * 更早发起的在途请求代表。
+   */
+  const refresh = useCallback(async (options?: { force?: boolean }): Promise<boolean> => {
+    if (tid === null) return false
     const requestTid = tid
     const generation = requestGenerationRef.current
     /** 本次请求是否仍代表"当前生效的赛事与代次"。 */
@@ -115,13 +142,19 @@ export default function ConsolePage() {
 
     // 只有完全相同的 (tid, generation) 才去重；旧赛事的在途请求不阻塞新赛事的首次刷新。
     const inFlight = requestInFlightRef.current
-    if (inFlight !== null && inFlight.tid === requestTid && inFlight.generation === generation) return
-    requestInFlightRef.current = { tid: requestTid, generation }
+    if (
+      !options?.force
+      && inFlight !== null
+      && inFlight.tid === requestTid
+      && inFlight.generation === generation
+    ) return true
+    const token = Symbol('console-refresh')
+    requestInFlightRef.current = { tid: requestTid, generation, token }
 
     try {
       // 先取赛事本身：团体赛有独立链路，不能走个人赛 Match Console（第 11 节硬边界）。
       const tournament = await api.getTournament(requestTid)
-      if (!isCurrent()) return
+      if (!isCurrent()) return false
       if (tournament.event_type === 'TEAM') {
         const next: ConsoleSnapshot = {
           tournament,
@@ -143,7 +176,7 @@ export default function ConsolePage() {
           api.getGroups(requestTid),
           api.getScheduleEstimates(requestTid).catch(() => null),
         ])
-        if (!isCurrent()) return
+        if (!isCurrent()) return false
         const groupNames: Record<number, string> = {}
         for (const group of groups.groups) groupNames[group.id] = group.name
         const next: ConsoleSnapshot = {
@@ -161,16 +194,18 @@ export default function ConsolePage() {
       setInitialError(null)
       setStale(false)
       setLastSyncedAt(new Date())
+      return true
     } catch (reason) {
       // 旧 tid / 旧代次的失败不得污染新赛事：既不能把新赛事标成 stale，也不能写它的错误文案。
-      if (!isCurrent()) return
+      if (!isCurrent()) return false
       // 已有成功快照时保留它，只标记 stale；不得把比赛列表清空、球台变空、比分变 0。
       if (snapshotRef.current) setStale(true)
       else setInitialError(reason instanceof ApiError ? reason.message : '加载控制台失败')
+      return false
     } finally {
       // 只清除"本次请求自己"的记账：不能覆盖新赛事已经建立的在途状态。
       const current = requestInFlightRef.current
-      if (current !== null && current.tid === requestTid && current.generation === generation) {
+      if (current !== null && current.token === token) {
         requestInFlightRef.current = null
       }
       if (isCurrent()) setLoading(false)
@@ -291,6 +326,41 @@ export default function ConsolePage() {
     }
   }
 
+  /**
+   * 「待进行比赛 → 指定球台」：Issue A 的现场操作路径。
+   *
+   * 与上面的 `assignMatchToTable` 是**同一个**后端调用（`api.assignTable(matchId, tableId)`），
+   * 只是入口方向相反（Match → Table 而不是 Table → Match）。前端不重排优先级、
+   * 不自行判定哪张台"应该"给哪场，候选球台一律来自后端当前 FREE 状态。
+   */
+  const assignTableToMatch = async (match: Match, table: TableWithMatch) => {
+    setTablePickerMatch(null)
+    setFeedback(null)
+    setBusy(true)
+    try {
+      await api.assignTable(match.id, table.id)
+      await refresh()
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        /*
+         * 球台在提交前被其他终端抢走。相信后端的 409：本机看到的空闲列表已经过期。
+         * 先强制刷新到最新现场状态，再明确要求重新选择 —— 绝不在这条路径上重发一次
+         * 安排请求（第二次写入可能落在另一张已被占用的球台上）。
+         */
+        await refresh({ force: true })
+        setFeedback({
+          tone: 'warning',
+          title: '球台状态已变化',
+          message: `球台状态已变化，请重新选择。（服务端：${e.message}）`,
+        })
+      } else {
+        fail(e)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const scheduleBatch = async () => {
     setFeedback(null)
     setBusy(true)
@@ -404,6 +474,8 @@ export default function ConsolePage() {
   const assignable = canAssignMatches(dashboard)
   const disabledReason = assignable ? undefined : assignDisabledReason(dashboard)
   const showBatch = canScheduleBatch(dashboard)
+  // 「指定球台」的候选：后端当前真正 FREE 的球台（不是前端记下来的旧状态）。
+  const availableTables = freeTables(dashboard)
   const stats = dashboard?.stats
   const demoAvailable =
     tournament.operation_mode === 'DEMO'
@@ -568,15 +640,29 @@ export default function ConsolePage() {
                     unavailableReason={estimates.get(match.id)?.unavailable_reason}
                   />
                   {/*
-                    手机录分入口（D 轨 Day 3）：跳转到
-                    /admin/t/:tid/matches/:matchId/score —— D 轨拥有的唯一精确 route。
-                    只在双方已就绪时给出入口 —— 对阵未定的比赛在手机上也无法录分，
-                    而“谁已就绪”直接来自 Match 契约字段，不是前端另行推导的规则。
+                    Issue A：现场更自然的路径是「先找到张三 VS 李四，再指定到 3 号台」。
+                    入口只对**后端合法可安排**的比赛出现（`dashboard.next_playable` 成员），
+                    而不是所有 WAITING 比赛 —— 后者包含双方未就绪或选手正在其他场次的场次。
+                    点击后只选球台，绝不允许前端重新组合两名选手或临时造一场 Match。
                   */}
-                  {matchSidesReady(match) && (
-                    <Link className="btn small waiting-match-mobile" to={`/admin/t/${tid}/matches/${match.id}/score`}>
-                      手机录分
-                    </Link>
+                  {(matchSidesReady(match) || isPlayableMatch(dashboard, match)) && (
+                    <div className="waiting-match-actions">
+                      {matchSidesReady(match) && (
+                        <Link className="btn small waiting-match-mobile" to={`/admin/t/${tid}/matches/${match.id}/score`}>
+                          手机录分
+                        </Link>
+                      )}
+                      {isPlayableMatch(dashboard, match) && (
+                        <button
+                          className="btn small waiting-match-assign"
+                          onClick={() => { setFeedback(null); setTablePickerMatch(match) }}
+                          disabled={busy}
+                          type="button"
+                        >
+                          指定球台
+                        </button>
+                      )}
+                    </div>
                   )}
                 </article>
               ))}
@@ -666,6 +752,45 @@ export default function ConsolePage() {
                 )
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/*
+        Issue A：Match → Table 的指定球台面板。
+        候选球台逐张来自后端 dashboard.tables 的 FREE 状态；提交仍走既有 assign-table。
+      */}
+      {tablePickerMatch && dashboard && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`为比赛 #${tablePickerMatch.id} 指定球台`}>
+          <div className="console-assign-panel">
+            <button className="modal-close" onClick={() => setTablePickerMatch(null)} aria-label="关闭">×</button>
+            <span className="eyebrow">MATCH #{tablePickerMatch.id} · 指定球台</span>
+            <h2>指定球台</h2>
+            <p className="muted">
+              {sideName(tablePickerMatch, 'a')} VS {sideName(tablePickerMatch, 'b')} · {stageLabel(tablePickerMatch)}
+            </p>
+            <p className="muted">
+              下列球台全部来自后端当前状态里真正空闲（FREE）的球台。指定后本场立即变为「进行中」，该球台变为占用。
+            </p>
+            {availableTables.length === 0 ? (
+              <p className="muted">当前没有空闲球台。请先把进行中的比赛下台，或录入该场比赛结果。</p>
+            ) : (
+              <div className="console-assign-list">
+                {availableTables.map((table) => (
+                  <button
+                    key={table.id}
+                    className="console-assign-item console-table-item"
+                    onClick={() => void assignTableToMatch(tablePickerMatch, table)}
+                    disabled={busy}
+                    type="button"
+                  >
+                    <span>{String(table.id).padStart(2, '0')}</span>
+                    <strong>{table.name}</strong>
+                    <small>空闲</small>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

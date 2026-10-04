@@ -249,3 +249,31 @@ export function assignDisabledReason(dashboard: Dashboard | null): string | unde
   if (dashboard.next_playable.length === 0) return '当前没有可安排的比赛'
   return undefined
 }
+
+/**
+ * 「指定球台」的候选球台：只能是后端**此刻确实是 FREE** 的球台。
+ *
+ * 直接读 `dashboard.tables[].status`，不推断、不缓存、不拿历史状态凑数 ——
+ * 前端一旦自己维护"哪张台空着"，就会在别的终端抢占球台后给出一个假空闲列表。
+ */
+export function freeTables(dashboard: Dashboard | null): TableWithMatch[] {
+  if (!dashboard) return []
+  return sortTablesByNumber(dashboard.tables.filter((table) => table.status === 'FREE'))
+}
+
+/**
+ * 某场待进行比赛此刻能否被「指定球台」。
+ *
+ * 判定完全复用既有的 `canAssignMatches`（后端 `completion` 收口状态）+
+ * `dashboard.next_playable` 成员资格：`next_playable` 是后端调度器过滤后的
+ * **合法可安排集合**（已就绪、选手不在其他场次、未结束）。
+ *
+ * ⚠️ 这里刻意**不**用「双方选手非空」或「阶段是小组赛」之类的前端条件替代它：
+ * 那等于在前端重写一遍 scheduling 的硬约束。"待进行比赛"列表来自
+ * `listMatches(status=WAITING)`，它是 `next_playable` 的**超集**，因此必须按
+ * `next_playable` 收窄，否则会把选手正在别处比赛的场次也放上球台（后端会 409）。
+ */
+export function isPlayableMatch(dashboard: Dashboard | null, match: Match): boolean {
+  if (!canAssignMatches(dashboard)) return false
+  return (dashboard as Dashboard).next_playable.some((candidate) => candidate.id === match.id)
+}
