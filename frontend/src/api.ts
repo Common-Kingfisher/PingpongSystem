@@ -30,6 +30,10 @@ export type ResultType = Schemas['ResultType']
 export type TournamentFormat = Schemas['TournamentFormat']
 export type TournamentFormatUpdate = Schemas['TournamentFormatUpdateRequest']
 export type TournamentRegistrationUpdate = Schemas['TournamentRegistrationUpdate']
+export type AuthUser = Schemas['AuthUserOut']
+export type AuthMeResponse = Schemas['AuthMeResponse']
+export type AuthLoginResponse = Schemas['AuthLoginResponse']
+export type AuthChangePasswordRequest = Schemas['AuthChangePasswordRequest']
 
 // ------------------------------------------------------------------ 响应 / 请求 DTO（来自 OpenAPI schema）
 
@@ -117,6 +121,8 @@ type TournamentCreateRequest = Omit<
 
 // ------------------------------------------------------------------ client-only
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 8000
+
 /**
  * 后端错误响应体有两种形态（都以 `detail` 为外层键）：
  *
@@ -168,8 +174,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // FormData 上传时由浏览器自动生成 multipart boundary，不能手动设 Content-Type
   const isForm = init?.body instanceof FormData
   const resp = await fetch(path, {
-    headers: isForm ? undefined : { 'Content-Type': 'application/json' },
     ...init,
+    headers: isForm ? undefined : { 'Content-Type': 'application/json' },
   })
   if (!resp.ok) {
     let message = `请求失败 (${resp.status})`
@@ -187,6 +193,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (resp.status === 204) return undefined as T
   return (await resp.json()) as T
+}
+
+async function requestWithTimeout<T>(path: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController()
+  let timeoutId = 0
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      controller.abort()
+      reject(new ApiError(0, '请求超时，请检查服务器或本地网络', 'NETWORK_TIMEOUT'))
+    }, DEFAULT_REQUEST_TIMEOUT_MS)
+  })
+
+  try {
+    return await Promise.race([
+      request<T>(path, { ...init, signal: controller.signal }),
+      timeoutPromise,
+    ])
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
 }
 
 // ------------------------------------------------------------------ client-only view model（非 API contract DTO）
@@ -240,6 +266,19 @@ async function submitScore(path: string, payload: ScorePayload): Promise<Match> 
 
 export const api = {
   health: () => request<{ status: string }>('/api/health'),
+
+  login: (body: Schemas['AuthLoginRequest']) =>
+    requestWithTimeout<AuthLoginResponse>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  logout: () => requestWithTimeout<void>('/api/v1/auth/logout', { method: 'POST' }),
+  me: () => requestWithTimeout<AuthMeResponse>('/api/v1/auth/me'),
+  changePassword: (body: AuthChangePasswordRequest) =>
+    requestWithTimeout<void>('/api/v1/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   listTournaments: () => request<Tournament[]>('/api/tournaments'),
   createTournament: (body: TournamentCreateRequest) =>

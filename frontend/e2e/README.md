@@ -17,6 +17,40 @@ python e2e/test_placement_bracket.py
 
 默认使用本机 Microsoft Edge；可通过 `PLAYWRIGHT_CHANNEL` 改为其他已安装的 Chromium 通道。
 
+## 现场问题清单验收（2026-10-05，Node + Playwright）
+
+`field_issues_20261005.mjs` 针对现场问题清单的 5 个缺陷做**真实浏览器**验收：
+真实 FastAPI + 真实 SQLite + 真实 Chromium（`channel: 'chrome'`），
+覆盖 jsdom 无法证明的部分 —— viewport 可达性、CSS 布局、
+SVG 连线在横向滚动 / resize / 横竖屏后的**视口坐标**对齐、以及双裁判并发冲突的真实 HTTP 行为。
+
+与上面 Python 用例不同，它**不拦截 API**：脚本自己 bootstrap 账号、建赛事、跑完小组赛并生成淘汰签，
+然后驱动页面。因此它同时验证前后端契约，而不只是前端渲染。
+
+```powershell
+# 1) 构建前端（后端会以单服务方式托管 frontend/dist）
+cd frontend
+pnpm build
+
+# 2) 用独立数据库启动后端（不要用现场库）
+cd ../backend
+$env:PINGPONG_DB_PATH = "$env:TEMP\field_e2e.db"
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8011
+
+# 3) 另开一个终端安装 playwright 并运行（Node 版，非 e2e/requirements.txt）
+npm install playwright
+$env:BASE_URL = "http://127.0.0.1:8011"
+$env:OUT_DIR = "$env:TEMP\field-evidence"
+node e2e/field_issues_20261005.mjs
+```
+
+脚本退出码 0 表示全部通过；结果（含逐条断言与实测数值）写入
+`$env:OUT_DIR/results.json`，截图同样写入该目录。
+
+2026-10-05 冻结结果：**80 项全部通过**，见
+`docs/evidence/field-issues-20261005/`（含 `browser-acceptance-results.json` 与三组截图）。
+`playwright` **不是**本仓库依赖，未写入 `package.json`：它只在人工现场验收时临时安装。
+
 ## 团体赛真实联调
 
 另开一个终端启动独立数据库与后端（不会写入 `backend/data/demo.db`）：

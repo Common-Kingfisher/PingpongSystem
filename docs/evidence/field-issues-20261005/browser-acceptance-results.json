@@ -1,0 +1,406 @@
+{
+  "base": "http://127.0.0.1:8011",
+  "tid": 1,
+  "results": [
+    {
+      "name": "真实后端：bootstrap + 建 EVENT_ADMIN + 登录成功",
+      "ok": true,
+      "detail": "status=200 user=field-e2e-operator role=EVENT_ADMIN"
+    },
+    {
+      "name": "环境准备：八强签表 + 多场 WAITING + 多张 FREE 球台",
+      "ok": true,
+      "detail": "rounds=3 waiting=7 freeTables=4"
+    },
+    {
+      "name": "CASE A 前置：至少 2 场后端可安排比赛 + 2 张 FREE 球台",
+      "ok": true,
+      "detail": "playable=4 free=4"
+    },
+    {
+      "name": "CASE A：待进行比赛卡片出现「指定球台」入口",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CASE A：候选只列出后端 FREE 球台，不含占用球台",
+      "ok": true,
+      "detail": "候选=[\"01\\n1号台\\n空闲\",\"02\\n2号台\\n空闲\",\"03\\n3号台\\n空闲\",\"04\\n4号台\\n空闲\"] 占用=[]"
+    },
+    {
+      "name": "CASE A：Match.status = PLAYING 且 table_id 正确",
+      "ok": true,
+      "detail": "match#25 status=PLAYING table_id=2 期望台=2"
+    },
+    {
+      "name": "CASE A：对应球台变为 OCCUPIED",
+      "ok": true,
+      "detail": "table=2号台 status=OCCUPIED"
+    },
+    {
+      "name": "CASE A2：其他 WAITING Match 不受影响",
+      "ok": true,
+      "detail": "仍有 #26=true"
+    },
+    {
+      "name": "CASE A：现场球台卡片显示该场比赛（页面已 refresh）",
+      "ok": true,
+      "detail": "02 2号台 进行中 选 选手01 淘汰赛 · 第 1 轮 · 进行中 选 选手04 淘汰赛 · 第 1 轮 · 进行中 录入大比分 下球台"
+    },
+    {
+      "name": "CASE A：已占用球台从候选中消失（候选只来自后端 FREE 状态）",
+      "ok": true,
+      "detail": "候选=[\"01 1号台 空闲\",\"03 3号台 空闲\",\"04 4号台 空闲\"] 期望排除 2号台"
+    },
+    {
+      "name": "CASE B：自动排台仍然给空闲球台安排比赛",
+      "ok": true,
+      "detail": "playing 1 -> 4"
+    },
+    {
+      "name": "CASE F[360x640] 初始位置：全部 6 条分支线均对齐对应比赛",
+      "ok": true,
+      "detail": "matched=6/6 mismatches=0 "
+    },
+    {
+      "name": "CASE F[360x640] 冠军线对齐（champion=false）",
+      "ok": true,
+      "detail": "championLines=0"
+    },
+    {
+      "name": "CASE F[360x640] 页面无横向溢出",
+      "ok": true,
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "CASE F[360x640] 横向滚动到最右后：分支线仍连接对应 Match",
+      "ok": true,
+      "detail": "scrollLeft=696 scrollWidth=1008 clientWidth=312 matched=6"
+    },
+    {
+      "name": "CASE F[360x640] 滚动到中间后：分支线仍连接对应 Match",
+      "ok": true,
+      "detail": "scrollLeft=504 mismatches=0"
+    },
+    {
+      "name": "CASE F[390x844] 初始位置：全部 6 条分支线均对齐对应比赛",
+      "ok": true,
+      "detail": "matched=6/6 mismatches=0 "
+    },
+    {
+      "name": "CASE F[390x844] 冠军线对齐（champion=false）",
+      "ok": true,
+      "detail": "championLines=0"
+    },
+    {
+      "name": "CASE F[390x844] 页面无横向溢出",
+      "ok": true,
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "CASE F[390x844] 横向滚动到最右后：分支线仍连接对应 Match",
+      "ok": true,
+      "detail": "scrollLeft=666 scrollWidth=1008 clientWidth=342 matched=6"
+    },
+    {
+      "name": "CASE F[390x844] 滚动到中间后：分支线仍连接对应 Match",
+      "ok": true,
+      "detail": "scrollLeft=504 mismatches=0"
+    },
+    {
+      "name": "CASE F[1280x900] 初始位置：全部 6 条分支线均对齐对应比赛",
+      "ok": true,
+      "detail": "matched=6/6 mismatches=0 "
+    },
+    {
+      "name": "CASE F[1280x900] 冠军线对齐（champion=false）",
+      "ok": true,
+      "detail": "championLines=0"
+    },
+    {
+      "name": "CASE F[1280x900] 页面无横向溢出",
+      "ok": true,
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "CASE F[1280x900] 横向滚动到最右后：分支线仍连接对应 Match",
+      "ok": true,
+      "detail": "scrollLeft=28 scrollWidth=1008 clientWidth=980 matched=6"
+    },
+    {
+      "name": "CASE F[1280x900] 滚动到中间后：分支线仍连接对应 Match",
+      "ok": true,
+      "detail": "scrollLeft=28 mismatches=0"
+    },
+    {
+      "name": "CASE F：resize 宽→窄→宽以后连线重新归位",
+      "ok": true,
+      "detail": "wide1=6/6 narrow=6/6 wide2=6/6"
+    },
+    {
+      "name": "CASE F：竖屏 ↔ 横屏切换后连线仍对齐",
+      "ok": true,
+      "detail": "portrait=6/6 landscape=6/6"
+    },
+    {
+      "name": "CASE C[360x640] 标题/双方/大比分/备注/操作人/修改理由/取消/确认 全部可达",
+      "ok": true,
+      "detail": "11/11 可达"
+    },
+    {
+      "name": "CASE C[360x640] 未滚动时底部主操作已在屏内（弹窗内吸底）",
+      "ok": true,
+      "detail": "buttonTop=581 buttonBottom=618 viewportH=640"
+    },
+    {
+      "name": "CASE C[360x640] 无横向页面溢出",
+      "ok": true,
+      "detail": "scrollWidth=360 innerWidth=360"
+    },
+    {
+      "name": "CASE C[360x640] 弹窗是 viewport overlay 而非文档流内容",
+      "ok": true,
+      "detail": "position=fixed z=150 sheet=320x600 vp=360x640 顶层属于弹窗=true"
+    },
+    {
+      "name": "CASE C[360x640] 背景滚动后弹窗仍停在当前屏幕上层",
+      "ok": true,
+      "detail": "before={\"top\":20,\"left\":20} after={\"top\":20,\"left\":20,\"topmostInSheet\":true}"
+    },
+    {
+      "name": "CASE C[390x844] 标题/双方/大比分/备注/操作人/修改理由/取消/确认 全部可达",
+      "ok": true,
+      "detail": "11/11 可达"
+    },
+    {
+      "name": "CASE C[390x844] 未滚动时底部主操作已在屏内（弹窗内吸底）",
+      "ok": true,
+      "detail": "buttonTop=746 buttonBottom=783 viewportH=844"
+    },
+    {
+      "name": "CASE C[390x844] 无横向页面溢出",
+      "ok": true,
+      "detail": "scrollWidth=390 innerWidth=390"
+    },
+    {
+      "name": "CASE C[390x844] 弹窗是 viewport overlay 而非文档流内容",
+      "ok": true,
+      "detail": "position=fixed z=150 sheet=350x779 vp=390x844 顶层属于弹窗=true"
+    },
+    {
+      "name": "CASE C[390x844] 背景滚动后弹窗仍停在当前屏幕上层",
+      "ok": true,
+      "detail": "before={\"top\":33,\"left\":20} after={\"top\":33,\"left\":20,\"topmostInSheet\":true}"
+    },
+    {
+      "name": "CASE C[768x1024] 标题/双方/大比分/备注/操作人/修改理由/取消/确认 全部可达",
+      "ok": true,
+      "detail": "11/11 可达"
+    },
+    {
+      "name": "CASE C[768x1024] 未滚动时底部主操作已在屏内（弹窗内吸底）",
+      "ok": true,
+      "detail": "buttonTop=821 buttonBottom=858 viewportH=1024"
+    },
+    {
+      "name": "CASE C[768x1024] 无横向页面溢出",
+      "ok": true,
+      "detail": "scrollWidth=768 innerWidth=768"
+    },
+    {
+      "name": "CASE C[768x1024] 弹窗是 viewport overlay 而非文档流内容",
+      "ok": true,
+      "detail": "position=fixed z=150 sheet=600x749 vp=768x1024 顶层属于弹窗=true"
+    },
+    {
+      "name": "CASE C[768x1024] 背景滚动后弹窗仍停在当前屏幕上层",
+      "ok": true,
+      "detail": "before={\"top\":138,\"left\":84} after={\"top\":138,\"left\":84,\"topmostInSheet\":true}"
+    },
+    {
+      "name": "CASE C[1280x720（普通电脑 100%）] 标题/双方/大比分/备注/操作人/修改理由/取消/确认 全部可达",
+      "ok": true,
+      "detail": "11/11 可达"
+    },
+    {
+      "name": "CASE C[1280x720（普通电脑 100%）] 未滚动时底部主操作已在屏内（弹窗内吸底）",
+      "ok": true,
+      "detail": "buttonTop=661 buttonBottom=698 viewportH=720"
+    },
+    {
+      "name": "CASE C[1280x720（普通电脑 100%）] 无横向页面溢出",
+      "ok": true,
+      "detail": "scrollWidth=1280 innerWidth=1280"
+    },
+    {
+      "name": "CASE C[1280x720（普通电脑 100%）] 弹窗是 viewport overlay 而非文档流内容",
+      "ok": true,
+      "detail": "position=fixed z=150 sheet=600x680 vp=1280x720 顶层属于弹窗=true"
+    },
+    {
+      "name": "CASE C[1280x720（普通电脑 100%）] 背景滚动后弹窗仍停在当前屏幕上层",
+      "ok": true,
+      "detail": "before={\"top\":20,\"left\":340} after={\"top\":20,\"left\":340,\"topmostInSheet\":true}"
+    },
+    {
+      "name": "CASE C[360x420（等效短 viewport）] 标题/双方/大比分/备注/操作人/修改理由/取消/确认 全部可达",
+      "ok": true,
+      "detail": "11/11 可达"
+    },
+    {
+      "name": "CASE C[360x420（等效短 viewport）] 未滚动时底部主操作已在屏内（弹窗内吸底）",
+      "ok": true,
+      "detail": "buttonTop=361 buttonBottom=398 viewportH=420"
+    },
+    {
+      "name": "CASE C[360x420（等效短 viewport）] 无横向页面溢出",
+      "ok": true,
+      "detail": "scrollWidth=360 innerWidth=360"
+    },
+    {
+      "name": "CASE C[360x420（等效短 viewport）] 弹窗是 viewport overlay 而非文档流内容",
+      "ok": true,
+      "detail": "position=fixed z=150 sheet=320x380 vp=360x420 顶层属于弹窗=true"
+    },
+    {
+      "name": "CASE C[360x420（等效短 viewport）] 背景滚动后弹窗仍停在当前屏幕上层",
+      "ok": true,
+      "detail": "before={\"top\":20,\"left\":20} after={\"top\":20,\"left\":20,\"topmostInSheet\":true}"
+    },
+    {
+      "name": "CASE D[zoom 2] 标题/大比分/操作人/修改理由/底部操作仍全部可达",
+      "ok": true,
+      "detail": "8/8 可达"
+    },
+    {
+      "name": "CASE D[zoom 2] 弹窗自身不超出视口宽度",
+      "ok": true,
+      "detail": "sheetRight=1240 innerWidth=1280"
+    },
+    {
+      "name": "CASE D[zoom 2] 弹窗不引入任何横向页面溢出",
+      "ok": true,
+      "detail": "有弹窗=1460 无弹窗=1460（背景控制台表格在 200% 缩放下的既有溢出，与弹窗无关）"
+    },
+    {
+      "name": "CASE E：未输入时规则就可见（必填 + 至少 2 个字）",
+      "ok": true,
+      "detail": "修改已结束比赛时必填，至少 2 个字。"
+    },
+    {
+      "name": "CASE E：textarea 带 minLength=2",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CASE E：只填 1 个字时给出字段级错误 + 字数提示，且按钮不可点",
+      "ok": true,
+      "detail": "error=\"修改理由不足 2 个字，「检查并修改」暂时不能提交； 当前有效字数 1 个，请补足后再试。\" hint=\"修改已结束比赛时必填，至少 2 个字（当前已填 1 个字）。\" disabled=true"
+    },
+    {
+      "name": "CASE E：补足 2 个字后错误消失且按钮可点",
+      "ok": true,
+      "detail": "errorCount=0 disabled=false"
+    },
+    {
+      "name": "CASE E：只填空格按 0 个字处理，不会静默卡住",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CASE E：补录/修改逐局小分（detailMode）同样展示“至少 2 个字”",
+      "ok": true,
+      "detail": "title=补录逐局小分 hint=修改已结束比赛时必填，至少 2 个字。"
+    },
+    {
+      "name": "CASE G 前置：存在一场 PLAYING 比赛",
+      "ok": true,
+      "detail": "match=#25 status=PLAYING"
+    },
+    {
+      "name": "CASE G：裁判 A 提交成功（200）",
+      "ok": true,
+      "detail": "status=200 {\"id\":25,\"tournament_id\":1,\"stage\":\"KNOCKOUT\",\"group_id\":null,\"round\":1,\"match_index\":0,\"player_a_id\":1,\"player_b_id\":4,"
+    },
+    {
+      "name": "CASE G：失败端只发出一次比分 POST（409 未被自动重试）",
+      "ok": true,
+      "detail": "POST 次数=1"
+    },
+    {
+      "name": "CASE G：失败端自动 reload 并进入最新完成态（不再停在旧可提交表单）",
+      "ok": true,
+      "detail": "完成态=true 旧表单按钮数=0"
+    },
+    {
+      "name": "CASE G：失败端显示服务端真实比分（2:1），不是本地待提交的 2:0",
+      "ok": true,
+      "detail": "含 2:1=true"
+    },
+    {
+      "name": "CASE G：告知裁判冲突并说明已加载最新结果",
+      "ok": true,
+      "detail": "banner=1"
+    },
+    {
+      "name": "CASE G：无无限 loading（提交中状态已释放）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CASE G：数据库结果唯一（一条审计、一份比分、状态 FINISHED）",
+      "ok": true,
+      "detail": "audits=1 status=FINISHED score=2:1"
+    },
+    {
+      "name": "CASE H：不同比赛的并发提交都成功，未被冲突收口误伤",
+      "ok": true,
+      "detail": "r1=200 r2=200"
+    },
+    {
+      "name": "CASE H：两场都各自写入自己的结果",
+      "ok": true,
+      "detail": "m1=FINISHED 2:0 / m2=FINISHED 0:2"
+    },
+    {
+      "name": "CASE F2：签表已打满且产生冠军",
+      "ok": true,
+      "detail": "champion=选手01 rounds=3 分支线=6"
+    },
+    {
+      "name": "CASE F2[360x640] 满签表：6 条分支线全部对齐（含冠军线）",
+      "ok": true,
+      "detail": "matched=6/6 championLines=1 mismatches=0"
+    },
+    {
+      "name": "CASE F2[360x640] 满签表横向滚动到最右：仍全部对齐",
+      "ok": true,
+      "detail": "scrollLeft=696 matched=6 championLines=1"
+    },
+    {
+      "name": "CASE F2[390x844] 满签表：6 条分支线全部对齐（含冠军线）",
+      "ok": true,
+      "detail": "matched=6/6 championLines=1 mismatches=0"
+    },
+    {
+      "name": "CASE F2[390x844] 满签表横向滚动到最右：仍全部对齐",
+      "ok": true,
+      "detail": "scrollLeft=666 matched=6 championLines=1"
+    },
+    {
+      "name": "CASE F2[1280x900] 满签表：6 条分支线全部对齐（含冠军线）",
+      "ok": true,
+      "detail": "matched=6/6 championLines=1 mismatches=0"
+    },
+    {
+      "name": "CASE F2[1280x900] 满签表横向滚动到最右：仍全部对齐",
+      "ok": true,
+      "detail": "scrollLeft=28 matched=6 championLines=1"
+    },
+    {
+      "name": "浏览器无未捕获页面异常",
+      "ok": true,
+      "detail": "none"
+    }
+  ]
+}

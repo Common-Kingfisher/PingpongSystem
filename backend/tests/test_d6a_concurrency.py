@@ -612,3 +612,88 @@ def test_d6a_create_tournament_failure_keeps_outer_transaction(
         ("D6A 外层事务失败回滚",),
     ).fetchone()[0] == 0
     conn.rollback()
+
+
+# --------------------------------------------------------------- 现场试跑：双裁判并发录分
+#
+# 现场问题 5（CASE G）：两个裁判对**同一场 / 同一球桌**同时录大比分。
+# 后端必须只保留一份结果：一人成功、另一人 409。失败端拿到的权威状态
+# （`repo.get_match` 读到的就是成功端写入的那一份）正是前端自动 reload 的数据来源 ——
+# 因此这里同时锁住"前端冲突收口所依赖的服务端事实"。
+
+
+def test_d6a_two_referees_same_match_one_succeeds_one_409(conn, test_db_path):
+    """同一场被两个裁判同时录分：一次成功、一次 409，数据库只有一份结果。"""
+    tournament_id = _service_tournament(conn, name="D6A 双裁判同场并发")
+    match = _score_match(conn, tournament_id)
+    table = repo.list_tables(conn, tournament_id)[0]
+    # 现场路径：先把比赛安排到球台（PLAYING），两个裁判再各自扫码录分。
+    scheduling_service.assign_table(conn, match["id"], table["id"])
+    assert repo.get_match(conn, match["id"])["status"] == MatchStatus.PLAYING.value
+
+    results = _run_concurrently(
+        2,
+        # 两个终端是两个独立请求 → request_id 必须不同，不能靠幂等折叠成一次。
+        lambda worker, index: scores_service.record_score(
+            worker, match["id"], 2, 1, request_id=f"d6a-referee-{index}"
+        ),
+    )
+
+    _assert_no_raw_sqlite_error(results)
+    successes = [value for kind, value in results if kind == "ok"]
+    errors = [value for kind, value in results if kind == "error"]
+    assert len(successes) == 1, [repr(value) for kind, value in results if kind == "error"]
+    assert len(errors) == 1, results
+    # 失败端必须是 409（前端据此走"权威重读"而不是重发）
+    assert errors[0].code == 409
+
+    # 数据库只保留一份结果与一条审计、一条幂等记录
+    assert conn.execute(
+        "SELECT COUNT(*) FROM score_audits WHERE match_id = ?", (match["id"],)
+    ).fetchone()[0] == 1
+    assert conn.execute(
+        "SELECT COUNT(*) FROM score_requests WHERE match_id = ?", (match["id"],)
+    ).fetchone()[0] == 1
+    stored = repo.get_match(conn, match["id"])
+    assert stored["status"] == MatchStatus.FINISHED.value
+    assert (stored["player_a_score"], stored["player_b_score"]) == (2, 1)
+    # 录分后球台释放；不会出现两场比赛占同一张台
+    assert repo.get_table(conn, table["id"])["status"] == TableStatus.FREE.value
+    playing = [
+        item for item in repo.list_matches(conn, tournament_id)
+        if item["status"] == MatchStatus.PLAYING.value
+    ]
+    assert playing == []
+
+
+def test_d6a_two_referees_different_matches_both_succeed(conn, test_db_path):
+    """CASE H：两个裁判各录**不同**比赛，二者都必须成功，不被并发保护误伤。"""
+    tournament_id = _service_tournament(
+        conn, name="D6A 双裁判不同场并发", players=4, tables=2, groups=2
+    )
+    matches = repo.list_matches(conn, tournament_id)
+    tables = repo.list_tables(conn, tournament_id)
+    assert len(matches) == 2 and len(tables) >= 2
+    for index, match in enumerate(matches):
+        scheduling_service.assign_table(conn, match["id"], tables[index]["id"])
+
+    results = _run_concurrently(
+        2,
+        lambda worker, index: scores_service.record_score(
+            worker, matches[index]["id"], 2, 0, request_id=f"d6a-different-{index}"
+        ),
+    )
+
+    _assert_no_raw_sqlite_error(results)
+    assert all(kind == "ok" for kind, _ in results), [
+        repr(value) for kind, value in results if kind == "error"
+    ]
+    for match in matches:
+        stored = repo.get_match(conn, match["id"])
+        assert stored["status"] == MatchStatus.FINISHED.value
+        assert (stored["player_a_score"], stored["player_b_score"]) == (2, 0)
+    # 两张球台都回到 FREE
+    assert all(
+        repo.get_table(conn, table["id"])["status"] == TableStatus.FREE.value
+        for table in tables
+    )

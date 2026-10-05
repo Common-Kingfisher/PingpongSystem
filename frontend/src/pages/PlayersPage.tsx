@@ -105,6 +105,7 @@ export default function PlayersPage() {
   const confirmRegistration = (registration: Registration) => void run(async () => {
     await api.confirmRegistration(tid, registration.id)
     setNotice(`已确认 ${registration.name}，并写入正式名单。`)
+    if (pending.length === 1) setTab('official')
   }, '确认报名失败')
 
   const downloadTemplate = () => {

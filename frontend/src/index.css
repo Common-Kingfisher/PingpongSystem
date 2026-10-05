@@ -400,8 +400,56 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
 .flying-name small { display: block; color: #8f9bb0; }
 .draw-confirm { color: #fff; background: var(--magenta); border-color: var(--magenta); }
 
-.modal-backdrop, .score-sheet-backdrop { position: fixed; inset: 0; z-index: 150; display: grid; place-items: center; padding: 20px; background: rgba(9,11,18,.78); }
-.score-sheet { position: relative; width: min(600px, 96vw); padding: 26px; background: #fff; border-top: 5px solid var(--blue); box-shadow: 0 30px 80px rgba(0,0,0,.38); }
+/*
+ * 弹窗遮罩（Issue B）。
+ *
+ * 现场问题：手机 / 桌面高缩放下弹窗内容超出 viewport，底部按钮够不到。
+ * 原因有两条，缺一不可：
+ *   1. 旧规则 `position: fixed; inset: 0; display: grid; place-items: center`
+ *      在内容比 viewport 高时，居中会把上下两端同时挤出容器，而容器**不可滚动**，
+ *      于是超出部分永久不可达；
+ *   2. `.score-sheet` 没有 max-height，内容有多高就多高。
+ *
+ * 现在：遮罩本身可纵向滚动（最后一道保底），并阻止滚动链传到背景列表。
+ * `place-items: center` 换成 flex + 面板 `margin: auto`：内容放得下时仍然居中，
+ * 放不下时 auto 边距归零、面板贴顶开始，向下滚动全部可达。
+ */
+.modal-backdrop, .score-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px;
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+  background: rgba(9,11,18,.78);
+}
+
+/*
+ * 录分弹窗面板（Issue B）。
+ *
+ * - `box-sizing: border-box` + `width: min(600px, 100%)`：padding 不再撑出横向溢出；
+ * - `max-height` 以 `100dvh` 为准（`vh` 在手机浏览器地址栏收缩时偏大，会让底部按钮被顶出屏幕）；
+ *   同时给出 `vh` 兜底，老浏览器不支持 `dvh` 时退化为可用值；
+ * - 面板内部自己滚动，`overscroll-behavior: contain` 防止滚到尽头后把背景列表带着一起滚。
+ */
+.score-sheet {
+  position: relative;
+  box-sizing: border-box;
+  width: min(600px, 100%);
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  margin: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 26px;
+  background: #fff;
+  border-top: 5px solid var(--blue);
+  box-shadow: 0 30px 80px rgba(0,0,0,.38);
+}
 .modal-close { position: absolute; right: 16px; top: 12px; border: 0; background: transparent; font-size: 25px; }
 .score-sheet-versus { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 15px; margin: 22px 0; }
 .score-sheet-versus strong:last-child { text-align: right; }
@@ -411,6 +459,37 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
 .score-audit-fields input, .score-audit-fields textarea { width: 100%; padding: 9px 11px; border: 1px solid #cbd5e1; background: #fff; font: inherit; }
 .score-audit-fields textarea { min-height: 62px; resize: vertical; }
 .score-audit-fields p { margin: 0; color: #667085; font-size: 12px; }
+/*
+ * Issue C：修改理由的规则说明与字段级错误。
+ *
+ * 两者都是 <label> 的**兄弟**节点（label 的可访问名必须保持"修改理由"本身），
+ * 用负 margin 抵消 grid gap，让它们视觉上贴回所属字段。
+ */
+.score-audit-fields .score-field-hint { margin-top: -5px; color: #667085; font-size: 12px; line-height: 1.5; }
+.score-audit-fields .score-field-error { margin-top: -5px; color: #9f1d1d; font-size: 12px; font-weight: 700; line-height: 1.5; }
+/*
+ * Issue B：录分弹窗的底部操作（以及"确认修改"条）在弹窗内部吸底。
+ *
+ * 真实浏览器实测：1280×720（普通电脑 100%）下面板内容已高于可视区，旧实现必须滚动
+ * 才能看到「取消 / 检查并修改」；360×640 更是要滚过整张表单。吸底后关键操作始终可见。
+ *
+ * `bottom: -26px` 抵消 `.score-sheet` 的 26px 下内边距，使吸底位置对齐面板可视底边，
+ * 滚到底时不会留出一条空隙；白底避免下层字段透出。
+ * 只作用于 `.score-sheet`：`.modal-actions` 是全站共享类，其它弹窗行为不变。
+ */
+.score-sheet .modal-actions,
+.score-sheet .score-revision-confirm {
+  position: sticky;
+  bottom: -26px;
+  z-index: 2;
+}
+.score-sheet .modal-actions {
+  padding-top: 12px;
+  padding-bottom: 2px;
+  background: #fff;
+  border-top: 1px solid #eaecf0;
+}
+.score-sheet .score-revision-confirm { margin-bottom: -8px; }
 .console-feedback { position: sticky; top: 10px; z-index: 40; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin: 0; padding: 12px 14px; border-left: 4px solid #667085; background: #f4f7fb; box-shadow: 0 10px 28px rgba(16,42,67,.14); }
 .console-feedback > div { display: grid; gap: 3px; }
 .console-feedback strong { color: #102a43; font-size: 13px; }
@@ -430,7 +509,7 @@ input:focus, select:focus, textarea:focus { outline: 3px solid rgba(21, 94, 239,
 .score-revision-confirm > div { display: flex; justify-content: flex-end; gap: 8px; }
 .match-time-cell { min-width: 164px; }
 .match-time-cell span { display: block; color: #475467; font-size: 12px; line-height: 1.7; }
-.score-audit-panel { position: relative; width: min(650px, 96vw); max-height: 86vh; overflow: auto; padding: 28px; border-top: 5px solid #e5294f; background: #fff; box-shadow: 0 30px 80px rgba(0,0,0,.38); }
+.score-audit-panel { position: relative; box-sizing: border-box; width: min(650px, 100%); max-height: calc(100dvh - 40px); margin: auto; overflow: auto; overscroll-behavior: contain; padding: 28px; border-top: 5px solid #e5294f; background: #fff; box-shadow: 0 30px 80px rgba(0,0,0,.38); }
 .score-audit-list { display: grid; gap: 10px; margin-top: 20px; }
 .score-audit-list article { padding: 15px 17px; border: 1px solid #dce3ec; background: linear-gradient(135deg, #fff 70%, #f4f7fb); }
 .score-audit-list article > div:first-child { display: flex; justify-content: space-between; gap: 12px; }
@@ -1061,11 +1140,30 @@ body {
   padding: 8px 0 16px;
 }
 
+/*
+ * 横向滚动容器（Issue D）：只负责滚动，不再承载 flex 排列。
+ *
+ * 卡片与 SVG 连线现在同处 `.ko-canvas`（见下），共享同一坐标系，
+ * 因此横向滚动会同时平移两者，连线不会与卡片分离。
+ */
 .ko-bracket {
+  overflow-x: auto;
+}
+
+/*
+ * 卡片 + SVG 的共享画布。
+ *
+ * `width: max-content` 让画布等于内容真实宽度（滚动范围由它决定），
+ * `min-width: 100%` 保证内容比容器窄时画布仍铺满，SVG 覆盖整个可视区。
+ * `position: relative` 是 SVG 绝对定位的坐标系。
+ */
+.ko-canvas {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 56px;
-  overflow-x: auto;
+  width: max-content;
+  min-width: 100%;
 }
 
 .ko-col {
@@ -1487,8 +1585,11 @@ body {
 .waiting-match-card > span { color: #98a2b3; font: 700 9px Bahnschrift, sans-serif; }
 .waiting-match-card > strong { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .waiting-match-card > i { color: var(--magenta); font-size: 8px; font-style: normal; font-weight: 800; }
-/* D 轨 Day 3：手机录分入口。独占一行，不挤压 4 列对阵网格。 */
+/* 待进行比赛卡片的操作行：手机录分 + 指定球台（Issue A）并列，独占一行不挤压对阵网格。 */
+.waiting-match-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
 .waiting-match-card > .waiting-match-mobile { grid-column: 1 / -1; justify-self: start; margin-top: 2px; }
+/* 指定球台面板里每张候选球台只展示台号与名称 + 空闲状态。 */
+.console-table-item { grid-template-columns: auto minmax(0, 1fr) auto; }
 .data-table td:last-child .btn + .btn { margin-left: 7px; }
 
 /* ---------------- Demo 标识 & 演示 Modal ---------------- */
@@ -1604,11 +1705,23 @@ body {
 .row-more-menu a:hover { background: #f1f6fb; }
 
 /* 安排比赛：只列出后端合法 next_playable；推荐项由后端 recommended_match_id 标记。 */
+/*
+ * 面板统一用 `margin: auto` 做"安全居中"（Issue B）。
+ *
+ * 遮罩是 flex + `align-items: flex-start`：`auto` 边距只在**有剩余空间**时吸收它，
+ * 于是放得下时面板垂直居中、放不下时贴顶开始并且可以被遮罩滚动到 —— 而
+ * `place-items: center` 在内容高于 viewport 时会把顶部一起挤出可视区且无法滚到。
+ * `box-sizing: border-box` + `width: min(..., 100%)` 保证 padding 不再撑出横向溢出。
+ */
 .console-assign-panel {
   position: relative;
+  box-sizing: border-box;
   width: min(680px, 100%);
-  max-height: 82vh;
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  margin: auto;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 22px 24px;
   background: #fff;
   border-radius: 12px;
@@ -1766,6 +1879,7 @@ body {
   margin: 0 0 6px;
   color: #1e3a5f;
   font-size: 36px;
+  overflow-wrap: anywhere;
 }
 
 .bigscreen-stage {

@@ -151,6 +151,19 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
   const [savedMatch, setSavedMatch] = useState<Match | null>(null)
   /** POST 成功但 reload 失败时的提示（不是错误，不引导重复提交）。 */
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null)
+  /**
+   * 409 冲突收口提示（Issue E）。
+   *
+   * 与 `refreshWarning` **刻意分开**：`refreshWarning` 的语义是"本次比分已经保存，
+   * 只是最新状态没刷出来"，而 409 的语义是"本次比分**没有**写入，服务端状态已被
+   * 其他终端改写"。两者混用会让裁判误以为自己的比分已经落库。
+   */
+  const [conflictNotice, setConflictNotice] = useState<string | null>(null)
+  /**
+   * 409 之后权威重载失败：此时页面既不能继续显示旧表单，也不能假装知道最新比分，
+   * 必须给出一个明确的「重新加载」入口（而不是无限 spinner 或静默）。
+   */
+  const [conflictReloadFailed, setConflictReloadFailed] = useState(false)
 
   /**
    * 防重复提交的第二道锁（第一道是按钮 `disabled`）。
@@ -255,6 +268,8 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
     setFailure(null)
     setSavedMatch(null)
     setRefreshWarning(null)
+    setConflictNotice(null)
+    setConflictReloadFailed(false)
     setFormError(null)
     setSubmitting(false)
     setMode('normal')
@@ -392,6 +407,12 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
   // 否则会出现「显示 A/X，提交目标已是 B/Y」这种数据完整性风险。
   const runSubmit = async (payload: ScorePayload) => {
     if (!match || inFlight.current) return
+    /*
+     * 409 之后权威重载失败时，页面上的比赛状态已经**确认过期**，而最新结果又没拿到。
+     * 这时允许再次提交，就等于拿一份已知过期的状态去写第二次比分 —— 直接锁死，
+     * 只留"重新加载"这一条出路。
+     */
+    if (conflictReloadFailed) return
     const generation = ++loadGenerationRef.current
     const isStale = () => generation !== loadGenerationRef.current
 
@@ -424,6 +445,43 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
         inFlight.current = false
         return
       }
+      /*
+       * 409：服务端权威状态已经变化（同一场比赛已被另一个终端先录完）。
+       *
+       * Issue E —— 现场表现是"失败端停在旧录分界面，看起来像卡住"。这里必须：
+       *
+       * 1. **不**自动再 POST 一次比分（那等于把 409 重试成第二次写入）；
+       * 2. 立即重新读取服务端权威 Match（复用既有的 `load()` + generation 守卫）；
+       * 3. 若服务端已是 FINISHED → 页面自然切到真实 finished UI，并展示对方保存的比分；
+       * 4. 无论重载成败，都要释放 `inFlight` / `submitting`，绝不停在"提交中"。
+       *
+       * 网络失败（非 ApiError，或 status === 0 的超时）继续走下面的原有分支：
+       * 它**不是**冲突，不应触发权威重载，也不应改写成冲突文案。
+       */
+      if (error instanceof ApiError && error.status === 409) {
+        setFormError(null)
+        setConfirmAbnormal(false)
+        // 保留服务端原文案（真实语义），同时明确告诉裁判"已加载最新结果"。
+        setConflictNotice(`该场比赛已由其他终端更新，已加载最新结果。（服务端：${error.message}）`)
+        setConflictReloadFailed(false)
+        try {
+          const result = await load()
+          applyLoadResult(generation, result)
+        } catch {
+          // 冲突确实发生了，但最新结果拿不到：如实告知 + 给出重新加载入口，
+          // 不猜测比分，也不让页面停在"提交中"。
+          if (!isStale()) {
+            setConflictNotice(null)
+            setConflictReloadFailed(true)
+          }
+        } finally {
+          if (!isStale()) {
+            inFlight.current = false
+            setSubmitting(false)
+          }
+        }
+        return
+      }
       // 到这里才是“本次比分没有保存”。网络失败同样不清空用户输入。
       if (error instanceof ApiError) {
         setFormError(describeSubmitError(error))
@@ -444,7 +502,7 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
       // 刷新失败**不等于**提交失败：比分已经保存，必须如实告诉裁判，并且不要引导他再点一次。
       // 同样只在仍是当前 generation 时提示 —— 旧比赛的刷新失败不得出现在新比赛页面上。
       if (!isStale()) {
-        setRefreshWarning('比分已保存，但最新状态刷新失败，请重新加载页面确认。')
+        setRefreshWarning('最新状态刷新失败，请重新加载页面确认。')
       }
     } finally {
       if (!isStale()) {
@@ -540,9 +598,14 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
     const effectiveGames = effectiveMatch.games ?? []
     return (
       <div className="ms-shell">
+        {/* Issue E：冲突后已成功读到权威状态，页面显示的比分来自服务端而不是本地提交参数。 */}
+        {conflictNotice && (
+          <p className="ms-refresh-warning" role="status">
+            {conflictNotice}
+          </p>
+        )}
         {restoredFromSaved && refreshWarning && (
           <p className="ms-refresh-warning" role="status">
-            <strong>比分已保存</strong>
             {refreshWarning}
             <span>请重新加载页面，核对最新比赛状态；不要重复提交。</span>
           </p>
@@ -575,6 +638,29 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
 
   return (
     <div className="ms-shell">
+      {/*
+        Issue E：409 冲突后权威重载失败。必须退出"提交中"并给出明确的重新加载入口，
+        不能让裁判停在无限 loading 或看起来没反应的旧表单上。
+      */}
+      {conflictReloadFailed && (
+        <p className="ms-refresh-warning" role="alert">
+          <strong>比赛状态已经变化</strong>
+          比赛状态已经变化，但暂时无法取得最新结果，请重新加载。
+          <button
+            className="ms-btn ms-btn--ghost ms-reload"
+            onClick={() => window.location.reload()}
+            type="button"
+          >
+            重新加载
+          </button>
+        </p>
+      )}
+      {/* 冲突后重载成功、但服务端本场仍未结束（例如 409 来自"选手正在参加其他比赛"）：保留表单，数据已是权威值。 */}
+      {conflictNotice && (
+        <p className="ms-refresh-warning" role="status">
+          {conflictNotice}
+        </p>
+      )}
       {/*
         兜底分支：POST 成功、reload 失败，但服务端返回的结果不是 FINISHED
         （正常情况下不会走到）。仍然明确告知比分已保存，并阻止重复提交。
@@ -934,7 +1020,7 @@ export default function MobileScorePage({ tid, matchId }: { tid: number; matchId
         {normalHint && mode === 'normal' && <p className="ms-submit-hint">{normalHint}</p>}
         <button
           className="ms-submit"
-          disabled={submitting || !sidesReady}
+          disabled={submitting || !sidesReady || conflictReloadFailed}
           onClick={mode === 'normal' ? submitNormal : submitAbnormal}
           type="button"
         >
