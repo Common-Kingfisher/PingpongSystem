@@ -23,11 +23,15 @@ from ..models import (
 from . import knockout as knockout_service
 from . import matches as matches_service
 from . import rankings as rankings_service
+from .transaction import TransactionBusyError, write_transaction
 
 
 GROUP_KNOCKOUT = "GROUP_KNOCKOUT"
 ROUND_ROBIN = "ROUND_ROBIN"
 SINGLE_ELIMINATION = "SINGLE_ELIMINATION"
+
+#: 生成入口拿不到写锁时的用户可读文案（映射为业务 409）。
+GENERATION_BUSY_MESSAGE = "比赛生成正在由其他请求处理，请稍后重试"
 
 
 @dataclass(frozen=True)
@@ -317,6 +321,96 @@ def resolve_format_handler(format_code: str) -> FormatHandler:
         return _HANDLERS[format_code]
     except KeyError as exc:
         raise UnsupportedFormatError(format_code) from exc
+
+
+# --------------------------------------------------------------- 生成事务边界（Finding #1）
+
+def generate_matches_for_tournament(
+    conn: sqlite3.Connection, tournament_id: int
+) -> MatchGenerationResult:
+    """canonical：按赛事**已持久化**的 `format_code` 生成该赛制首阶段比赛。
+
+    支持 `GROUP_KNOCKOUT` / `ROUND_ROBIN` / `SINGLE_ELIMINATION`；
+    `format_code = null` → 422；未知 code → 422；TEAM → 由 Handler 拒绝。
+    """
+    return _run_generation(conn, tournament_id, pinned_format=None)
+
+
+def generate_group_matches_compat(
+    conn: sqlite3.Connection, tournament_id: int
+) -> MatchGenerationResult:
+    """legacy：为 `GROUP_KNOCKOUT` / 历史未登记赛制的赛事生成小组赛。
+
+    不是新的正式赛制入口。与 canonical 入口**共用同一个事务边界**，因此
+    "canonical 生成" 与 "legacy 生成" 并发时也只会有一个成功。
+
+    - `GROUP_KNOCKOUT` / `format_code = null` → 保持历史语义可用；
+    - `ROUND_ROBIN` / `SINGLE_ELIMINATION` → 409（不借端点名生成小组赛）；
+    - `TEAM` → 由 Handler 拒绝。
+    """
+    return _run_generation(conn, tournament_id, pinned_format=GROUP_KNOCKOUT)
+
+
+def _run_generation(
+    conn: sqlite3.Connection, tournament_id: int, *, pinned_format: str | None
+) -> MatchGenerationResult:
+    """**唯一的生成事务边界**。
+
+    ```text
+    BEGIN IMMEDIATE
+      → 重新读取 tournament（锁内，不是调用方传入的快照）
+      → 读取已提交的 format_code
+      → resolve Handler
+      → Handler 的全部 invariant 检查
+      → 检查已有 Match
+      → 生成完整赛程 / bracket
+      → 更新 tournament stage
+    COMMIT
+    ```
+
+    关键点：
+
+    1. **赛事与 `format_code` 必须在取得写锁之后重新读取**。若由 router 先读
+       `format_code` 再进来取锁，就仍然存在"读到旧赛制 → 等锁 → 用旧 Handler 生成"的竞态；
+    2. Handler 内部的生成实现（`matches._generate_*_locked` /
+       `knockout._generate_single_elimination_locked`）**不 commit**；它们各自
+       通过 `write_transaction` 的 SAVEPOINT 分支参与本事务，因此写锁不会被提前释放；
+    3. 整个 invariant → generation → stage update 全程只有一个真正的事务边界，
+       中途异常由 `write_transaction` 整体回滚，不会留下半套赛程或半推进的阶段。
+    """
+    try:
+        with write_transaction(conn, busy_message=GENERATION_BUSY_MESSAGE):
+            tournament = repo.get_tournament(conn, tournament_id)
+            if tournament is None:
+                raise FormatHandlerError("赛事不存在", 404)
+            persisted = tournament.get("format_code")
+            if pinned_format is None:
+                if not persisted:
+                    raise FormatHandlerError(
+                        "赛事尚未设置赛制，不能生成比赛；请先在赛事设置中保存赛制", 422
+                    )
+                target_format = persisted
+            elif persisted in (ROUND_ROBIN, SINGLE_ELIMINATION):
+                raise FormatHandlerError(
+                    f"当前赛事赛制为 {persisted}，不能使用小组赛生成接口"
+                )
+            else:
+                target_format = pinned_format
+            # 未知 / 非法 code → UnsupportedFormatError(422)，绝不静默回退。
+            handler = resolve_format_handler(target_format)
+            return handler.generate_matches(conn, tournament_id)
+    except TransactionBusyError as exc:
+        # 另一个请求正持有写锁：映射为业务 409，而不是把 SQLite 错误漏成 500。
+        raise FormatHandlerError(str(exc), exc.code) from None
+    except (
+        matches_service.TournamentStageError,
+        matches_service.NoGroupsError,
+        matches_service.MatchesExistError,
+    ) as exc:
+        # 既有生成守卫（阶段不允许 / 未分组 / 已生成）在 router 层本来就是 409；
+        # 统一在本函数归一成带 code 的业务错误，使服务层调用方（router、并发测试）
+        # 看到的契约一致，而不是靠各自记得去映射。HTTP 文案与状态码完全不变。
+        raise FormatHandlerError(str(exc)) from exc
 
 
 def sync_round_robin_stage(conn: sqlite3.Connection, tournament_id: int) -> None:
