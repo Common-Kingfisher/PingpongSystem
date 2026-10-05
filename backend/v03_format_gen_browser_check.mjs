@@ -23,17 +23,68 @@
  *
  * ```powershell
  * cd backend
- * node .\v03_format_gen_browser_check.mjs [base] [username] [password]
+ * $env:PINGPONG_E2E_ADMIN_PASSWORD = "<至少 12 位>"
+ * node .\v03_format_gen_fixture.py  # 先用 python 跑 fixture，得到 FIXTURE_JSON
+ * node .\v03_format_gen_browser_check.mjs [base] [fixtureJsonPath]
  * ```
  *
  * 前置：后端已在 `base` 上运行，Chrome 以 `--remote-debugging-port=9333` 启动。
+ *
+ * ## fixture 隔离（PR #68 review Finding #4）
+ *
+ * 旧版本用 `findTournamentId(token, 'V0.3 验收 A ·')` **扫描赛事列表**找"第一个名字
+ * 包含标记的赛事"，重复执行 fixture 后会命中上一轮的旧赛事；口令也硬编码成默认值。
+ * 现在：tid / 账号名一律从 fixture 输出的 JSON 直接读取（不再扫描列表），
+ * 口令只从 `PINGPONG_E2E_ADMIN_PASSWORD` 读取，缺失即 fail closed。
  */
 
+import { readFileSync } from 'node:fs'
 import { connectCdp, loginInBrowser, preparePage, sleep } from './day3_cdp_auth.mjs'
 
 const BASE = (process.argv[2] ?? 'http://127.0.0.1:8099').replace(/\/$/, '')
-const USERNAME = process.argv[3] ?? 'v03-format-admin'
-const PASSWORD = process.argv[4] ?? 'v03-format-pass1'
+
+/** 与 fixture 一致的 fail-closed 口令读取：没有任何默认值。 */
+const PASSWORD_ENV = 'PINGPONG_E2E_ADMIN_PASSWORD'
+const PASSWORD = process.env[PASSWORD_ENV] ?? ''
+const MIN_PASSWORD_LENGTH = 12
+if (PASSWORD.length < MIN_PASSWORD_LENGTH) {
+  console.error(
+    `RESULT=ERROR :: 必须设置环境变量 ${PASSWORD_ENV}（至少 ${MIN_PASSWORD_LENGTH} 位）；本脚本不再提供默认口令。`,
+  )
+  process.exit(2)
+}
+
+const FIXTURE_PATH = process.argv[3] ?? process.env.PINGPONG_E2E_FIXTURE ?? ''
+if (!FIXTURE_PATH) {
+  console.error(
+    'RESULT=ERROR :: 必须提供 fixture JSON 路径（argv[3] 或 PINGPONG_E2E_FIXTURE）；'
+      + '请先运行 v03_format_gen_fixture.py 并使用它输出的 FIXTURE_JSON。',
+  )
+  process.exit(2)
+}
+
+let fixture
+try {
+  fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'))
+} catch (error) {
+  console.error(`RESULT=ERROR :: 无法读取 fixture JSON (${FIXTURE_PATH}) :: ${error.message}`)
+  process.exit(2)
+}
+if (fixture.base_url && fixture.base_url.replace(/\/$/, '') !== BASE) {
+  console.error(
+    `RESULT=ERROR :: fixture 属于 ${fixture.base_url}，与本次 base ${BASE} 不一致，拒绝复用。`,
+  )
+  process.exit(2)
+}
+
+const USERNAME = fixture.username
+const TIDS = fixture.tids ?? {}
+for (const key of ['ROUND_ROBIN', 'SINGLE_ELIMINATION', 'GROUP_KNOCKOUT']) {
+  if (typeof TIDS[key] !== 'number') {
+    console.error(`RESULT=ERROR :: fixture 缺少 tid：${key}`)
+    process.exit(2)
+  }
+}
 
 const failures = []
 const notes = []
@@ -113,12 +164,53 @@ async function clickFirstSeedCandidate(cdp) {
   if (!result.ok) throw new Error('未找到种子候选按钮（＋）')
 }
 
-async function findTournamentId(token, marker) {
-  const listed = await apiGet(token, '/api/tournaments')
-  if (listed.status !== 200) throw new Error(`读取赛事列表失败: ${listed.status}`)
-  const match = listed.body.find((t) => typeof t.name === 'string' && t.name.includes(marker))
-  if (!match) throw new Error(`未找到名称包含「${marker}」的赛事，请先运行 v03_format_gen_fixture.py`)
-  return match.id
+// `findTournamentId`（按赛事名扫描列表）已按 Finding #4 移除：
+// 重复执行 fixture 会创建同名赛事，扫描"第一个名字匹配"可能命中上一轮的旧赛事。
+// 现在 tid 一律来自 fixture 输出的 JSON。
+
+/**
+ * 浏览器 console / 未捕获异常收集器（PR #68 review 第 11 节：console error = 0）。
+ *
+ * 用 `Page.addScriptToEvaluateOnNewDocument` 在**每个新文档**上安装，因此
+ * 反复导航也不会丢事件。`api.ts` 会为失败请求打印 `[api] ... -> 4xx` 诊断（既定行为），
+ * 这类诊断与"页面真的报错"必须分开统计，不能混成一个数字。
+ */
+async function installErrorCollector(cdp) {
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `(() => {
+      window.__ppConsoleErrors = [];
+      const record = (kind, text) => {
+        try { window.__ppConsoleErrors.push(kind + '\\u0000' + String(text)); } catch (e) { /* noop */ }
+      };
+      const originalError = console.error.bind(console);
+      console.error = (...args) => { record('console.error', args.map(String).join(' ')); originalError(...args); };
+      window.addEventListener('error', (event) => record('uncaught', (event && event.message) || 'unknown error'));
+      window.addEventListener('unhandledrejection', (event) => {
+        const reason = event && event.reason;
+        record('unhandledrejection', (reason && (reason.message || reason)) || 'unknown rejection');
+      });
+    })()`,
+  })
+}
+
+/** 返回累计的 console / 未捕获异常，并按 `[api]` 诊断拆分。 */
+async function readCollectedErrors(cdp) {
+  const raw = await cdp.evaluate('JSON.stringify(window.__ppConsoleErrors || [])')
+  const entries = JSON.parse(raw ?? '[]').map((line) => {
+    const [kind, ...rest] = String(line).split('\u0000')
+    return { kind, text: rest.join('\u0000') }
+  })
+  return {
+    all: entries,
+    pageErrors: entries.filter((entry) => entry.kind !== 'console.error'),
+    apiDiagnostics: entries.filter(
+      (entry) => entry.kind === 'console.error' && entry.text.startsWith('[api]'),
+    ),
+    // console.error 里除 api.ts 既定诊断之外的条目，才是真正的"页面报错"。
+    unexpectedConsoleErrors: entries.filter(
+      (entry) => entry.kind === 'console.error' && !entry.text.startsWith('[api]'),
+    ),
+  }
 }
 
 // ------------------------------------------------------------------ 主流程
@@ -128,15 +220,17 @@ async function main() {
 
   const cdp = await connectCdp()
   await preparePage(cdp, { width: 1440, height: 950 })
+  await installErrorCollector(cdp)
   const login = await loginInBrowser(cdp, BASE, USERNAME, PASSWORD)
   check(
     '浏览器建立真实会话',
     login.status === 200 && login.sessionCookiePresent && login.sessionHttpOnly,
     `status=${login.status} cookie=${login.sessionCookiePresent} httpOnly=${login.sessionHttpOnly}`,
   )
+  note('fixture run_id', String(fixture.run_id ?? '(未提供)'))
 
   // ---------------------------------------------------------------- A. ROUND_ROBIN
-  const rr = await findTournamentId(token, 'V0.3 验收 A ·')
+  const rr = TIDS.ROUND_ROBIN
   note('ROUND_ROBIN tid', String(rr))
 
   const rrSettings = await goto(cdp, `/settings?tid=${rr}`, '当前适用规则')
@@ -168,7 +262,7 @@ async function main() {
   check('A8 Console 无淘汰赛/等待接口/小组出线文案', rrForbidden.length === 0, `命中=${JSON.stringify(rrForbidden)}`)
 
   // ---------------------------------------------------------------- B. SINGLE_ELIMINATION
-  const se = await findTournamentId(token, 'V0.3 验收 B ·')
+  const se = TIDS.SINGLE_ELIMINATION
   note('SINGLE_ELIMINATION tid', String(se))
 
   const seSettings = await goto(cdp, `/settings?tid=${se}`, '当前适用规则')
@@ -210,7 +304,7 @@ async function main() {
   check('B11 Console 不伪造小组阶段', !/小组赛尚未|小组出线/.test(seConsole), '无小组赛语义')
 
   // ---------------------------------------------------------------- C. GROUP_KNOCKOUT
-  const gk = await findTournamentId(token, 'V0.3 验收 C ·')
+  const gk = TIDS.GROUP_KNOCKOUT
   note('GROUP_KNOCKOUT tid', String(gk))
 
   const gkSettings = await goto(cdp, `/settings?tid=${gk}`, '当前适用规则')
@@ -238,6 +332,23 @@ async function main() {
 
   const gkConsole = await goto(cdp, `/console?tid=${gk}`, '待进行比赛')
   check('C5 Console 存在 WAITING 比赛', gkConsole.includes('待进行比赛（12）'), '待进行比赛（12）')
+
+  // ---------------------------------------------------------------- 浏览器自身健康度
+  const collected = await readCollectedErrors(cdp)
+  check(
+    'D1 浏览器无未捕获异常 / 未处理的 Promise 拒绝',
+    collected.pageErrors.length === 0,
+    collected.pageErrors.length
+      ? JSON.stringify(collected.pageErrors.slice(0, 5))
+      : '0 条',
+  )
+  check(
+    'D2 除 api.ts 既定失败请求诊断外，console.error = 0',
+    collected.unexpectedConsoleErrors.length === 0,
+    collected.unexpectedConsoleErrors.length
+      ? JSON.stringify(collected.unexpectedConsoleErrors.slice(0, 5))
+      : `0 条（另有 ${collected.apiDiagnostics.length} 条 [api] 请求诊断，属既定行为）`,
+  )
 
   await cdp.close()
 
