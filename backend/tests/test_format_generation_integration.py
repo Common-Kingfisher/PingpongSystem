@@ -36,6 +36,7 @@ def _create_tournament(
     tables=6,
     groups=4,
     qualify=2,
+    rule_config=None,
 ):
     body = {
         "name": name,
@@ -49,6 +50,10 @@ def _create_tournament(
     # 刻意只在显式给出时才写 format_code：null 的历史赛事不能被默认成 GROUP_KNOCKOUT。
     if format_code is not None:
         body["format_code"] = format_code
+    # SINGLE_ELIMINATION 的 draw_seed 决定 BYE 落在哪个半区；不给出时
+    # `domain.draw` 用 `random.Random(None)`（系统熵）抽签，断言不能依赖具体落位。
+    if rule_config is not None:
+        body["rule_config"] = rule_config
     response = client.post("/api/tournaments", json=body)
     assert response.status_code == 201, response.text
     tid = response.json()["id"]
@@ -193,10 +198,18 @@ def test_single_elimination_six_entries_produce_bye_walkovers(client):
 
     router 不参与 BYE 计算；这里断言的是既有 `_persist_main_bracket` 行为
     在经过新入口后仍然生效。
+
+    ⚠️ 回归修复（PR #68 review 返工时发现）：`draw_seed = None` 时
+    `domain.draw.build_single_elimination` 使用 `random.Random(None)`（系统熵）抽签，
+    BYE 落在哪个半区是随机的 —— 旧断言"第二轮两场都恰好只填一侧"只在两个 BYE
+    分处不同半区时成立（实测 pristine HEAD 20 次里失败 4 次）。
+    现在固定 `draw_seed` 保证可复现，并把断言改为与抽签落位无关的**真实不变量**：
+    每个轮空胜者必须真的被传播进第二轮签位。
     """
     tid = _create_tournament(
         client, "单淘汰-六人", format_code="SINGLE_ELIMINATION",
         players=6, tables=3, groups=1,
+        rule_config={"draw_seed": 20261005},
     )
     _confirm_roster(client, tid)
 
@@ -214,12 +227,17 @@ def test_single_elimination_six_entries_produce_bye_walkovers(client):
     # 空签的一侧确实为空，另一侧是真实参赛位。
     assert all((m["entry_a_id"] is None) != (m["entry_b_id"] is None) for m in walkovers)
 
-    # 胜者传播：两个第二轮签位各收到一个来自轮空的参赛位。
+    # 胜者传播（与抽签落位无关）：两个轮空胜者必须都进入第二轮签位。
     round_two = [m for m in knockout if m["round"] == 2]
     assert len(round_two) == 2
-    assert all(
-        (m["entry_a_id"] is None) != (m["entry_b_id"] is None) for m in round_two
-    )
+    bye_winners = {m["winner_entry_id"] for m in walkovers}
+    assert None not in bye_winners and len(bye_winners) == 2
+    round_two_slots = {
+        entry_id
+        for m in round_two
+        for entry_id in (m["entry_a_id"], m["entry_b_id"])
+    }
+    assert bye_winners <= round_two_slots
 
 
 # ----------------------------------------------------------------- E. GROUP_KNOCKOUT 走统一入口
