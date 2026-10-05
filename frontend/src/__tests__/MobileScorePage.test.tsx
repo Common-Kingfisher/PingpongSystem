@@ -664,8 +664,45 @@ describe('错误处理与防重复提交', () => {
     expect(screen.queryByText('比分已保存')).toBeNull()
   })
 
-  it('后端 409 冲突错误展示为“当前比赛状态不允许这样操作”', async () => {
+  /*
+   * Issue E（现场问题 5）：两个裁判同时录同一场，失败端不得停在旧表单上。
+   *
+   * 旧行为是 409 只 `setFormError`，页面继续显示可提交的旧表单 —— 裁判以为"卡住了"。
+   * 新行为：409 立即重新读取服务端权威 Match，并明确告知"已加载最新结果"，
+   * **绝不**自动再 POST 一次比分。
+   */
+  it('后端 409 不落在旧表单上：立即重读权威状态并给出冲突提示，且不重发比分', async () => {
     server.onScorePost = () => jsonResponse({ detail: '只有进行中或待安排的比赛可以录入比分' }, 409)
+
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
+    await waitForReady()
+    const matchesGetsBefore = requestedPaths.filter((path) => /\/matches$/.test(path)).length
+
+    fillBigScore('2', '0')
+    await submitNormalScore()
+
+    // 1) 冲突被显式告知（不静默吞掉），并说明已加载最新结果
+    await screen.findByText(/该场比赛已由其他终端更新，已加载最新结果/)
+    // 2) 服务端真实语义仍在，没有被改写成前端推测的文案
+    expect(document.body.textContent).toContain('只有进行中或待安排的比赛可以录入比分')
+    // 3) 权威重读确实发生了（提交之后又拉了一次比赛列表）
+    expect(requestedPaths.filter((path) => /\/matches$/.test(path)).length)
+      .toBeGreaterThan(matchesGetsBefore)
+    // 4) 绝不把 409 重试成第二次比分写入
+    expect(scorePosts).toHaveLength(1)
+    // 5) 必须退出"提交中"，不能无限 loading / 卡死
+    expect(screen.queryByRole('button', { name: '提交中…' })).toBeNull()
+    // 6) 不得用 red error 层把冲突说成"本次提交失败"
+    expect(document.querySelector('.ms-error')).toBeNull()
+  })
+
+  it('409 后服务端已 FINISHED：失败端自动进入最新完成态，展示对方的比分，不再显示可提交旧表单', async () => {
+    server.onScorePost = () => {
+      // 关键：另一个终端已经把这场录完 —— 服务端权威事实变成 FINISHED(2:1)。
+      // 本机这一次 POST 因此被拒（409），且**没有**写入任何比分。
+      server.matches = [finishedMatch({ player_a_score: 2, player_b_score: 1 })]
+      return jsonResponse({ detail: '只有进行中或待安排的比赛可以录入比分' }, 409)
+    }
 
     renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
     await waitForReady()
@@ -673,7 +710,48 @@ describe('错误处理与防重复提交', () => {
     fillBigScore('2', '0')
     await submitNormalScore()
 
-    await screen.findByText('当前比赛状态不允许这样操作：只有进行中或待安排的比赛可以录入比分')
+    // 自动切到真实完成态（不是本地假装成功，而是重读服务端 Match 的结果）
+    await screen.findByText('比赛已结束')
+    expect(document.body.textContent).toContain('该场比赛已由其他终端更新，已加载最新结果')
+    // 展示的是服务端权威比分（2:1），不是本次被拒绝的 2:0
+    expect(screen.getByText('2 : 1')).toBeTruthy()
+    // 旧的可提交表单必须消失
+    expect(screen.queryByRole('button', { name: '确认提交大比分' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '提交中…' })).toBeNull()
+    // 被拒绝的这一次没有写入，也没有被自动重发
+    expect(scorePosts).toHaveLength(1)
+  })
+
+  it('409 之后权威重载失败：退出提交中、如实说明拿不到结果、给出重新加载入口并锁死重复提交', async () => {
+    let conflictHappened = false
+    server.onScorePost = () => {
+      conflictHappened = true
+      return jsonResponse({ detail: '只有进行中或待安排的比赛可以录入比分' }, 409)
+    }
+    // 冲突发生后的每一次重载都网络失败（冲突之前页面首次加载正常）
+    server.onMatchesGet = () => {
+      if (conflictHappened) throw new TypeError('Failed to fetch')
+      return jsonResponse(server.matches)
+    }
+
+    renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
+    await waitForReady()
+
+    fillBigScore('2', '0')
+    await submitNormalScore()
+
+    await screen.findByText(/比赛状态已经变化，但暂时无法取得最新结果，请重新加载/)
+    // 明确的重新加载入口，而不是无限 spinner
+    expect(screen.getByRole('button', { name: '重新加载' })).toBeTruthy()
+    // 不得假装知道最新比分，也不得假装本次已保存
+    expect(document.body.textContent).not.toContain('比分已保存')
+    expect(screen.queryByRole('button', { name: '提交中…' })).toBeNull()
+    // 状态已确认过期且最新结果未知 → 提交必须被锁死，不能拿旧状态写第二次
+    const submit = screen.getByRole('button', { name: '确认提交大比分' }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
+    fireEvent.click(submit)
+    await flushMicrotasks()
+    expect(scorePosts).toHaveLength(1)
   })
 
   it('结构化 401（AUTH_REQUIRED）展示服务端真实 message，而不是“请求失败 (401)”', async () => {
@@ -818,8 +896,9 @@ describe('错误处理与防重复提交', () => {
     expect(scorePosts).toHaveLength(1)
   })
 
-  it('被拒绝后可以修改并重新提交（锁被正确释放）', async () => {
-    // 服务端拒绝：比赛已被别处改分（409 冲突）
+  it('409 被拒绝后锁被正确释放：重载成功且本场仍未结束时，可以再次正常提交', async () => {
+    // 服务端拒绝：比赛已被别处改分（409 冲突），但服务端本场**仍未结束**
+    // （例如 409 来自"选手正在参加其他比赛"）——此时保留表单是对的。
     server.onScorePost = () => jsonResponse({ detail: '只有进行中或待安排的比赛可以录入比分' }, 409)
 
     renderAt(`/admin/t/${URL_TID}/matches/${MATCH_ID}/score`)
@@ -827,9 +906,11 @@ describe('错误处理与防重复提交', () => {
 
     fillBigScore('2', '1')
     await submitNormalScore()
-    await screen.findByText('当前比赛状态不允许这样操作：只有进行中或待安排的比赛可以录入比分')
+    // 冲突被明确告知，且页面没有被"卡死"在提交中
+    await screen.findByText(/该场比赛已由其他终端更新，已加载最新结果/)
+    expect(screen.queryByRole('button', { name: '提交中…' })).toBeNull()
 
-    // 解除拒绝后必须还能再提交一次（说明提交锁已释放，页面没有被“卡死”）
+    // 解除拒绝后必须还能再提交一次（说明提交锁已释放）
     server.onScorePost = undefined
     await submitNormalScore()
 

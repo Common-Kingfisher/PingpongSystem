@@ -117,3 +117,106 @@ describe('控制台错误分层', () => {
     })
   })
 })
+
+// ------------------------------------------------------------------ 现场问题 C：修改理由最低字数
+
+describe('现场问题 C：修改理由必须让用户看懂“至少 2 个字”', () => {
+  function renderScoreSheet({
+    detailMode = false,
+    auditMode = 'revise' as 'record' | 'revise',
+    overrides = {} as Partial<Match>,
+  } = {}) {
+    return render(<ScoreSheet
+      match={{ ...finishedMatch, ...overrides }}
+      sideA="甲方"
+      sideB="乙方"
+      gamesToWin={3}
+      pointsToWin={11}
+      busy={false}
+      detailMode={detailMode}
+      auditMode={auditMode}
+      onClose={() => undefined}
+      onSave={vi.fn(async (_payload: ScorePayload) => undefined)}
+    />)
+  }
+
+  const reasonField = () => screen.getByLabelText('修改理由') as HTMLTextAreaElement
+
+  it('还没输入时规则就可见；label 的可访问名仍是“修改理由”本身', () => {
+    renderScoreSheet()
+    expect(reasonField()).toBeTruthy()
+    expect(screen.getByText(/修改已结束比赛时必填，至少 2 个字/)).toBeTruthy()
+  })
+
+  it('只填 1 个字时给出字段级错误，明确说出为什么不能提交，而不是只有一个灰按钮', () => {
+    renderScoreSheet()
+    fireEvent.change(reasonField(), { target: { value: '错' } })
+
+    expect(screen.getByText(/修改理由不足 2 个字/)).toBeTruthy()
+    expect(screen.getByText(/「检查并修改」暂时不能提交/)).toBeTruthy()
+    expect(screen.getByText(/当前已填 1 个字/)).toBeTruthy()
+    expect(reasonField().getAttribute('aria-invalid')).toBe('true')
+    expect((screen.getByRole('button', { name: '检查并修改' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('只填空格时同样按“0 个字”处理，不会静默地卡住按钮', () => {
+    renderScoreSheet()
+    fireEvent.change(reasonField(), { target: { value: '   ' } })
+
+    expect(screen.getByText(/当前已填 0 个字/)).toBeTruthy()
+    expect(screen.getByText(/修改理由不足 2 个字/)).toBeTruthy()
+  })
+
+  it('补足 2 个字后错误消失，可以进入修改确认流程', async () => {
+    const onSave = vi.fn(async (_payload: ScorePayload) => undefined)
+    render(<ScoreSheet
+      match={finishedMatch}
+      sideA="甲方"
+      sideB="乙方"
+      gamesToWin={3}
+      pointsToWin={11}
+      busy={false}
+      auditMode="revise"
+      onClose={() => undefined}
+      onSave={onSave}
+    />)
+
+    fireEvent.change(reasonField(), { target: { value: '错' } })
+    expect(screen.getByText(/修改理由不足 2 个字/)).toBeTruthy()
+
+    fireEvent.change(reasonField(), { target: { value: '记错' } })
+    expect(screen.queryByText(/修改理由不足 2 个字/)).toBeNull()
+    expect(screen.getByText(/当前已填 2 个字/)).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('操作人'), { target: { value: '主裁甲' } })
+    fireEvent.change(screen.getByLabelText('甲方大比分'), { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: '检查并修改' }))
+    expect(screen.getByRole('alertdialog', { name: '确认修改已结束比赛' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '确认并保存修改' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    expect(onSave.mock.calls[0][0]).toMatchObject({ change_reason: '记错' })
+  })
+
+  it('textarea 带 minLength=2（但不依赖原生校验：按钮 disabled 时也看得懂原因）', () => {
+    renderScoreSheet()
+    expect(reasonField().getAttribute('minlength')).toBe('2')
+    expect(reasonField().getAttribute('aria-describedby')).toBe('score-change-reason-rule')
+  })
+
+  it('补录 / 修改逐局小分（detailMode）走同一条 revise 规则，提示与按钮名一致', () => {
+    renderScoreSheet({ detailMode: true })
+    expect(screen.getByText(/修改已结束比赛时必填，至少 2 个字/)).toBeTruthy()
+
+    fireEvent.change(reasonField(), { target: { value: '漏' } })
+    expect(screen.getByText(/「保存小分」暂时不能提交/)).toBeTruthy()
+  })
+
+  it('首次录分（auditMode=record）不出现修改理由字段，现场录分规则不变', () => {
+    renderScoreSheet({
+      auditMode: 'record',
+      overrides: { status: 'PLAYING', player_a_score: null, player_b_score: null },
+    })
+    expect(screen.queryByLabelText('修改理由')).toBeNull()
+    expect(document.body.textContent).not.toContain('至少 2 个字')
+  })
+})

@@ -713,3 +713,185 @@ describe('C-D5 Console：无赛事与空态', () => {
     expect(screen.getByText('暂无已结束的比赛。')).toBeTruthy()
   })
 })
+
+// ------------------------------------------------------------------ 现场问题 A：指定球台
+
+/** 指定球台面板里真正的候选项（排除关闭按钮）。 */
+function tableChoices(dialog: HTMLElement): HTMLElement[] {
+  return within(dialog)
+    .getAllByRole('button')
+    .filter((item) => item.className.includes('console-table-item'))
+}
+
+describe('现场问题 A：待进行比赛 → 指定球台（Match → Table）', () => {
+  it('后端可安排的 WAITING 比赛才有入口；候选只列后端 FREE 球台，提交走既有 assign-table', async () => {
+    const assignTable = vi.spyOn(api, 'assignTable').mockResolvedValue(match(21, { status: 'PLAYING', table_id: 2 }))
+    installMocks(dashboard({
+      // 1 号台占用、2/3 号台空闲：候选必须只有 2、3
+      tables: [table(1, 'OCCUPIED'), table(2, 'FREE', 21), table(3, 'FREE', 22)],
+      next_playable: [match(21), match(22)],
+    }))
+    renderConsole()
+    await act(async () => {})
+
+    // 两场都在后端 next_playable 内 → 两个入口
+    const entries = screen.getAllByRole('button', { name: '指定球台' })
+    expect(entries).toHaveLength(2)
+
+    fireEvent.click(entries[0])
+    const dialog = screen.getByRole('dialog', { name: '为比赛 #21 指定球台' })
+    const choices = tableChoices(dialog)
+    expect(choices.map((item) => item.textContent)).toEqual([
+      expect.stringContaining('2号台'),
+      expect.stringContaining('3号台'),
+    ])
+    // 占用中的球台不得出现在候选里（候选只来自后端 FREE 状态）
+    expect(within(dialog).queryByText('1号台')).toBeNull()
+
+    fireEvent.click(choices[0])
+    await act(async () => {})
+
+    // 与「空闲球台 → 安排比赛」共用同一个后端调用
+    expect(assignTable).toHaveBeenCalledWith(21, 2)
+    expect(assignTable).toHaveBeenCalledTimes(1)
+  })
+
+  it('不在后端 next_playable 内的 WAITING 比赛不给入口（前端不自己挑比赛）', async () => {
+    installMocks(dashboard({
+      // 22 是 WAITING，但后端认为它此刻不可安排（例如选手正在其他场次）
+      tables: [table(2, 'FREE', 21)],
+      next_playable: [match(21)],
+    }), { waiting: [match(21), match(22)] })
+    renderConsole()
+    await act(async () => {})
+
+    expect(screen.getAllByRole('button', { name: '指定球台' })).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '指定球台' }))
+    const dialog = screen.getByRole('dialog', { name: '为比赛 #21 指定球台' })
+    expect(tableChoices(dialog)).toHaveLength(1)
+    // 不可安排的 #22 不得出现在候选列
+    expect(within(dialog).queryByText(/红方22/)).toBeNull()
+  })
+
+  it('没有空闲球台时入口仍可见，但面板说明原因而不是给一个空列表', async () => {
+    installMocks(dashboard({
+      tables: [table(1, 'OCCUPIED')],
+      next_playable: [match(21)],
+    }))
+    renderConsole()
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: '指定球台' }))
+    const dialog = screen.getByRole('dialog', { name: '为比赛 #21 指定球台' })
+    expect(tableChoices(dialog)).toHaveLength(0)
+    expect(within(dialog).getByText(/当前没有空闲球台/)).toBeTruthy()
+  })
+
+  it('球台被其他终端抢占（409）：刷新现场状态并提示重新选择，且不重发第二次安排', async () => {
+    const assignTable = vi.spyOn(api, 'assignTable').mockRejectedValue(new ApiError(409, '球台已被占用'))
+    const { getDashboard } = installMocks(dashboard({
+      tables: [table(2, 'FREE', 21)],
+      next_playable: [match(21)],
+    }))
+    renderConsole()
+    await act(async () => {})
+    const callsBefore = getDashboard.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: '指定球台' }))
+    fireEvent.click(tableChoices(screen.getByRole('dialog', { name: '为比赛 #21 指定球台' }))[0])
+    await act(async () => {})
+
+    // 相信后端 409：只发一次，绝不自动重试第二次安排
+    expect(assignTable).toHaveBeenCalledTimes(1)
+    // 已按最新现场状态重新拉取 dashboard
+    expect(getDashboard.mock.calls.length).toBeGreaterThan(callsBefore)
+    // 明确要求重新选择，并保留服务端真实语义
+    expect(screen.getByText('球台状态已变化')).toBeTruthy()
+    expect(screen.getByText(/球台状态已变化，请重新选择/)).toBeTruthy()
+    expect(screen.getByText(/球台已被占用/)).toBeTruthy()
+    // 旧候选面板必须关闭（不能拿过期列表继续点）
+    expect(screen.queryByRole('dialog', { name: '为比赛 #21 指定球台' })).toBeNull()
+  })
+
+  it('自动安排下一批比赛仍可用（两个手动入口不替代批量排台）', async () => {
+    const scheduleNext = vi.spyOn(api, 'scheduleNext').mockResolvedValue({
+      assigned: 1,
+      assignments: [{ match_id: 21, table_id: 2 }],
+    })
+    installMocks(dashboard({
+      tables: [table(2, 'FREE', 21)],
+      next_playable: [match(21)],
+    }))
+    renderConsole()
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: '自动安排下一批比赛' }))
+    await act(async () => {})
+    expect(scheduleNext).toHaveBeenCalledWith(TID)
+  })
+})
+
+// ------------------------------------------------------------------ 现场问题 E：Console 冲突收口
+
+describe('现场问题 E：Console 录分冲突（同一场被其他终端改写）', () => {
+  /** 打开「比赛现场」里第一张占用球台的录分弹窗，并填好可提交的内容。 */
+  async function openRecordSheet() {
+    fireEvent.click(screen.getByRole('button', { name: '录入大比分' }))
+    fireEvent.change(screen.getByLabelText('操作人'), { target: { value: '主裁甲' } })
+    fireEvent.change(screen.getByLabelText('红方1大比分'), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText('蓝方1大比分'), { target: { value: '0' } })
+  }
+
+  it('首次录分 409：关闭旧弹窗、拉取权威现场状态并说明“已加载最新现场状态”，不重发比分', async () => {
+    const recordScore = vi.spyOn(api, 'recordScore')
+      .mockRejectedValue(new ApiError(409, '只有进行中或待安排的比赛可以录入比分'))
+    const { getDashboard } = installMocks(dashboard({ tables: [table(1, 'OCCUPIED')] }))
+    renderConsole()
+    await act(async () => {})
+    const callsBefore = getDashboard.mock.calls.length
+
+    await openRecordSheet()
+    expect(screen.getByRole('dialog', { name: '录入比赛大比分' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认大比分' }))
+    await act(async () => {})
+
+    // 1) 本次比分只提交一次，绝不自动重发
+    expect(recordScore).toHaveBeenCalledTimes(1)
+    // 2) 旧的旧状态弹窗必须关闭（不能停在旧比赛状态上）
+    expect(screen.queryByRole('dialog', { name: '录入比赛大比分' })).toBeNull()
+    // 3) 已重新拉取权威现场状态
+    expect(getDashboard.mock.calls.length).toBeGreaterThan(callsBefore)
+    // 4) 明确告知裁判发生了什么
+    expect(screen.getByText('比赛状态已由其他终端更新')).toBeTruthy()
+    expect(screen.getByText(/该场比赛状态已由其他终端更新，已加载最新现场状态/)).toBeTruthy()
+    // 5) 不得用旧弹窗内的“提交失败”错误层冒充结果
+    expect(document.querySelector('.score-submit-error')).toBeNull()
+  })
+
+  it('revise 的 409 保留服务端真实语义：不假设“别人已经录分”，弹窗留在原地展示服务端文案', async () => {
+    const reviseScore = vi.spyOn(api, 'reviseScore')
+      .mockRejectedValue(new ApiError(409, '该结果已经影响后续比赛。请先处理后续比赛后再修改本场结果。'))
+    installMocks(dashboard(), {
+      finished: [match(88, {
+        status: 'FINISHED', stage: 'GROUP', player_a_score: 3, player_b_score: 1, result_type: 'NORMAL',
+      })],
+    })
+    renderConsole()
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: '修改大比分' }))
+    fireEvent.change(screen.getByLabelText('操作人'), { target: { value: '主裁甲' } })
+    fireEvent.change(screen.getByLabelText('修改理由'), { target: { value: '现场复核记录有误' } })
+    fireEvent.click(screen.getByRole('button', { name: '检查并修改' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认并保存修改' }))
+    await act(async () => {})
+
+    expect(reviseScore).toHaveBeenCalledTimes(1)
+    // 改分弹窗保留，服务端原文案可见 —— 不被改写成"已被其他终端录分"
+    expect(screen.getByRole('dialog', { name: '录入比赛大比分' })).toBeTruthy()
+    expect(screen.getByText(/该结果已经影响后续比赛/)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('该场比赛状态已由其他终端更新')
+  })
+})

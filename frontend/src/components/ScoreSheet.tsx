@@ -4,6 +4,15 @@ import TouchScoreInput from './field/TouchScoreInput'
 
 type GameDraft = { a: string; b: string }
 
+/**
+ * 修改理由的最小字数（Issue C）。
+ *
+ * 这个数字**不是**前端新造的规则：后端 `services/scores.py::_require_revision_audit`
+ * 就是 `len(change_reason.strip()) < 2 → 422「修改比分必须填写至少 2 个字的修改理由」`。
+ * 前端只是把这条既有规则**说出来**，让裁判看懂按钮为什么不能点。
+ */
+const REVISION_REASON_MIN_LENGTH = 2
+
 export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWin, busy, detailMode = false, auditMode = 'record', submitError = null, onClose, onSave }: {
   match: Match | KnockoutMatch
   sideA: string
@@ -42,7 +51,22 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
     { kind: 'normal' } | { kind: 'exception'; forfeitId: number | null; sideLabel: string } | null
   >(null)
   const auditReady = operatorName.trim().length > 0
-    && (auditMode === 'record' || changeReason.trim().length >= 2)
+    && (auditMode === 'record' || changeReason.trim().length >= REVISION_REASON_MIN_LENGTH)
+
+  /**
+   * 修改理由的现场提示状态（Issue C）。
+   *
+   * 旧实现只有一个 placeholder「必填：说明为什么修改本场结果」，而 `auditReady`
+   * 要求 `>= 2` 个字：裁判填了 1 个字后按钮直接变灰，页面却不说为什么 —— 现场只能
+   * 反复重试。这里把"已填几个字 / 还差多少"显式化，`reasonTooShort` 额外给出
+   * 可被屏幕阅读器读到的字段级错误（覆盖 trim 后为 0 或 1 的两种情形）。
+   *
+   * ⚠️ 这只是**提示**：真正的裁决仍然后端（422 文案是权威），这里不改变任何比分规则。
+   */
+  const reasonRawLength = changeReason.length
+  const reasonLength = changeReason.trim().length
+  const reasonTooShort = reasonRawLength > 0 && reasonLength < REVISION_REASON_MIN_LENGTH
+  const submitLabel = detailMode ? '保存小分' : auditMode === 'revise' ? '检查并修改' : '确认大比分'
 
   const auditPayload = () => {
     const operator = operatorName.trim()
@@ -244,9 +268,35 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
           <label>操作人
             <input value={operatorName} onChange={(event) => setOperatorName(event.target.value)} placeholder="必填：主裁判姓名" />
           </label>
-          {auditMode === 'revise' && <label>修改理由
-            <textarea value={changeReason} onChange={(event) => setChangeReason(event.target.value)} placeholder="必填：说明为什么修改本场结果" />
-          </label>}
+          {auditMode === 'revise' && (
+            <>
+              {/*
+                Issue C：把「至少 2 个字」这条既有后端规则明确写出来。
+                提示文本刻意放在 <label> **外面** —— label 的可访问名必须保持"修改理由"本身，
+                否则 `getByLabelText('修改理由')`（以及屏幕阅读器）会读到一整串说明。
+              */}
+              <label>修改理由
+                <textarea
+                  value={changeReason}
+                  onChange={(event) => setChangeReason(event.target.value)}
+                  minLength={REVISION_REASON_MIN_LENGTH}
+                  aria-describedby="score-change-reason-rule"
+                  aria-invalid={reasonTooShort || undefined}
+                  placeholder="必填：说明为什么修改本场结果"
+                />
+              </label>
+              <small id="score-change-reason-rule" className="score-field-hint">
+                修改已结束比赛时必填，至少 {REVISION_REASON_MIN_LENGTH} 个字
+                {reasonRawLength > 0 ? `（当前已填 ${reasonLength} 个字）` : ''}。
+              </small>
+              {reasonTooShort && (
+                <small className="score-field-error" role="alert">
+                  修改理由不足 {REVISION_REASON_MIN_LENGTH} 个字，「{submitLabel}」暂时不能提交；
+                  当前有效字数 {reasonLength} 个，请补足后再试。
+                </small>
+              )}
+            </>
+          )}
           <p>本次操作将保存修改前后比分、操作人和时间，记录不可覆盖。</p>
         </div>
         {revisionPending ? (
@@ -268,7 +318,7 @@ export default function ScoreSheet({ match, sideA, sideB, gamesToWin, pointsToWi
             <button className="btn" onClick={onClose}>取消</button>
             {resultType === 'NORMAL' && (
               <button className="btn primary" onClick={requestNormalSave} disabled={(detailMode ? !canSubmitSupplement : !validBigScore) || busy || !auditReady}>
-                {detailMode ? '保存小分' : auditMode === 'revise' ? '检查并修改' : '确认大比分'}
+                {submitLabel}
               </button>
             )}
           </div>
