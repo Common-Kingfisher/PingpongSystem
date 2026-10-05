@@ -1,4 +1,21 @@
-"""比赛生成服务：小组循环赛生成。"""
+"""比赛生成服务：小组循环赛生成。
+
+## 事务边界（PR #68 review Finding #1）
+
+生成是典型的"读 → 判断 → 写"：读赛事与分组、判断阶段与是否已生成、再写入比赛并推进阶段。
+SQLite 下这**不是**原子操作（FastAPI 每个请求一条独立连接），因此两个并发请求可以同时
+通过校验并双写。本模块因此把所有生成实现拆成两层：
+
+```text
+_generate_*_locked()   只做 校验 → 生成 → 推进阶段；不 begin / 不 commit / 不 rollback
+generate_*()           自己拥有事务边界：write_transaction(BEGIN IMMEDIATE) 包住 locked 实现
+```
+
+**locked 实现绝不 `conn.commit()`**：一旦内层提前提交，外层写锁会在 invariant → generation
+→ stage update 走完之前被释放，修复即失效。统一入口
+（`formats.generate_matches_for_tournament`）已经持有写事务时，本模块的 public wrapper 走
+`write_transaction` 的 SAVEPOINT 分支，因此仍然不会提前提交。
+"""
 
 import random
 import sqlite3
@@ -7,6 +24,10 @@ from .. import repository as repo
 from ..domain import round_robin
 from ..models import EventType, MatchStage, MatchStatus, TournamentStage
 from . import scores as scores_service
+from .transaction import write_transaction
+
+#: 生成入口拿不到写锁时的用户可读文案（由调用方映射成业务 409）。
+GENERATION_BUSY_MESSAGE = "比赛生成正在由其他请求处理，请稍后重试"
 
 
 class TournamentNotFoundError(Exception):
@@ -25,13 +46,13 @@ class MatchesExistError(Exception):
     pass
 
 
-def generate_group_matches(
+def _generate_group_matches_locked(
     conn: sqlite3.Connection, tournament_id: int
 ) -> tuple[int, dict[str, int]]:
-    """为所有小组生成单循环比赛（同一事务），赛事进入 GROUP_STAGE。
+    """为所有小组生成单循环比赛（**不含事务边界**）。
 
-    返回 (总场数, {组名: 场数})。
-    守卫：赛事必须存在、处于 REGISTRATION 阶段、已分组、且尚未生成过小组赛。
+    调用方必须已经持有写事务。守卫：赛事必须存在、处于 REGISTRATION 阶段、
+    已分组、且尚未生成过小组赛。
     团体赛（TEAM）不走这条路径：一场对抗是 TeamTie + 多盘 TeamRubber，
     不能展开成"Entry vs Entry"的普通比赛（见 services/team_ties.py 的说明）。
     """
@@ -84,12 +105,25 @@ def generate_group_matches(
         total += len(schedule)
 
     repo.update_tournament_stage(conn, tournament_id, TournamentStage.GROUP_STAGE.value)
-    conn.commit()
     return total, per_group
 
 
-def generate_round_robin_matches(conn: sqlite3.Connection, tournament_id: int) -> int:
-    """为未分组的个人循环赛生成全部对阵，并复用既有 round_robin 算法。"""
+def generate_group_matches(
+    conn: sqlite3.Connection, tournament_id: int
+) -> tuple[int, dict[str, int]]:
+    """为所有小组生成单循环比赛（同一写事务），赛事进入 GROUP_STAGE。
+
+    返回 (总场数, {组名: 场数})。本函数自己拥有事务边界；并发生成时后来者会拿到
+    前一个请求**已提交**的状态，因此既有的"已生成，不能重复生成"守卫一定命中。
+    """
+    with write_transaction(conn, busy_message=GENERATION_BUSY_MESSAGE):
+        return _generate_group_matches_locked(conn, tournament_id)
+
+
+def _generate_round_robin_matches_locked(
+    conn: sqlite3.Connection, tournament_id: int
+) -> int:
+    """为未分组的个人循环赛生成全部对阵（**不含事务边界**）。"""
     tournament = repo.get_tournament(conn, tournament_id)
     if tournament is None:
         raise TournamentNotFoundError("赛事不存在")
@@ -116,8 +150,13 @@ def generate_round_robin_matches(conn: sqlite3.Connection, tournament_id: int) -
             entry_a_id=entry_a_id, entry_b_id=entry_b_id, bracket="GROUP",
         )
     repo.update_tournament_stage(conn, tournament_id, TournamentStage.GROUP_STAGE.value)
-    conn.commit()
     return len(schedule)
+
+
+def generate_round_robin_matches(conn: sqlite3.Connection, tournament_id: int) -> int:
+    """为未分组的个人循环赛生成全部对阵（同一写事务），并复用既有 round_robin 算法。"""
+    with write_transaction(conn, busy_message=GENERATION_BUSY_MESSAGE):
+        return _generate_round_robin_matches_locked(conn, tournament_id)
 
 
 def demo_score_options(games_to_win: int) -> list[tuple[int, int]]:

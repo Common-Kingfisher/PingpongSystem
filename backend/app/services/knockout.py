@@ -17,6 +17,7 @@ from ..models import (
     TournamentStage,
 )
 from . import rankings as rankings_service
+from .transaction import TransactionBusyError, write_transaction
 
 
 class KnockoutError(Exception):
@@ -222,14 +223,35 @@ def generate_knockout(conn: sqlite3.Connection, tournament_id: int) -> dict:
     return get_knockout(conn, tournament_id)
 
 
-def generate_single_elimination(
+def _generate_single_elimination_locked(
     conn: sqlite3.Connection, tournament_id: int, draw_seed: int | None = None
 ) -> dict:
+    """从 ACTIVE Entry 直接建主签（**不含事务边界**）。
+
+    调用方必须已经持有写事务：本函数只做 校验 → 建签 → 推进阶段，
+    不 begin / 不 commit / 不 rollback。
+    """
     prepared = prepare_single_elimination_generation(conn, tournament_id, draw_seed)
     _persist_main_bracket(conn, tournament_id, prepared["rounds_spec"])
     repo.update_tournament_stage(conn, tournament_id, TournamentStage.KNOCKOUT.value)
-    conn.commit()
     return get_knockout(conn, tournament_id)
+
+
+def generate_single_elimination(
+    conn: sqlite3.Connection, tournament_id: int, draw_seed: int | None = None
+) -> dict:
+    """单淘汰首阶段签表生成（自己拥有事务边界）。
+
+    并发生成时写锁保证"读-判断-写"整体串行化：后来者拿到锁后读到的是前一请求
+    已提交的签表，因此既有的"签表已生成"守卫一定命中，不会产生第二套 bracket。
+    """
+    try:
+        with write_transaction(
+            conn, busy_message="淘汰签生成正在由其他请求处理，请稍后重试"
+        ):
+            return _generate_single_elimination_locked(conn, tournament_id, draw_seed)
+    except TransactionBusyError as exc:
+        raise KnockoutError(str(exc), exc.code) from None
 
 
 def _has_real_result(conn: sqlite3.Connection, match: dict) -> bool:
