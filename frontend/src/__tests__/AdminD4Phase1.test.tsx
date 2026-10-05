@@ -49,21 +49,25 @@ describe('抽签与编排按 format 呈现真实能力', () => {
     expect(screen.queryByText(/正式重新抽签已记录/)).toBeNull()
   })
 
-  it('ROUND_ROBIN 不展示种子或小组晋级，并明确等待正式接口', async () => {
+  it('ROUND_ROBIN 不展示种子或小组晋级，并使用真实的循环赛生成入口', async () => {
     prepareDraw('ROUND_ROBIN')
     expect(await screen.findByRole('heading', { name: '单循环编排' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: '种子设置' })).toBeNull()
     expect(screen.queryByText('每组晋级')).toBeNull()
-    expect(screen.getByText(/等待单循环生成接口/)).toBeTruthy()
+    // 本轮已接通正式生成入口，"等待接口"文案必须消失。
+    expect(screen.queryByText(/等待单循环生成接口/)).toBeNull()
+    expect(screen.getByRole('button', { name: '生成循环赛' })).toBeTruthy()
   })
 
-  it('SINGLE_ELIMINATION 允许保存种子，但不伪造淘汰签生成成功', async () => {
+  it('SINGLE_ELIMINATION 允许保存种子，并使用赛制生成入口而不是小组链', async () => {
     prepareDraw('SINGLE_ELIMINATION')
     expect(await screen.findByRole('heading', { name: '种子设置' })).toBeTruthy()
-    expect(screen.getByText(/正式单淘汰种子落位规则等待后端契约/)).toBeTruthy()
+    expect(screen.getByText(/参与落位/)).toBeTruthy()
     expect(screen.queryByText(/ITTF.*已落地/)).toBeNull()
-    expect(screen.getByText('等待 · 淘汰签生成')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /生成淘汰/ })).toBeNull()
+    expect(screen.queryByText(/首轮淘汰签仍等待/)).toBeNull()
+    expect(screen.getByRole('button', { name: '生成单淘汰签' })).toBeTruthy()
+    // 单淘汰不是小组淘汰的第二阶段：不得出现小组链入口。
+    expect(screen.queryByRole('button', { name: /生成淘汰赛|生成分组|生成小组比赛/ })).toBeNull()
   })
 
   it('DOUBLES 不展示会写错实体的 Player 种子编辑器', async () => {

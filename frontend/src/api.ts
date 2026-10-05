@@ -501,6 +501,15 @@ export const api = {
       body: JSON.stringify({ qualify_count: qualifyCount } satisfies Schemas['GroupQualifyUpdate']),
     }),
 
+  // 按赛事当前保存的 format_code 生成首阶段比赛（ROUND_ROBIN / SINGLE_ELIMINATION /
+  // GROUP_KNOCKOUT 的唯一正式生成入口）。赛制解析、阶段守卫与合法性全部由后端
+  // FormatHandler 判定，前端不重复实现，也不按端点名假定赛制。
+  generateMatches: (tournamentId: number) =>
+    request<GenerateMatchesResult>(`/api/tournaments/${tournamentId}/generate-matches`, {
+      method: 'POST',
+    }),
+  // legacy 小组赛生成入口：保留给既有 GROUP_KNOCKOUT 主链；对 ROUND_ROBIN /
+  // SINGLE_ELIMINATION 赛事后端会明确拒绝，前端不使用它代替 generateMatches。
   generateGroupMatches: (tournamentId: number) =>
     request<GenerateMatchesResult>(`/api/tournaments/${tournamentId}/generate-group-matches`, {
       method: 'POST',

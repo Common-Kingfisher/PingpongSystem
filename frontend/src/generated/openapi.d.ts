@@ -626,6 +626,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tournaments/{tournament_id}/generate-matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Matches
+         * @description 按赛事当前保存的 ``format_code`` 生成该赛制的首阶段比赛。
+         *
+         *     这是三赛制唯一的正式生成入口。赛事与 ``format_code`` 都在取得写锁之后重新读取，
+         *     因此不会用过期 Handler 生成。
+         */
+        post: operations["generate_matches_api_tournaments__tournament_id__generate_matches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tournaments/{tournament_id}/generate-group-matches": {
         parameters: {
             query?: never;
@@ -635,7 +658,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Generate Group Matches */
+        /**
+         * Generate Group Matches
+         * @deprecated
+         * @description legacy 小组赛生成入口（已弃用，仍保留）：兼容旧前端主链、测试与 D6D harness。
+         *
+         *     与统一入口共用同一个事务安全生成边界；`ROUND_ROBIN` / `SINGLE_ELIMINATION`
+         *     赛事必须改用 `/generate-matches`。
+         */
         post: operations["generate_group_matches_api_tournaments__tournament_id__generate_group_matches_post"];
         delete?: never;
         options?: never;
@@ -5127,6 +5157,51 @@ export interface operations {
             };
         };
     };
+    generate_matches_api_tournaments__tournament_id__generate_matches_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tournament_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerateMatchesResult"];
+                };
+            };
+            /** @description 赛事不存在。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 业务冲突（`detail` 为可读字符串）：阶段不允许生成、尚未分组、比赛/签表已生成，或写锁正被另一个生成请求持有（并发生成已被串行化，只会有一个成功）。 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 422 有两种来源：① 路径/请求体校验失败（FastAPI 默认形态）；② 业务拒绝 —— 赛事尚未设置 `format_code`（**不**默认成 `GROUP_KNOCKOUT`），或 `format_code` 不在已支持赛制内。两者都用既有的 `detail` 字符串形态。 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     generate_group_matches_api_tournaments__tournament_id__generate_group_matches_post: {
         parameters: {
             query?: never;
@@ -5146,6 +5221,20 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["GenerateMatchesResult"];
                 };
+            };
+            /** @description 赛事不存在。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 业务冲突（`detail` 为可读字符串）：阶段不允许生成、尚未分组、小组比赛已生成、写锁被占用，或赛事已声明 `ROUND_ROBIN` / `SINGLE_ELIMINATION` —— 这两种赛制必须使用 `/generate-matches`，不能借小组赛端点生成。 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

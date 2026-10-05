@@ -56,6 +56,11 @@ export default function DrawPage() {
   const autoGroup = () => void run(async () => { setGroups(await api.autoGroup(tid)); setNotice('分组已由后端生成并保存。') }, '生成分组失败')
   const clearGroups = () => void run(async () => { await api.ungroup(tid); setNotice('现有分组已清空。') }, '清空分组失败')
   const generateGroupMatches = () => void run(async () => { const result = await api.generateGroupMatches(tid); setNotice(`已生成 ${result.matches_generated} 场小组比赛。`) }, '生成小组比赛失败')
+  // ROUND_ROBIN / SINGLE_ELIMINATION 走按 format_code 分发的正式生成入口。
+  // 参赛位数量、重复生成与阶段合法性一律由后端 Handler 判定，前端不自行推导，
+  // 也不调用小组赛或淘汰赛的旧端点来代替。
+  const generateRoundRobin = () => void run(async () => { const result = await api.generateMatches(tid); setNotice(`已生成 ${result.matches_generated} 场循环赛。`) }, '生成循环赛失败')
+  const generateSingleElimination = () => void run(async () => { const result = await api.generateMatches(tid); setNotice(`已生成 ${result.matches_generated} 场淘汰赛。`) }, '生成单淘汰签失败')
   const confirmWithdrawal = () => {
     if (!withdrawTarget) return
     void run(async () => {
@@ -67,10 +72,16 @@ export default function DrawPage() {
   const format = tournament?.format_code ?? null
   const locked = tournament?.stage !== 'REGISTRATION'
   const seedEditorSupported = tournament?.event_type === 'SINGLES'
+  // 只做明显的 UX guard：阶段与名单确认状态。真正是否可生成仍以后端为准。
+  const generationReadiness = locked
+    ? { className: 'readiness', label: '当前阶段不可生成' }
+    : tournament?.roster_confirmed
+      ? { className: 'readiness ready', label: '准备完成' }
+      : { className: 'readiness', label: '等待名单确认' }
   const renderUnsupportedSeeds = () => <section className="card contract-waiting"><span className="eyebrow">SEED CONTRACT</span><h3>当前项目暂不提供种子编辑</h3><p>双打编排使用组合 Entry 的种子，而现有接口只编辑 Player 种子且仅同步单打 Entry。等待组合级种子契约后再开放，避免出现“保存成功但抽签不生效”。</p></section>
   const renderSeedPanel = () => <section className="card draw-section">
     <div className="section-heading"><div><span className="eyebrow">SEED ORDER</span><h3>种子设置</h3></div><span>{seeds.length} 名</span></div>
-    <p className="muted">只提供主裁判人工顺序编辑。运动员积分仅作参考；合法数量与保存规则以服务端返回为准。{format === 'SINGLE_ELIMINATION' && ' 当前种子名单可设置；正式单淘汰种子落位规则等待后端契约。'}</p>
+    <p className="muted">只提供主裁判人工顺序编辑。运动员积分仅作参考；合法数量与保存规则以服务端返回为准。{format === 'SINGLE_ELIMINATION' && ' 当前种子名单可设置，并作为单淘汰签的种子顺序参与落位。'}</p>
     <div className="seed-workbench">
       <div><h4>当前种子顺序</h4>{seeds.length === 0 ? <p className="empty-invite">尚未设置种子。</p> : <ol className="seed-order">{seeds.map((player, index) => <li key={player.id}><span className="seed-index">{index + 1}</span><strong>{player.name}</strong><small>{player.college || '单位未填写'} · 积分 {player.rating_points}</small><div><button className="btn small" disabled={busy || locked || index === 0} onClick={() => moveSeed(index, -1)}>↑</button><button className="btn small" disabled={busy || locked || index === seeds.length - 1} onClick={() => moveSeed(index, 1)}>↓</button><button className="btn small danger" disabled={busy || locked} onClick={() => removeSeed(player)}>移除</button></div></li>)}</ol>}</div>
       <div><h4>候选运动员</h4><div className="seed-candidates">{candidates.map((player) => <button type="button" key={player.id} disabled={busy || locked} onClick={() => addSeed(player)}><strong>{player.name}</strong><span>{player.college || '单位未填写'} · {player.rating_points}</span><b>＋</b></button>)}</div></div>
@@ -90,11 +101,16 @@ export default function DrawPage() {
     {!format && <section className="card contract-waiting"><span className="eyebrow">FORMAT REQUIRED</span><h3>请先保存赛事赛制</h3><p>历史赛事允许赛制为空。本页面不会默认成“小组赛 + 淘汰赛”。</p><Link className="btn primary" to={`/settings?tid=${tid}`}>前往赛事设置</Link></section>}
 
     {format === 'ROUND_ROBIN' && <>
-      <section className="card draw-section"><span className="eyebrow">ROUND ROBIN</span><h3>单循环编排</h3><p>全部参赛位互相交手，不需要种子、分组出线或淘汰签。</p><div className="settings-priority">名单确认 <b>›</b> 生成循环对阵 <b>›</b> 排台比赛 <b>›</b> 最终排名</div></section>
-      <section className="card contract-waiting"><h3>等待单循环生成接口</h3><p>当前后端没有按 <code>ROUND_ROBIN</code> 赛制生成对阵的正式接口，因此此处只展示规则与准备状态，不会调用旧的小组赛生成接口。</p></section>
+      <section className="card draw-section"><span className="eyebrow">ROUND ROBIN</span><h3>单循环编排</h3><p>全部正式参赛位互相交手。无需分组，也没有淘汰阶段。</p><div className="settings-priority">名单确认 <b>›</b> 生成循环对阵 <b>›</b> 排台比赛 <b>›</b> 最终排名</div></section>
+      <section className="card draw-section">
+        <div className="section-heading"><div><span className="eyebrow">ROUND ROBIN SCHEDULE</span><h3>生成循环赛</h3></div><span className={generationReadiness.className}>{generationReadiness.label}</span></div>
+        <p>由后端按赛事当前保存的赛制生成全部循环对阵；参赛位数量、重复生成与阶段合法性均以服务端判定为准。</p>
+        <button className="btn primary" disabled={busy || locked || !tournament?.roster_confirmed} onClick={generateRoundRobin}>生成循环赛</button>
+        {locked ? <p className="status-warn">当前阶段不允许再次生成比赛。</p> : !tournament?.roster_confirmed && <p className="status-warn">请先确认正式名单。</p>}
+      </section>
     </>}
 
-    {format === 'SINGLE_ELIMINATION' && <>{seedEditorSupported ? renderSeedPanel() : renderUnsupportedSeeds()}<section className="card draw-section"><span className="eyebrow">KNOCKOUT DRAW</span><h3>单败淘汰签</h3><p>{seedEditorSupported ? '单打种子顺序已可使用真实接口保存；' : '当前项目不提供种子编辑；'}首轮淘汰签仍等待当前赛制专用的生成接口。</p><div className="contract-status">{seedEditorSupported && <span className="ready">可用 · 单打种子保存</span>}<span>等待 · 淘汰签生成</span></div></section></>}
+    {format === 'SINGLE_ELIMINATION' && <>{seedEditorSupported ? renderSeedPanel() : renderUnsupportedSeeds()}<section className="card draw-section"><div className="section-heading"><div><span className="eyebrow">KNOCKOUT DRAW</span><h3>单败淘汰签</h3></div><span className={generationReadiness.className}>{generationReadiness.label}</span></div><p>{seedEditorSupported ? '单打种子顺序已可使用真实接口保存；' : '当前项目不提供种子编辑；'}种子顺序与 <code>draw_seed</code> 由现有后端 Handler 使用，签位、轮空与胜者传播全部按服务端规则生成。</p><button className="btn primary" disabled={busy || locked || !tournament?.roster_confirmed} onClick={generateSingleElimination}>生成单淘汰签</button>{locked ? <p className="status-warn">当前阶段不允许再次生成比赛。</p> : !tournament?.roster_confirmed && <p className="status-warn">请先确认正式名单。</p>}</section></>}
 
     {format === 'GROUP_KNOCKOUT' && <>
       {seedEditorSupported ? renderSeedPanel() : renderUnsupportedSeeds()}

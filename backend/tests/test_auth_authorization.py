@@ -75,7 +75,10 @@ def _assert_not_found(response) -> None:
 
 def test_all_tournament_writes_require_login(client):
     operations = _management_write_operations()
-    assert len(operations) == 47
+    # 47 → 48：V0.3 三赛制生成链路新增 `POST /api/tournaments/{tid}/generate-matches`。
+    # 这个常量是"覆盖不许静默减少"的哨兵：新增赛事管理写入口时必须同步 +1，
+    # 下面的循环会把新入口一并按 401 AUTH_REQUIRED 验证。
+    assert len(operations) == 48
 
     client.headers.pop("Authorization")
     failures = []

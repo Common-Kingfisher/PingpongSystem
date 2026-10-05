@@ -2424,13 +2424,14 @@
         }
       }
     },
-    "/api/tournaments/{tournament_id}/generate-group-matches": {
+    "/api/tournaments/{tournament_id}/generate-matches": {
       "post": {
         "tags": [
           "matches"
         ],
-        "summary": "Generate Group Matches",
-        "operationId": "generate_group_matches_api_tournaments__tournament_id__generate_group_matches_post",
+        "summary": "Generate Matches",
+        "description": "按赛事当前保存的 ``format_code`` 生成该赛制的首阶段比赛。\n\n这是三赛制唯一的正式生成入口。赛事与 ``format_code`` 都在取得写锁之后重新读取，\n因此不会用过期 Handler 生成。",
+        "operationId": "generate_matches_api_tournaments__tournament_id__generate_matches_post",
         "parameters": [
           {
             "name": "tournament_id",
@@ -2452,6 +2453,62 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "赛事不存在。"
+          },
+          "409": {
+            "description": "业务冲突（`detail` 为可读字符串）：阶段不允许生成、尚未分组、比赛/签表已生成，或写锁正被另一个生成请求持有（并发生成已被串行化，只会有一个成功）。"
+          },
+          "422": {
+            "description": "422 有两种来源：① 路径/请求体校验失败（FastAPI 默认形态）；② 业务拒绝 —— 赛事尚未设置 `format_code`（**不**默认成 `GROUP_KNOCKOUT`），或 `format_code` 不在已支持赛制内。两者都用既有的 `detail` 字符串形态。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tournaments/{tournament_id}/generate-group-matches": {
+      "post": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "Generate Group Matches",
+        "description": "legacy 小组赛生成入口（已弃用，仍保留）：兼容旧前端主链、测试与 D6D harness。\n\n与统一入口共用同一个事务安全生成边界；`ROUND_ROBIN` / `SINGLE_ELIMINATION`\n赛事必须改用 `/generate-matches`。",
+        "operationId": "generate_group_matches_api_tournaments__tournament_id__generate_group_matches_post",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "tournament_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tournament Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateMatchesResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "赛事不存在。"
+          },
+          "409": {
+            "description": "业务冲突（`detail` 为可读字符串）：阶段不允许生成、尚未分组、小组比赛已生成、写锁被占用，或赛事已声明 `ROUND_ROBIN` / `SINGLE_ELIMINATION` —— 这两种赛制必须使用 `/generate-matches`，不能借小组赛端点生成。"
           },
           "422": {
             "description": "Validation Error",
